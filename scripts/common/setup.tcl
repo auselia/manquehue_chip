@@ -12,13 +12,13 @@ set DESIGN_NAME         $TOP_MODULE
 set DESIGN_LIBRARY      "design.dlib"
 
 set CLOCK_PORT_NAME     "clk_i" 
-set CLOCK_PERIOD        50.0
+set CLOCK_PERIOD        55.0
 
 # -----------------------------------------------------------------------------
 # 2. PDK & Technology Paths
 # -----------------------------------------------------------------------------
 # Hardcoded path to Synopsys technology data for GF180MCU
-set TECHLIB_DATA_DIR    "/home1/usuario21/gf180/pdk_synopsys"
+set TECHLIB_DATA_DIR    "/home/navillegas/pdk_synopsys"
 
 set STDCELL_TRACK_SIZE  7
 set TECHNOLOGY          "gf180mcu"

@@ -39,6 +39,8 @@
 //   - `filter_empty_o`:  Filter is empty.
 //   - `filter_error_o`:  One of the internal counters or buckets overflowed.
 
+`include "common_cells/assertions.svh"
+
 /// This is a counting bloom filter
 module cb_filter #(
   parameter int unsigned KHashes     =  32'd3,  // Number of hash functions
@@ -228,21 +230,17 @@ module hash_block #(
   // output assignment
   always_comb begin : proc_hash_or
     indicator_o = '0;
-    for (int unsigned i = 0; i < (2**HashWidth); i++) begin
-      for (int unsigned j = 0; j < NoHashes; j++) begin
-        indicator_o[i] = indicator_o[i] | hashes[j][i];
-      end
+    for (int unsigned j = 0; j < NoHashes; j++) begin
+      indicator_o = indicator_o | hashes[j];
     end
   end
 
 `ifndef COMMON_CELLS_ASSERTS_OFF
   // assertions
-  `ifndef SYNTHESIS
   initial begin
-    hash_conf: assume (InpWidth > HashWidth) else
-      $fatal(1, "%m:\nA Hash Function reduces the width of the input>\nInpWidth: %s\nOUT_WIDTH: %s",
-          InpWidth, HashWidth);
+    `ASSUME_I(hash_conf, InpWidth > HashWidth,
+      $sformatf("%m:\nA Hash Function reduces the width of the input>\nInpWidth: %s\nOUT_WIDTH: %s",
+          InpWidth, HashWidth))
   end
-  `endif
 `endif
 endmodule

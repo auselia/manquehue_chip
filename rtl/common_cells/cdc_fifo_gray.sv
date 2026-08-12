@@ -96,6 +96,7 @@
 /// ```
 
 `include "common_cells/registers.svh"
+`include "common_cells/assertions.svh"
 
 (* no_ungroup *)
 (* no_boundary_optimization *)
@@ -157,11 +158,9 @@ module cdc_fifo_gray #(
   );
 
   // Check the invariants.
-  `ifndef SYNTHESIS
   `ifndef COMMON_CELLS_ASSERTS_OFF
-  initial assert(LOG_DEPTH > 0);
-  initial assert(SYNC_STAGES >= 2);
-  `endif
+  `ASSERT_INIT(log_depth_0, LOG_DEPTH > 0)
+  `ASSERT_INIT(sync_stages_gt_2, SYNC_STAGES >= 2)
   `endif
 
 endmodule
@@ -188,15 +187,17 @@ module cdc_fifo_gray_src #(
   localparam int PtrWidth = LOG_DEPTH+1;
   localparam logic [PtrWidth-1:0] PtrFull = (1 << LOG_DEPTH);
 
-  T [2**LOG_DEPTH-1:0] data_q;
+  T [2**LOG_DEPTH-1:0] data_q, data_d;
   logic [PtrWidth-1:0] wptr_q, wptr_d, wptr_bin, wptr_next, rptr, rptr_bin;
 
   // Data FIFO.
   assign async_data_o = data_q;
-  for (genvar i = 0; i < 2**LOG_DEPTH; i++) begin : gen_word
-    `FFLNR(data_q[i], src_data_i,
-          src_valid_i & src_ready_o & (wptr_bin[LOG_DEPTH-1:0] == i), src_clk_i)
+
+  always_comb begin
+    data_d                          = data_q;
+    data_d[wptr_bin[LOG_DEPTH-1:0]] = src_data_i;
   end
+  `FFLARN(data_q, data_d, src_valid_i & src_ready_o, '0, src_clk_i, src_rst_ni)
 
   // Read pointer.
   for (genvar i = 0; i < PtrWidth; i++) begin : gen_sync

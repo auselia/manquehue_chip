@@ -6,13 +6,13 @@
 // - Philippe Sauter <phsauter@iis.ee.ethz.ch>
 
 module croc_domain import croc_pkg::*; #(
-  parameter int unsigned GpioCount = 16
+  parameter int unsigned GpioCount = 16,
+  parameter int unsigned NumExternalIrqs = 4
 ) (
   input  logic      clk_i,
   input  logic      rst_ni,
   input  logic      ref_clk_i,
   input  logic      testmode_i,
-  input  logic      fetch_en_i,
 
   input  logic      jtag_tck_i,
   input  logic      jtag_tdi_i,
@@ -28,9 +28,9 @@ module croc_domain import croc_pkg::*; #(
   output logic [GpioCount-1:0] gpio_out_en_o, // Output enable signal; 0 -> input, 1 -> output
 
   output logic [GpioCount-1:0] gpio_in_sync_o, // synchronized GPIO inputs
-  
+
   /// User OBI interface
-  /// User as subordinate (from core to user module) 
+  /// User as subordinate (from core to user module)
   /// Address space 0x2000_0000 - 0x8000_0000
   output sbr_obi_req_t user_sbr_obi_req_o,
   input  sbr_obi_rsp_t user_sbr_obi_rsp_i,
@@ -46,22 +46,33 @@ module croc_domain import croc_pkg::*; #(
   // -----------------
   // Control Signals
   // -----------------
+  logic sram_impl; // soc_ctrl -> SRAM config signals
   logic debug_req;
   logic fetch_enable;
-  logic [31:0] boot_addr;
+
+  // Debug-module-triggered system reset (e.g. OpenOCD `reset halt`).
+  // Everything except the debug module and the JTAG DTM resets on this --
+  // per the RISC-V debug spec, ndmreset must not be able to reset the very
+  // module that controls it, or the debugger loses its own target.
+  logic ndmreset;
+  logic sys_rst_n;
+  assign sys_rst_n = rst_ni & ~ndmreset;
 
   // interrupts (irqs)
+  logic clint_timer_irq;
+  logic clint_software_irq;
+  logic obi_timer_irq;
   logic uart_irq;
   logic gpio_irq;
-  logic timer0_irq0;
-  logic timer0_irq1;
+  logic idma_irq;
   logic [15:0] interrupts;
   always_comb begin
     interrupts    = '0;
-    interrupts[0] = timer0_irq1;
+    interrupts[0] = obi_timer_irq;
     interrupts[1] = uart_irq;
     interrupts[2] = gpio_irq;
-    interrupts[3+:NumExternalIrqs] = interrupts_i;
+    interrupts[3] = idma_irq;
+    interrupts[4+:NumExternalIrqs] = interrupts_i;
   end
 
   // ----------------------------
@@ -89,12 +100,34 @@ module croc_domain import croc_pkg::*; #(
   assign dbg_req_obi_req.a.aid = '0;
   assign dbg_req_obi_req.a.a_optional = '0;
 
+  mgr_obi_req_t idma_obi_read_req;
+  mgr_obi_rsp_t idma_obi_read_rsp;
+  mgr_obi_req_t idma_obi_write_req;
+  mgr_obi_rsp_t idma_obi_write_rsp;
+
+  // xbar manager buses
+  mgr_obi_req_t [NumXbarManagers-1:0] xbar_mgr_obi_req;
+  mgr_obi_rsp_t [NumXbarManagers-1:0] xbar_mgr_obi_rsp;
+
+  // split out to individual manager buses
+  assign xbar_mgr_obi_req[0] = user_mgr_obi_req_i;
+  assign user_mgr_obi_rsp_o  = xbar_mgr_obi_rsp[0];
+
+  assign xbar_mgr_obi_req[1] = dbg_req_obi_req;
+  assign dbg_req_obi_rsp     = xbar_mgr_obi_rsp[1];
+
+  assign xbar_mgr_obi_req[2] = core_data_obi_req;
+  assign core_data_obi_rsp   = xbar_mgr_obi_rsp[2];
+
+  assign xbar_mgr_obi_req[3] = core_instr_obi_req;
+  assign core_instr_obi_rsp  = xbar_mgr_obi_rsp[3];
+
   // ----------------------------------
   // Subordinate buses out of crossbar
   // ----------------------------------
   // Main xbar subordinate buses, must align with addr map indices!
-  sbr_obi_req_t [NumXbarSbr-1:0] all_sbr_obi_req;
-  sbr_obi_rsp_t [NumXbarSbr-1:0] all_sbr_obi_rsp;
+  sbr_obi_req_t [NumXbarSubordinates-1:0] all_sbr_obi_req;
+  sbr_obi_rsp_t [NumXbarSubordinates-1:0] all_sbr_obi_rsp;
 
   // user bus defined in module port
 
@@ -155,7 +188,19 @@ module croc_domain import croc_pkg::*; #(
   // Timer periph bus
   sbr_obi_req_t timer_obi_req;
   sbr_obi_rsp_t timer_obi_rsp;
-  
+
+  // iDMA periph bus
+  sbr_obi_req_t idma_obi_cfg_req;
+  sbr_obi_rsp_t idma_obi_cfg_rsp;
+
+  // CLINT bus
+  sbr_obi_req_t clint_obi_req;
+  sbr_obi_rsp_t clint_obi_rsp;
+
+  // Bootrom bus
+  sbr_obi_req_t bootrom_obi_req;
+  sbr_obi_rsp_t bootrom_obi_rsp;
+
   // Fanout to individual peripherals
   assign error_obi_req                     = all_periph_obi_req[PeriphError];
   assign all_periph_obi_rsp[PeriphError]   = error_obi_rsp;
@@ -169,6 +214,12 @@ module croc_domain import croc_pkg::*; #(
   assign all_periph_obi_rsp[PeriphGpio]    = gpio_obi_rsp;
   assign timer_obi_req                     = all_periph_obi_req[PeriphTimer];
   assign all_periph_obi_rsp[PeriphTimer]   = timer_obi_rsp;
+  assign idma_obi_cfg_req                  = all_periph_obi_req[PeriphiDMA];
+  assign all_periph_obi_rsp[PeriphiDMA]    = idma_obi_cfg_rsp;
+  assign clint_obi_req                     = all_periph_obi_req[PeriphClint];
+  assign all_periph_obi_rsp[PeriphClint]   = clint_obi_rsp;
+  assign bootrom_obi_req                   = all_periph_obi_req[PeriphBootrom];
+  assign all_periph_obi_rsp[PeriphBootrom] = bootrom_obi_rsp;
 
 
   // -----------------
@@ -177,37 +228,94 @@ module croc_domain import croc_pkg::*; #(
   core_wrap #(
   ) i_core_wrap (
     .clk_i,
-    .rst_ni,
-    .ref_clk_i,
-    .test_enable_i    ( testmode_i  ),
+    .rst_ni ( sys_rst_n ),
+    .test_enable_i  ( testmode_i  ),
 
-    .irqs_i           ( interrupts  ),
-    .timer0_irq_i     ( timer0_irq0 ),
+    .irqs_i         ( interrupts         ),
+    .timer_irq_i    ( clint_timer_irq    ),
+    .software_irq_i ( clint_software_irq ),
 
-    .boot_addr_i      ( boot_addr   ),
+    .boot_addr_i    ( BootromAddr ),
 
-    .instr_req_o      ( core_instr_obi_req.req     ),
-    .instr_gnt_i      ( core_instr_obi_rsp.gnt     ),
-    .instr_rvalid_i   ( core_instr_obi_rsp.rvalid  ),
-    .instr_addr_o     ( core_instr_obi_req.a.addr  ),
-    .instr_rdata_i    ( core_instr_obi_rsp.r.rdata ),
-    .instr_err_i      ( core_instr_obi_rsp.r.err   ),
+    .instr_req_o    ( core_instr_obi_req.req     ),
+    .instr_gnt_i    ( core_instr_obi_rsp.gnt     ),
+    .instr_rvalid_i ( core_instr_obi_rsp.rvalid  ),
+    .instr_addr_o   ( core_instr_obi_req.a.addr  ),
+    .instr_rdata_i  ( core_instr_obi_rsp.r.rdata ),
+    .instr_err_i    ( core_instr_obi_rsp.r.err   ),
 
-    .data_req_o       ( core_data_obi_req.req      ),
-    .data_gnt_i       ( core_data_obi_rsp.gnt      ),
-    .data_rvalid_i    ( core_data_obi_rsp.rvalid   ),
-    .data_we_o        ( core_data_obi_req.a.we     ),
-    .data_be_o        ( core_data_obi_req.a.be     ),
-    .data_addr_o      ( core_data_obi_req.a.addr   ),
-    .data_wdata_o     ( core_data_obi_req.a.wdata  ),
-    .data_rdata_i     ( core_data_obi_rsp.r.rdata  ),
-    .data_err_i       ( core_data_obi_rsp.r.err    ),
+    .data_req_o     ( core_data_obi_req.req      ),
+    .data_gnt_i     ( core_data_obi_rsp.gnt      ),
+    .data_rvalid_i  ( core_data_obi_rsp.rvalid   ),
+    .data_we_o      ( core_data_obi_req.a.we     ),
+    .data_be_o      ( core_data_obi_req.a.be     ),
+    .data_addr_o    ( core_data_obi_req.a.addr   ),
+    .data_wdata_o   ( core_data_obi_req.a.wdata  ),
+    .data_rdata_i   ( core_data_obi_rsp.r.rdata  ),
+    .data_err_i     ( core_data_obi_rsp.r.err    ),
 
-    .debug_req_i      ( debug_req    ),
-    .fetch_enable_i   ( fetch_enable ),
-
-    .core_busy_o     ( core_busy_o )
+    .debug_req_i    ( debug_req    ),
+    .fetch_enable_i ( fetch_enable ),
+    .core_busy_o    ( core_busy_o  )
   );
+
+  // -----------------
+  // iDMA
+  // -----------------
+  if (iDMAEnable) begin : gen_dma
+
+    // iDMA
+    croc_idma #(
+      .ObiMrgCfg        ( MgrObiCfg           ),
+      .ObiSbrCfg        ( SbrObiCfg           ),
+      .TFLenWidth       ( MgrObiCfg.AddrWidth ),
+      .obi_mrg_a_chan_t ( mgr_obi_a_chan_t    ),
+      .obi_mrg_r_chan_t ( mgr_obi_r_chan_t    ),
+      .obi_mrg_req_t    ( mgr_obi_req_t       ),
+      .obi_mrg_rsp_t    ( mgr_obi_rsp_t       ),
+      .obi_sbr_req_t    ( sbr_obi_req_t       ),
+      .obi_sbr_rsp_t    ( sbr_obi_rsp_t       )
+    ) i_croc_idma (
+      .clk_i,
+      .rst_ni ( sys_rst_n ),
+      .obi_cfg_req_i    ( idma_obi_cfg_req    ),
+      .obi_cfg_rsp_o    ( idma_obi_cfg_rsp    ),
+      .obi_read_req_o   ( idma_obi_read_req   ),
+      .obi_read_rsp_i   ( idma_obi_read_rsp   ),
+      .obi_write_req_o  ( idma_obi_write_req  ),
+      .obi_write_rsp_i  ( idma_obi_write_rsp  ),
+      .irq_o            ( idma_irq            ),
+      .busy_o           ()
+    );
+
+    // IDMA managers going into crossbar
+    assign xbar_mgr_obi_req[4] = idma_obi_write_req;
+    assign idma_obi_write_rsp  = xbar_mgr_obi_rsp[4];
+
+    assign xbar_mgr_obi_req[5] = idma_obi_read_req;
+    assign idma_obi_read_rsp   = xbar_mgr_obi_rsp[5];
+
+  end else begin : gen_no_dma
+
+    // tie-off unused signals
+    assign idma_irq = 1'b0;
+
+    // error for config
+    obi_err_sbr #(
+      .ObiCfg      ( SbrObiCfg     ),
+      .obi_req_t   ( sbr_obi_req_t ),
+      .obi_rsp_t   ( sbr_obi_rsp_t ),
+      .NumMaxTrans ( 1             ),
+      .RspData     ( 32'hBADCAB1E  )
+    ) i_obi_err_sbr_idma_cfg (
+      .clk_i,
+      .rst_ni ( sys_rst_n ),
+      .testmode_i,
+      .obi_req_i  ( idma_obi_cfg_req ),
+      .obi_rsp_o  ( idma_obi_cfg_rsp )
+    );
+  end
+
 
   // -----------------
   // Debug Module
@@ -221,7 +329,8 @@ module croc_domain import croc_pkg::*; #(
     datasize: dm::DataCount,
     dataaddr: dm::DataAddr
   };
-  dm::hartinfo_t hartinfo = HARTINFO;
+  dm::hartinfo_t [0:0] hartinfo;
+  assign hartinfo[0] = HARTINFO;
 
   logic dmi_rst_n, dmi_req_valid, dmi_req_ready, dmi_resp_valid, dmi_resp_ready;
   dm::dmi_req_t dmi_req;
@@ -231,7 +340,7 @@ module croc_domain import croc_pkg::*; #(
     .IdcodeValue ( PulpJtagIdCode )
   ) i_dmi_jtag (
     .clk_i,
-    .rst_ni,
+    .rst_ni,        // external reset only -- must survive the DM's own ndmreset
     .testmode_i,
 
     .dmi_rst_no       ( dmi_rst_n      ),
@@ -256,44 +365,44 @@ module croc_domain import croc_pkg::*; #(
     .IdWidth    ( SbrObiCfg.IdWidth   )
   ) i_dm_top (
     .clk_i,
-    .rst_ni,
+    .rst_ni,        // external reset only -- must survive its own ndmreset_o
     .testmode_i,
-    .ndmreset_o           (),
-    .dmactive_o           (),
-    .debug_req_o          ( debug_req  ),
-    .unavailable_i        ( 1'b0       ),
-    .hartinfo_i           ( hartinfo   ),
+    .ndmreset_o         ( ndmreset ),
+    .dmactive_o         (),
+    .debug_req_o        ( debug_req  ),
+    .unavailable_i      ( 1'b0       ),
+    .hartinfo_i         ( hartinfo   ),
 
-    .slave_req_i          ( dbg_mem_obi_req.req     ),
-    .slave_we_i           ( dbg_mem_obi_req.a.we    ),
-    .slave_addr_i         ( dbg_mem_obi_req.a.addr  ),
-    .slave_be_i           ( dbg_mem_obi_req.a.be    ),
-    .slave_wdata_i        ( dbg_mem_obi_req.a.wdata ),
-    .slave_aid_i          ( dbg_mem_obi_req.a.aid   ),
-    .slave_gnt_o          ( dbg_mem_obi_rsp.gnt     ),
-    .slave_rvalid_o       ( dbg_mem_obi_rsp.rvalid  ),
-    .slave_rdata_o        ( dbg_mem_obi_rsp.r.rdata ),
-    .slave_rid_o          ( dbg_mem_obi_rsp.r.rid   ),
+    .slave_req_i        ( dbg_mem_obi_req.req     ),
+    .slave_we_i         ( dbg_mem_obi_req.a.we    ),
+    .slave_addr_i       ( dbg_mem_obi_req.a.addr  ),
+    .slave_be_i         ( dbg_mem_obi_req.a.be    ),
+    .slave_wdata_i      ( dbg_mem_obi_req.a.wdata ),
+    .slave_aid_i        ( dbg_mem_obi_req.a.aid   ),
+    .slave_gnt_o        ( dbg_mem_obi_rsp.gnt     ),
+    .slave_rvalid_o     ( dbg_mem_obi_rsp.rvalid  ),
+    .slave_rdata_o      ( dbg_mem_obi_rsp.r.rdata ),
+    .slave_rid_o        ( dbg_mem_obi_rsp.r.rid   ),
 
-    .master_req_o         ( dbg_req_obi_req.req     ),
-    .master_addr_o        ( dbg_req_obi_req.a.addr  ),
-    .master_we_o          ( dbg_req_obi_req.a.we    ),
-    .master_wdata_o       ( dbg_req_obi_req.a.wdata ),
-    .master_be_o          ( dbg_req_obi_req.a.be    ),
-    .master_gnt_i         ( dbg_req_obi_rsp.gnt     ),
-    .master_rvalid_i      ( dbg_req_obi_rsp.rvalid  ),
-    .master_rdata_i       ( dbg_req_obi_rsp.r.rdata ),
-    .master_err_i         ( dbg_req_obi_rsp.r.err   ),
-    .master_other_err_i   ( 1'b0                    ),
+    .master_req_o       ( dbg_req_obi_req.req     ),
+    .master_addr_o      ( dbg_req_obi_req.a.addr  ),
+    .master_we_o        ( dbg_req_obi_req.a.we    ),
+    .master_wdata_o     ( dbg_req_obi_req.a.wdata ),
+    .master_be_o        ( dbg_req_obi_req.a.be    ),
+    .master_gnt_i       ( dbg_req_obi_rsp.gnt     ),
+    .master_rvalid_i    ( dbg_req_obi_rsp.rvalid  ),
+    .master_rdata_i     ( dbg_req_obi_rsp.r.rdata ),
+    .master_err_i       ( dbg_req_obi_rsp.r.err   ),
+    .master_other_err_i ( 1'b0                    ),
 
-    .dmi_rst_ni           ( dmi_rst_n      ),
-    .dmi_req_valid_i      ( dmi_req_valid  ),
-    .dmi_req_ready_o      ( dmi_req_ready  ),
-    .dmi_req_i            ( dmi_req        ),
+    .dmi_rst_ni         ( dmi_rst_n      ),
+    .dmi_req_valid_i    ( dmi_req_valid  ),
+    .dmi_req_ready_o    ( dmi_req_ready  ),
+    .dmi_req_i          ( dmi_req        ),
 
-    .dmi_resp_valid_o     ( dmi_resp_valid ),
-    .dmi_resp_ready_i     ( dmi_resp_ready ),
-    .dmi_resp_o           ( dmi_resp       )
+    .dmi_resp_valid_o   ( dmi_resp_valid ),
+    .dmi_resp_ready_i   ( dmi_resp_ready ),
+    .dmi_resp_o         ( dmi_resp       )
   );
   // unused
   assign dbg_mem_obi_rsp.r.r_optional = 1'b0;
@@ -304,39 +413,42 @@ module croc_domain import croc_pkg::*; #(
   // -----------------
 
   obi_xbar #(
-    .SbrPortObiCfg      ( MgrObiCfg        ),
-    .MgrPortObiCfg      ( SbrObiCfg        ),
-    .sbr_port_obi_req_t ( mgr_obi_req_t    ),
-    .sbr_port_a_chan_t  ( mgr_obi_a_chan_t ),
-    .sbr_port_obi_rsp_t ( mgr_obi_rsp_t    ),
-    .sbr_port_r_chan_t  ( mgr_obi_r_chan_t ),
-    .mgr_port_obi_req_t ( sbr_obi_req_t    ),
-    .mgr_port_obi_rsp_t ( sbr_obi_rsp_t    ),
-    .NumSbrPorts        ( NumXbarManagers  ),
-    .NumMgrPorts        ( NumXbarSbr       ),
-    .NumMaxTrans        ( 2                ),
-    .NumAddrRules       ( NumXbarSbrRules  ),
-    .addr_map_rule_t    ( addr_map_rule_t  ),
-    .UseIdForRouting    ( 1'b0             ),
-    .Connectivity       ( '1               )
+    .SbrPortObiCfg      ( MgrObiCfg            ),
+    .MgrPortObiCfg      ( SbrObiCfg            ),
+    .sbr_port_obi_req_t ( mgr_obi_req_t        ),
+    .sbr_port_a_chan_t  ( mgr_obi_a_chan_t     ),
+    .sbr_port_obi_rsp_t ( mgr_obi_rsp_t        ),
+    .sbr_port_r_chan_t  ( mgr_obi_r_chan_t     ),
+    .mgr_port_obi_req_t ( sbr_obi_req_t        ),
+    .mgr_port_obi_rsp_t ( sbr_obi_rsp_t        ),
+    .NumSbrPorts        ( NumXbarManagers      ),
+    .NumMgrPorts        ( NumXbarSubordinates  ),
+    .NumMaxTrans        ( 2                    ),
+    .NumAddrRules       ( $size(CrocAddrMap)   ),
+    .addr_map_rule_t    ( addr_map_rule_t      ),
+    .UseIdForRouting    ( 1'b0                 ),
+    .Connectivity       ( XbarConnectivity     )
   ) i_main_xbar (
     .clk_i,
-    .rst_ni,
+    .rst_ni ( sys_rst_n ),
     .testmode_i,
 
-    .sbr_ports_req_i  ( {core_instr_obi_req, core_data_obi_req, dbg_req_obi_req, user_mgr_obi_req_i } ), // from managers towards subordinates
-    .sbr_ports_rsp_o  ( {core_instr_obi_rsp, core_data_obi_rsp, dbg_req_obi_rsp, user_mgr_obi_rsp_o } ),
-    .mgr_ports_req_o  ( all_sbr_obi_req ), // connections to subordinates
+    // connections between managers and crossbar
+    .sbr_ports_req_i  ( xbar_mgr_obi_req ),
+    .sbr_ports_rsp_o  ( xbar_mgr_obi_rsp ),
+    // connections between crossbar and subordinates
+    .mgr_ports_req_o  ( all_sbr_obi_req ),
     .mgr_ports_rsp_i  ( all_sbr_obi_rsp ),
 
-    .addr_map_i       ( croc_addr_map   ),
-    .en_default_idx_i ( 4'b1111          ),
-    .default_idx_i    ( '0              )
+    .addr_map_i       ( CrocAddrMap ),
+    .en_default_idx_i ( '1 ),
+    .default_idx_i    ( '0 )
   );
 
   // -----------------
   // Memories
   // -----------------
+  localparam int unsigned SramBankAddrWidth = cf_math_pkg::idx_width(SramBankNumWords);
 
   for (genvar i = 0; i < NumSramBanks; i++) begin : gen_sram_bank
     logic bank_req, bank_we, bank_gnt, bank_single_err;
@@ -351,7 +463,7 @@ module croc_domain import croc_pkg::*; #(
       .obi_rsp_t ( sbr_obi_rsp_t )
     ) i_sram_shim (
       .clk_i,
-      .rst_ni,
+      .rst_ni ( sys_rst_n ),
 
       .obi_req_i ( xbar_mem_bank_obi_req[i] ),
       .obi_rsp_o ( xbar_mem_bank_obi_rsp[i] ),
@@ -368,14 +480,17 @@ module croc_domain import croc_pkg::*; #(
 
     assign bank_word_addr = bank_byte_addr[SbrObiCfg.AddrWidth-1:2];
 
-    tc_sram #(
+    tc_sram_impl #(
       .NumWords  ( SramBankNumWords ),
       .DataWidth ( 32 ),
       .NumPorts  (  1 ),
       .Latency   (  1 )
     ) i_sram (
       .clk_i,
-      .rst_ni,
+      .rst_ni ( sys_rst_n ),
+
+      .impl_i  ( sram_impl      ),
+      .impl_o  (),
 
       .req_i   ( bank_req       ),
       .we_i    ( bank_we        ),
@@ -386,7 +501,7 @@ module croc_domain import croc_pkg::*; #(
       .rdata_o ( bank_rdata )
     );
 
-    assign bank_gnt = 1'b1;
+    assign bank_gnt = 1'b1; // always ready for request
   end
 
 
@@ -399,7 +514,7 @@ module croc_domain import croc_pkg::*; #(
     .RspData     ( 32'hBADCAB1E  )
   ) i_xbar_err (
     .clk_i,
-    .rst_ni,
+    .rst_ni ( sys_rst_n ),
     .testmode_i,
     .obi_req_i  ( xbar_error_obi_req ),
     .obi_rsp_o  ( xbar_error_obi_rsp )
@@ -415,18 +530,18 @@ module croc_domain import croc_pkg::*; #(
 
   addr_decode #(
     .NoIndices ( NumPeriphs                     ),
-    .NoRules   ( NumPeriphRules                 ),
+    .NoRules   ( $size(PeriphAddrMap)           ),
     .addr_t    ( logic[SbrObiCfg.DataWidth-1:0] ),
     .rule_t    ( addr_map_rule_t                ),
     .Napot     ( 1'b0                           )
   ) i_addr_decode_periphs (
-    .addr_i           ( xbar_periph_obi_req.a.addr  ),
-    .addr_map_i       ( periph_addr_map             ),
-    .idx_o            ( periph_idx                  ),
+    .addr_i           ( xbar_periph_obi_req.a.addr ),
+    .addr_map_i       ( PeriphAddrMap              ),
+    .idx_o            ( periph_idx                 ),
     .dec_valid_o      (),
     .dec_error_o      (),
-    .en_default_idx_i ( 1'b1 ),
-    .default_idx_i    ( '0 )
+    .en_default_idx_i ( 1'b1        ),
+    .default_idx_i    ( PeriphError )
   );
 
   obi_demux #(
@@ -437,14 +552,113 @@ module croc_domain import croc_pkg::*; #(
     .NumMaxTrans ( 2             )
   ) i_obi_demux (
     .clk_i,
-    .rst_ni,
+    .rst_ni ( sys_rst_n ),
 
-    .sbr_port_select_i ( periph_idx           ),
-    .sbr_port_req_i    ( xbar_periph_obi_req  ),
-    .sbr_port_rsp_o    ( xbar_periph_obi_rsp  ),
+    .sbr_port_select_i ( periph_idx          ),
+    .sbr_port_req_i    ( xbar_periph_obi_req ),
+    .sbr_port_rsp_o    ( xbar_periph_obi_rsp ),
 
-    .mgr_ports_req_o   ( all_periph_obi_req ),
-    .mgr_ports_rsp_i   ( all_periph_obi_rsp )
+    .mgr_ports_req_o   ( all_periph_obi_req  ),
+    .mgr_ports_rsp_i   ( all_periph_obi_rsp  )
+  );
+
+  // SoC Control
+  soc_ctrl_regs #(
+    .obi_req_t       ( sbr_obi_req_t ),
+    .obi_rsp_t       ( sbr_obi_rsp_t ),
+    .BootAddrDefault ( BootAddr      )
+  ) i_soc_ctrl (
+    .clk_i,
+    .rst_ni ( sys_rst_n ),
+    .obi_req_i  ( soc_ctrl_obi_req ),
+    .obi_rsp_o  ( soc_ctrl_obi_rsp ),
+    .fetch_en_o ( fetch_enable     ),
+    .sram_dly_o ( sram_impl        )
+  );
+
+  // UART
+  obi_uart #(
+    .ObiCfg    ( SbrObiCfg     ),
+    .obi_req_t ( sbr_obi_req_t ),
+    .obi_rsp_t ( sbr_obi_rsp_t )
+  ) i_uart (
+    .clk_i,
+    .rst_ni ( sys_rst_n ),
+
+    .obi_req_i ( uart_obi_req ),
+    .obi_rsp_o ( uart_obi_rsp ),
+    .irq_o     ( uart_irq     ),
+    .irq_no    (),
+
+    .rxd_i     ( uart_rx_i ),
+    .txd_o     ( uart_tx_o ),
+
+    // Modem control pins are optional
+    .cts_ni    ( 1'b1 ),
+    .dsr_ni    ( 1'b1 ),
+    .ri_ni     ( 1'b1 ),
+    .cd_ni     ( 1'b1 ),
+    .rts_no    (),
+    .dtr_no    (),
+    .out1_no   (),
+    .out2_no   ()
+);
+
+  // GPIO
+  gpio #(
+    .ObiCfg    ( SbrObiCfg     ),
+    .obi_req_t ( sbr_obi_req_t ),
+    .obi_rsp_t ( sbr_obi_rsp_t ),
+    .GpioCount ( GpioCount     )
+  ) i_gpio (
+    .clk_i,
+    .rst_ni ( sys_rst_n ),
+    .gpio_i,
+    .gpio_o,
+    .gpio_out_en_o,
+    .gpio_in_sync_o,
+    .interrupt_o    ( gpio_irq     ),
+    .obi_req_i      ( gpio_obi_req ),
+    .obi_rsp_o      ( gpio_obi_rsp )
+  );
+
+  // CLINT
+  clint #(
+    .obi_req_t ( sbr_obi_req_t ),
+    .obi_rsp_t ( sbr_obi_rsp_t )
+  ) i_clint (
+    .clk_i,
+    .rst_ni ( sys_rst_n ),
+    .rtc_i          ( ref_clk_i          ),
+    .software_irq_o ( clint_software_irq ),
+    .timer_irq_o    ( clint_timer_irq    ),
+    .obi_req_i      ( clint_obi_req      ),
+    .obi_rsp_o      ( clint_obi_rsp      )
+  );
+
+  // OBI timer
+  obi_timer #(
+    .obi_req_t ( sbr_obi_req_t ),
+    .obi_rsp_t ( sbr_obi_rsp_t )
+  ) i_obi_timer (
+    .clk_i,
+    .rst_ni ( sys_rst_n ),
+    .obi_req_i  ( timer_obi_req ),
+    .obi_rsp_o  ( timer_obi_rsp ),
+    .expired_o  ( obi_timer_irq ),
+    .overflow_o ()
+  );
+
+  // Bootrom
+  bootrom #(
+    .ObiCfg    ( SbrObiCfg     ),
+    .obi_req_t ( sbr_obi_req_t ),
+    .obi_rsp_t ( sbr_obi_rsp_t )
+  ) i_bootrom (
+    .clk_i,
+    .rst_ni ( sys_rst_n ),
+    .obi_req_i ( bootrom_obi_req ),
+    .obi_rsp_o ( bootrom_obi_rsp )
   );
 
   // Peripheral space error subordinate
@@ -456,165 +670,10 @@ module croc_domain import croc_pkg::*; #(
     .RspData     ( 32'hBADCAB1E  )
   ) i_periph_err (
     .clk_i,
-    .rst_ni,
+    .rst_ni ( sys_rst_n ),
     .testmode_i,
-    .obi_req_i  ( error_obi_req ),
-    .obi_rsp_o  ( error_obi_rsp )
+    .obi_req_i   ( error_obi_req ),
+    .obi_rsp_o   ( error_obi_rsp )
   );
-
-  // SoC Control
-  reg_req_t soc_ctrl_reg_req;
-  reg_rsp_t soc_ctrl_reg_rsp;
-
-  periph_to_reg #(
-    .AW    ( SbrObiCfg.AddrWidth  ),
-    .DW    ( SbrObiCfg.DataWidth  ),
-    .BW    ( 8                    ),
-    .IW    ( SbrObiCfg.IdWidth    ),
-    .req_t ( reg_req_t            ),
-    .rsp_t ( reg_rsp_t            )
-  ) i_soc_ctrl_translate (
-    .clk_i,
-    .rst_ni,
-
-    .req_i     ( soc_ctrl_obi_req.req     ),
-    .add_i     ( soc_ctrl_obi_req.a.addr  ),
-    .wen_i     ( ~soc_ctrl_obi_req.a.we   ),
-    .wdata_i   ( soc_ctrl_obi_req.a.wdata ),
-    .be_i      ( soc_ctrl_obi_req.a.be    ),
-    .id_i      ( soc_ctrl_obi_req.a.aid   ),
-
-    .gnt_o     ( soc_ctrl_obi_rsp.gnt     ),
-    .r_rdata_o ( soc_ctrl_obi_rsp.r.rdata ),
-    .r_opc_o   ( soc_ctrl_obi_rsp.r.err   ),
-    .r_id_o    ( soc_ctrl_obi_rsp.r.rid   ),
-    .r_valid_o ( soc_ctrl_obi_rsp.rvalid  ),
-
-    .reg_req_o ( soc_ctrl_reg_req ),
-    .reg_rsp_i ( soc_ctrl_reg_rsp )
-  );  
-  assign soc_ctrl_obi_rsp.r.r_optional = '0;
-
-  soc_ctrl_reg_pkg::soc_ctrl_reg2hw_t soc_ctrl_reg2hw;
-  soc_ctrl_reg_pkg::soc_ctrl_hw2reg_t soc_ctrl_hw2reg;
-  assign fetch_enable = soc_ctrl_reg2hw.fetchen.q | fetch_en_i;
-  assign boot_addr = soc_ctrl_reg2hw.bootaddr.q;
-  assign soc_ctrl_hw2reg = '0;
-
-  soc_ctrl_reg_top #(
-    .reg_req_t       ( reg_req_t    ),
-    .reg_rsp_t       ( reg_rsp_t    ),
-    .BootAddrDefault ( SramBaseAddr )
-  ) i_soc_ctrl (
-    .clk_i,
-    .rst_ni,
-    .reg_req_i ( soc_ctrl_reg_req ),
-    .reg_rsp_o ( soc_ctrl_reg_rsp ),
-    .reg2hw    ( soc_ctrl_reg2hw  ),
-    .hw2reg    ( soc_ctrl_hw2reg  ),
-    .devmode_i ( 1'b0             )
-  );
-
-  // UART
-  reg_req_t uart_reg_req;
-  reg_rsp_t uart_reg_rsp;
-
-  periph_to_reg #(
-    .AW    ( SbrObiCfg.AddrWidth  ),
-    .DW    ( SbrObiCfg.DataWidth  ),
-    .BW    ( 8                    ),
-    .IW    ( SbrObiCfg.IdWidth    ),
-    .req_t ( reg_req_t            ),
-    .rsp_t ( reg_rsp_t            )
-  ) i_uart_translate (
-    .clk_i,
-    .rst_ni,
-
-    .req_i     ( uart_obi_req.req     ),
-    .add_i     ( uart_obi_req.a.addr  ),
-    .wen_i     ( ~uart_obi_req.a.we   ),
-    .wdata_i   ( uart_obi_req.a.wdata ),
-    .be_i      ( uart_obi_req.a.be    ),
-    .id_i      ( uart_obi_req.a.aid   ),
-
-    .gnt_o     ( uart_obi_rsp.gnt     ),
-    .r_rdata_o ( uart_obi_rsp.r.rdata ),
-    .r_opc_o   ( uart_obi_rsp.r.err   ),
-    .r_id_o    ( uart_obi_rsp.r.rid   ),
-    .r_valid_o ( uart_obi_rsp.rvalid  ),
-
-    .reg_req_o ( uart_reg_req ),
-    .reg_rsp_i ( uart_reg_rsp )
-  );
-
-  reg_uart_wrap #(
-    .AddrWidth  ( 32        ),
-    .reg_req_t  ( reg_req_t ),
-    .reg_rsp_t  ( reg_rsp_t )
-  ) i_uart (
-    .clk_i,
-    .rst_ni,
-    .reg_req_i  ( uart_reg_req  ),
-    .reg_rsp_o  ( uart_reg_rsp  ),
-    .intr_o     ( uart_irq      ),
-    .out2_no    ( ),
-    .out1_no    ( ),
-    .rts_no     ( ),
-    .dtr_no     ( ),
-    .cts_ni     ( 1'b0 ),
-    .dsr_ni     ( 1'b0 ),
-    .dcd_ni     ( 1'b0 ),
-    .rin_ni     ( 1'b0 ),
-    .sin_i      ( uart_rx_i ),
-    .sout_o     ( uart_tx_o )
-  );
-  assign uart_obi_rsp.r.r_optional = '0;
-
-  // GPIO
-  gpio #(
-    .ObiCfg    ( SbrObiCfg     ),
-    .obi_req_t ( sbr_obi_req_t ),
-    .obi_rsp_t ( sbr_obi_rsp_t ),
-    .GpioCount ( GpioCount     )
-  ) i_gpio (
-    .clk_i,
-    .rst_ni,
-    .gpio_i,                     
-    .gpio_o,                   
-    .gpio_out_en_o,          
-    .gpio_in_sync_o,       
-    .interrupt_o    ( gpio_irq     ),
-    .obi_req_i      ( gpio_obi_req ),
-    .obi_rsp_o      ( gpio_obi_rsp )
-  );
-
-  // Timer
-  timer_unit #(
-    .ID_WIDTH   ( SbrObiCfg.IdWidth )
-  ) i_timer (
-    .clk_i,
-    .rst_ni,
-    .ref_clk_i,
-    
-    .req_i      ( timer_obi_req.req     ),
-    .addr_i     ( timer_obi_req.a.addr  ),
-    .wen_i      ( ~timer_obi_req.a.we   ),
-    .wdata_i    ( timer_obi_req.a.wdata ),
-    .be_i       ( timer_obi_req.a.be    ),
-    .id_i       ( timer_obi_req.a.aid   ),
-    .gnt_o      ( timer_obi_rsp.gnt     ),
-    
-    .r_valid_o  ( timer_obi_rsp.rvalid  ),
-    .r_opc_o    ( ),
-    .r_id_o     ( timer_obi_rsp.r.rid   ),
-    .r_rdata_o  ( timer_obi_rsp.r.rdata ),
-    .event_lo_i ('0 ),
-    .event_hi_i ('0 ),
-    .irq_lo_o   ( timer0_irq0           ),
-    .irq_hi_o   ( timer0_irq1           ),
-    .busy_o     (                       )
-  );
-  assign timer_obi_rsp.r.err        = 1'b0;
-  assign timer_obi_rsp.r.r_optional = 1'b0;
 
 endmodule

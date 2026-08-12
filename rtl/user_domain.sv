@@ -6,13 +6,14 @@
 // - Philippe Sauter <phsauter@iis.ee.ethz.ch>
 
 module user_domain import user_pkg::*; import croc_pkg::*; #(
-  parameter int unsigned GpioCount = 16
+  parameter int unsigned GpioCount = 16,
+  parameter int unsigned NumExternalIrqs = 4
 ) (
   input  logic      clk_i,
   input  logic      ref_clk_i,
   input  logic      rst_ni,
   input  logic      testmode_i,
-  
+
   input  sbr_obi_req_t user_sbr_obi_req_i, // User Sbr (rsp_o), Croc Mgr (req_i)
   output sbr_obi_rsp_t user_sbr_obi_rsp_o,
 
@@ -20,7 +21,7 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   input  mgr_obi_rsp_t user_mgr_obi_rsp_i,
 
   input  logic [      GpioCount-1:0] gpio_in_sync_i, // synchronized GPIO inputs
-  output logic [NumExternalIrqs-1:0] interrupts_o, // interrupts to core
+  output logic [NumExternalIrqs-1:0] interrupts_o,    // interrupts to core
 
   output logic       qspi_clk_o,
   output logic [3:0] qspi_sd_o,
@@ -29,7 +30,7 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   output logic [2:0] qspi_csn_o
 );
 
-  assign interrupts_o = '0;  
+  assign interrupts_o = '0;
 
 
   //////////////////////
@@ -47,7 +48,7 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   // ----------------------------------------------------------------------------------------------
   // User Subordinate Buses
   // ----------------------------------------------------------------------------------------------
-  
+
   // collection of signals from the demultiplexer
   sbr_obi_req_t [NumDemuxSbr-1:0] all_user_sbr_obi_req;
   sbr_obi_rsp_t [NumDemuxSbr-1:0] all_user_sbr_obi_rsp;
@@ -55,14 +56,18 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   // Error Subordinate Bus
   sbr_obi_req_t user_error_obi_req;
   sbr_obi_rsp_t user_error_obi_rsp;
-  sbr_obi_req_t user_qspi_obi_req;
-  sbr_obi_rsp_t user_qspi_obi_rsp;
+
+  // OBI bus to your design
   sbr_obi_req_t user_design_obi_req;
   sbr_obi_rsp_t user_design_obi_rsp;
+  sbr_obi_req_t user_qspi_obi_req;
+  sbr_obi_rsp_t user_qspi_obi_rsp;
 
   // Fanout into more readable signals
-  assign user_error_obi_req              = all_user_sbr_obi_req[UserError];
-  assign all_user_sbr_obi_rsp[UserError] = user_error_obi_rsp;
+  assign user_error_obi_req               = all_user_sbr_obi_req[UserError];
+  assign all_user_sbr_obi_rsp[UserError]  = user_error_obi_rsp;
+  assign user_design_obi_req              = all_user_sbr_obi_req[UserDesign];
+  assign all_user_sbr_obi_rsp[UserDesign] = user_design_obi_rsp;
   assign user_qspi_obi_req             = all_user_sbr_obi_req[UserQSpi];
   assign all_user_sbr_obi_rsp[UserQSpi] = user_qspi_obi_rsp;
   assign user_design_obi_req               = all_user_sbr_obi_req[UserDesign];
@@ -162,7 +167,7 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   ) i_user_err (
     .clk_i,
     .rst_ni,
-    .testmode_i ( testmode_i      ),
+    .testmode_i ( testmode_i         ),
     .obi_req_i  ( user_error_obi_req ),
     .obi_rsp_o  ( user_error_obi_rsp )
   );

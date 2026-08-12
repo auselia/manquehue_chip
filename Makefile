@@ -116,6 +116,23 @@ clean-sim:
 	@rm -rf sim/build/*
 
 # ------------------------------------------------------------------------------
+# FPGA (ZedBoard / Zynq-7000 PL) Flow -- requires Vivado on PATH
+# ------------------------------------------------------------------------------
+.PHONY: fpga clean-fpga
+
+VIVADO ?= vivado
+
+# Non-project-mode batch build: synth -> opt -> place -> route -> bitstream.
+# Reads croc_fpga.flist + constraints/zedboard.xdc; output in work_fpga/.
+fpga:
+	@echo "[FPGA] Running Vivado non-project build for the ZedBoard..."
+	@$(VIVADO) -mode batch -source scripts/fpga/build_zedboard.tcl
+
+clean-fpga:
+	rm -rf work_fpga vivado*.log vivado*.jou vivado*.str .Xil
+	@echo "Cleaned FPGA build directory and Vivado logs."
+
+# ------------------------------------------------------------------------------
 # Help Menu
 # ------------------------------------------------------------------------------
 .PHONY: help
@@ -145,4 +162,8 @@ help:
 	@echo "GUI / Interactive Commands:"
 	@echo "  make open_<step> – Open a specific block in terminal mode"
 	@echo "  make gui_<step>  – Open a specific block in GUI mode"
+	@echo ""
+	@echo "FPGA (ZedBoard, requires Vivado on PATH):"
+	@echo "  make fpga        – Non-project batch build -> work_fpga/croc_zedboard_top.bit"
+	@echo "  make clean-fpga  – Remove the FPGA build directory and Vivado logs"
 	@echo "================================================================"

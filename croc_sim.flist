@@ -175,7 +175,6 @@ rtl/obi_uart/obi_uart.sv
 # ---- obi_qspi & flash model ----
 rtl/obi_qspi/qqspi.v
 rtl/obi_qspi/obi_qspi.sv
-rtl/obi_qspi/flash_model/W25Q128JWxxIM_V1.2_VCS.v
 
 # ---- riscv-dbg (synthesizable RTL) ----
 rtl/riscv-dbg/dm_pkg.sv

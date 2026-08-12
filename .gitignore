@@ -34,3 +34,12 @@ sim/waves/
 sim/logs/
 
 reports/
+
+# Vivado (FPGA) outputs
+work_fpga/
+vivado*.log
+vivado*.jou
+vivado*.str
+.Xil/
+*.bit
+*.dcp

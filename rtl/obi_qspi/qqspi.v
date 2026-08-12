@@ -22,7 +22,6 @@
 */
 // added wmask, sync-comb fsm, spi flash support, cen polarity, faster during
 // write operations: sb, sh behaves likes 8Mx32 memory
-`default_nettype none
 module qqspi #(
     parameter CHIP_SELECTS = 3
 ) (

@@ -45,11 +45,14 @@
 // Maintainers:
 // - Andreas Kurth <akurth@iis.ee.ethz.ch>
 
+`include "common_cells/assertions.svh"
+
 module id_queue #(
     parameter int ID_WIDTH  = 0,
     parameter int CAPACITY  = 0,
     parameter bit FULL_BW   = 0,
     parameter bit CUT_OUP_POP_INP_GNT = 0,
+    parameter int NUM_CMP_PORTS = 1,
     parameter type data_t   = logic[31:0],
     // Dependent parameters, DO NOT OVERRIDE!
     localparam type id_t    = logic[ID_WIDTH-1:0]
@@ -62,18 +65,21 @@ module id_queue #(
     input  logic    inp_req_i,
     output logic    inp_gnt_o,
 
-    input  data_t   exists_data_i,
-    input  data_t   exists_mask_i,
-    input  logic    exists_req_i,
-    output logic    exists_o,
-    output logic    exists_gnt_o,
+    input  data_t [NUM_CMP_PORTS-1:0] exists_data_i,
+    input  data_t [NUM_CMP_PORTS-1:0] exists_mask_i,
+    input  logic  [NUM_CMP_PORTS-1:0] exists_req_i,
+    output logic  [NUM_CMP_PORTS-1:0] exists_o,
+    output logic  [NUM_CMP_PORTS-1:0] exists_gnt_o,
 
     input  id_t     oup_id_i,
     input  logic    oup_pop_i,
     input  logic    oup_req_i,
     output data_t   oup_data_o,
     output logic    oup_data_valid_o,
-    output logic    oup_gnt_o
+    output logic    oup_gnt_o,
+
+    output logic    full_o,
+    output logic    empty_o
 );
 
     // Capacity of the head-tail table, which associates an ID with corresponding head and tail
@@ -118,8 +124,8 @@ module id_queue #(
                                     idx_matches_in_id,
                                     idx_matches_out_id;
 
-    logic [CAPACITY-1:0]            exists_match,
-                                    linked_data_free;
+    logic [NUM_CMP_PORTS-1:0][CAPACITY-1:0] exists_match;
+    logic [CAPACITY-1:0]            linked_data_free;
 
     id_t                            match_in_id, match_out_id;
 
@@ -181,8 +187,10 @@ module id_queue #(
         .empty_o (                      )
     );
 
-    // The queue is full if and only if there are no free items in the linked data structure.
+    // The queue is full if and only if there are no free entries in the linked data structure.
     assign full = !(|linked_data_free);
+    // The queue is empty if and only if all entries in the linked data structure are free.
+    assign empty = &linked_data_free;
     // Data potentially freed by the output.
     assign oup_data_free_idx = head_tail_q[match_out_idx].head;
 
@@ -233,7 +241,7 @@ module id_queue #(
                     if (oup_pop_i) begin
                         // Set free bit of linked data entry, all other bits are don't care.
                         linked_data_d[head_tail_q[match_in_idx].head]      = '0;
-                        linked_data_d[head_tail_q[match_in_idx].head][0]   = 1'b1;
+                        linked_data_d[head_tail_q[match_in_idx].head].free = 1'b1;
                         if (head_tail_q[match_in_idx].head == head_tail_q[match_in_idx].tail) begin
                             head_tail_d[match_in_idx] = '{free: 1'b1, default: '0};
                         end else begin
@@ -258,7 +266,7 @@ module id_queue #(
                         oup_data_popped = 1'b1;
                         // Set free bit of linked data entry, all other bits are don't care.
                         linked_data_d[head_tail_q[match_out_idx].head]      = '0;
-                        linked_data_d[head_tail_q[match_out_idx].head][0]   = 1'b1;
+                        linked_data_d[head_tail_q[match_out_idx].head].free = 1'b1;
                         if (head_tail_q[match_out_idx].head
                                           == head_tail_q[match_out_idx].tail) begin
                             oup_ht_popped = 1'b1;
@@ -357,29 +365,21 @@ module id_queue #(
     end
 
     // Exists Lookup
-    for (genvar i = 0; i < CAPACITY; i++) begin: gen_lookup
-        data_t exists_match_bits;
-        for (genvar j = 0; j < $bits(data_t); j++) begin: gen_mask
-            always_comb begin
-                if (linked_data_q[i].free) begin
-                    exists_match_bits[j] = 1'b0;
-                end else begin
-                    if (!exists_mask_i[j]) begin
-                        exists_match_bits[j] = 1'b1;
-                    end else begin
-                        exists_match_bits[j] = (linked_data_q[i].data[j] == exists_data_i[j]);
-                    end
-                end
-            end
+    for (genvar k = 0; k < NUM_CMP_PORTS; k++) begin: gen_lookup_port
+        for (genvar i = 0; i < CAPACITY; i++) begin: gen_lookup
+            // For a match, the entry needs to be occupied AND
+            // the masked slot data needs to match the masked query data.
+            assign exists_match[k][i] = ~linked_data_q[i].free &
+                    ((linked_data_q[i].data & exists_mask_i[k]) ==
+                     (exists_data_i[k]      & exists_mask_i[k]));
         end
-        assign exists_match[i] = (&exists_match_bits);
-    end
-    always_comb begin
-        exists_gnt_o = 1'b0;
-        exists_o = '0;
-        if (exists_req_i) begin
-            exists_gnt_o = 1'b1;
-            exists_o = (|exists_match);
+        always_comb begin
+            exists_gnt_o[k] = 1'b0;
+            exists_o[k] = '0;
+            if (exists_req_i[k]) begin
+                exists_gnt_o[k] = 1'b1;
+                exists_o[k] = (|exists_match[k]);
+            end
         end
     end
 
@@ -397,24 +397,22 @@ module id_queue #(
         always_ff @(posedge clk_i, negedge rst_ni) begin
             if (!rst_ni) begin
                 // Set free bit of linked data entries, all other bits are don't care.
-                linked_data_q[i]    <= '0;
-                linked_data_q[i][0] <= 1'b1;
+                linked_data_q[i]      <= '0;
+                linked_data_q[i].free <= 1'b1;
             end else begin
                 linked_data_q[i]    <= linked_data_d[i];
             end
         end
     end
 
+    // Status interface
+    assign full_o  = full;
+    assign empty_o = empty;
+
     // Validate parameters.
-`ifndef SYNTHESIS
 `ifndef COMMON_CELLS_ASSERTS_OFF
-    initial begin: validate_params
-        assert (ID_WIDTH >= 1)
-            else $fatal(1, "The ID must at least be one bit wide!");
-        assert (CAPACITY >= 1)
-            else $fatal(1, "The queue must have capacity of at least one entry!");
-    end
-`endif
+    `ASSERT_INIT(id_width_0, ID_WIDTH >= 1, "The ID must at least be one bit wide!")
+    `ASSERT_INIT(capacity_0, CAPACITY >= 1, "The queue must have capacity of at least one entry!")
 `endif
 
 endmodule

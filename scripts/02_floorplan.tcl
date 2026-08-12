@@ -96,9 +96,46 @@ set all_macros [get_cells -hierarchical -filter "is_hard_macro && !is_physical_o
 create_keepout_margin -type hard_macro -outer {10 10 10 10} $all_macros
 create_keepout_margin -type hard -outer {10 10 10 10} $all_macros
 
+# Places the macros in the floorplan
 create_placement -floorplan
 
+# Locks the macros in place so their coordinates don't change
 set_fixed_objects [get_flat_cells -filter "is_hard_macro"]
+
+set blocked_layers {Metal1 Metal2 Metal3 Metal4 Metal5}
+
+foreach_in_collection macro $all_macros {
+    
+    set macro_basename [get_attribute $macro base_name]
+    set ref_name       [get_attribute $macro ref_name]
+
+    # Safely extract the bbox list: {{llx lly} {urx ury}}
+    set bbox [get_attribute $macro bbox]
+    set llx [lindex $bbox 0 0]
+    set lly [lindex $bbox 0 1]
+    set urx [lindex $bbox 1 0]
+    set ury [lindex $bbox 1 1]
+
+    # Shrink by 17.0 total (10um for the keepout margin + 5um for the internal margin)
+    set new_llx [expr {$llx + 17}]
+    set new_lly [expr {$lly + 17}]
+    set new_urx [expr {$urx - 17}]
+    set new_ury [expr {$ury - 17}]
+
+    # Ensure the macro is large enough so the math doesn't invert the box
+    if {($new_urx > $new_llx) && ($new_ury > $new_lly)} {
+        
+        set new_boundary [list [list $new_llx $new_lly] [list $new_urx $new_ury]]
+
+        create_routing_blockage -boundary $new_boundary \
+                                -layers $blocked_layers \
+                                -name_prefix "shrunk_${macro_basename}"
+                                
+        puts "INFO: Created 5um shrunk routing blockage for SRAM: $macro_basename (Type: $ref_name)"
+    } else {
+        puts "WARNING: Skipping $macro_basename because its size is too small for a 15um shrink."
+    }
+}
 
 # 5. Boundary and Tap Cells
 set BOUNDARY_CELL [get_lib_cells *mcu${STDCELL_TRACK_SIZE}t5v0__endcap]

@@ -75,13 +75,14 @@ compile_pg -strategies {sram_inner_ring_strat} -via_rule {ring_to_macro_vias}
 ##############################################################
 create_pg_mesh_pattern mesh_pattern_top -via_rule {{intersection: adjacent} {via_master: via_master_mesh_top}} \
     -layers { \
-        {{horizontal_layer: Metal5 } {width: 3} {pitch: 90} {spacing: interleaving} } \
-        {{vertical_layer:   Metal4 } {width: 3} {pitch: 90} {spacing: interleaving} } \
+        {{horizontal_layer: Metal5 } {width: 3} {pitch: 40} {spacing: interleaving} } \
+        {{vertical_layer:   Metal4 } {width: 3} {pitch: 40} {spacing: interleaving} } \
 }
 
 set_pg_strategy mesh_strategy_top -core \
     -pattern {{pattern: mesh_pattern_top} {nets: {VDD VSS}}} \
-    -extension {stop: innermost_ring}
+    -extension {stop: innermost_ring} \
+    -blockage [list [list {macros_with_keepout: $all_macros} "layers: Metal1"]]
 
 set_pg_strategy_via_rule via_mesh_to_ring -via_rule { \
     {{{strategies: mesh_strategy_top}} \

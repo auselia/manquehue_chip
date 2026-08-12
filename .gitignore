@@ -34,6 +34,7 @@ sim/waves/
 sim/logs/
 
 reports/
+outputs/
 
 # Vivado (FPGA) outputs
 work_fpga/

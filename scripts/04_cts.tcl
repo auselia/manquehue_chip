@@ -23,6 +23,9 @@ set_lib_cell_purpose -include {hold optimization} [get_lib_cells $SYN_IGNORE_CEL
 set_lib_cell_purpose -exclude cts [get_lib_cells]
 set_lib_cell_purpose -include cts [get_lib_cells $CTS_CELLS]
 
+set_app_options -name clock_opt.flow.enable_clock_power_recovery      -value false
+set_app_options -name cts.optimize.enable_area_recovery_in_local_skew -value false
+
 clock_opt
 
 set ACTIVE_STEP "04_cts"

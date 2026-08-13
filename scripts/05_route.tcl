@@ -13,6 +13,11 @@ open_block cts
 
 route_auto
 
+set_app_options -name route_opt.flow.enable_clock_power_recovery -value false
+
+group_path -name CRIT -weight 5 -critical_range 2.5 \
+  -from [get_cells i_croc/i_obi_demux/select_q_reg[2]]
+
 route_opt
 
 route_detail -incremental true

@@ -31,20 +31,37 @@ change_names -rules verilog
 # Timestamped, self-archiving GDS / netlist export
 # -----------------------------------------------------------------------------
 # Everything lands in <repo>/outputs (we run from <repo>/work, so ../outputs).
-# Each run produces a unique  <TOP>_<YYYYMMDD_HHMMSS>.{gds,v}, and a stable
-# <TOP>.latest.{gds,v} symlink is repointed at the newest one. Consequences:
+# Each run gets its own folder outputs/<TOP>_<YYYYMMDD_HHMMSS>/ containing
+# <TOP>.gds and <TOP>.v, and a stable outputs/latest symlink is repointed at
+# the newest run folder. Consequences:
 #   * runs never overwrite each other -> you stop losing old GDS files;
-#   * downstream steps (DRC, LVS) can always reference "<TOP>.latest.gds"
-#     without knowing the timestamp;
-#   * to sign off a *previous* run, just point the tool at its timestamped file.
+#   * downstream steps (DRC, LVS) can always reference outputs/latest/<TOP>.gds
+#     without knowing the timestamp, and each writes its results into
+#     outputs/<run>/drc/ and outputs/<run>/lvs/ right next to that run's
+#     .gds/.v -- one self-contained folder per run;
+#   * to sign off a *previous* run, just point the tool at its run folder
+#     (make drc RUN=<TOP>_<timestamp>).
 # -----------------------------------------------------------------------------
 set OUTPUTS_DIR [file normalize [file join [file dirname [info script]] .. outputs]]
 file mkdir $OUTPUTS_DIR
 
 set RUN_STAMP [clock format [clock seconds] -format "%Y%m%d_%H%M%S"]
-set GDS_OUT   [file join $OUTPUTS_DIR "${TOP_MODULE}_${RUN_STAMP}.gds"]
-set VLOG_OUT  [file join $OUTPUTS_DIR "${TOP_MODULE}_${RUN_STAMP}.v"]
+set RUN_NAME  "${TOP_MODULE}_${RUN_STAMP}"
+set RUN_DIR   [file join $OUTPUTS_DIR $RUN_NAME]
+file mkdir $RUN_DIR
 
+set GDS_OUT   [file join $RUN_DIR "${TOP_MODULE}.gds"]
+set VLOG_OUT  [file join $RUN_DIR "${TOP_MODULE}.v"]
+
+# NOTE: *fillcap* (decoupling-cap fillers, inserted above via DCAP_CELLS)
+# is deliberately NOT in this exclude list, unlike *fill_*/*filltie*/
+# *endcap*. Those three are pure geometry with no devices, so excluding
+# them from the Verilog was always a no-op for LVS. fillcap cells are real
+# 2-terminal VDD/VSS capacitors -- excluding them here made every one of
+# ~2972 layout instances show up with zero schematic counterpart at all
+# (confirmed 2026-08-12: subcircuit_mismatch went 8 -> 2972 the one run
+# this was tried), far worse than the handful of mildly-ambiguous instance
+# pairings you get by including them normally. Leave them in.
 write_verilog -include all \
     -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
     $VLOG_OUT
@@ -53,18 +70,15 @@ set GDS_FILE_LIST [glob ${PDK_DIR}/gds/*.gds]
 write_gds -merge_files $GDS_FILE_LIST -merge_gds_top_cell $TOP_MODULE \
     -layer_map ${ICC2GDS_LAYERMAP} -long_names $GDS_OUT
 
-# Refresh the "latest" pointers. Targets are stored as bare basenames so the
-# symlinks stay valid even if the whole outputs/ directory is later moved.
-foreach {link tgt} [list \
-        [file join $OUTPUTS_DIR "${TOP_MODULE}.latest.gds"] "${TOP_MODULE}_${RUN_STAMP}.gds" \
-        [file join $OUTPUTS_DIR "${TOP_MODULE}.latest.v"]   "${TOP_MODULE}_${RUN_STAMP}.v"] {
-    catch { file delete -- $link }
-    exec ln -sfn $tgt $link
-}
+# Refresh the "latest" pointer. It targets the bare run-folder name so the
+# symlink stays valid even if the whole outputs/ directory is later moved.
+set LATEST_LINK [file join $OUTPUTS_DIR "latest"]
+catch { file delete -- $LATEST_LINK }
+exec ln -sfn $RUN_NAME $LATEST_LINK
 
 puts "INFO: Wrote GDS      -> $GDS_OUT"
 puts "INFO: Wrote netlist  -> $VLOG_OUT"
-puts "INFO: latest pointers -> ${TOP_MODULE}.latest.gds / ${TOP_MODULE}.latest.v"
+puts "INFO: latest run     -> outputs/latest -> ${RUN_NAME}/"
 
 set ACTIVE_STEP "06_finish"
 source [file dirname [info script]]/common/reporting.tcl

@@ -36,17 +36,6 @@ check_design_states -verbose
 set_block_pin_constraints -self -allowed_layers {Metal1 Metal2 Metal3} -pin_spacing 2
 
 set ports_top {
-    gpio_i[5] gpio_o[5] gpio_out_en_o[5]
-    gpio_i[6] gpio_o[6] gpio_out_en_o[6]
-    gpio_i[7] gpio_o[7] gpio_out_en_o[7]
-    gpio_i[8] gpio_o[8] gpio_out_en_o[8]
-    gpio_i[9] gpio_o[9] gpio_out_en_o[9]
-    gpio_i[10] gpio_o[10] gpio_out_en_o[10]
-    gpio_i[11] gpio_o[11] gpio_out_en_o[11]
-    gpio_i[12] gpio_o[12] gpio_out_en_o[12]
-    gpio_i[13] gpio_o[13] gpio_out_en_o[13]
-    gpio_i[14] gpio_o[14] gpio_out_en_o[14]
-    gpio_i[15] gpio_o[15] gpio_out_en_o[15]
     jtag_trst_ni
     testmode_i
 }
@@ -56,9 +45,7 @@ set ports_right {
     jtag_tdo_o
     rst_ni
     gpio_i[1] gpio_o[1] gpio_out_en_o[1]
-    gpio_i[3] gpio_o[3] gpio_out_en_o[3]
     uart_rx_i
-    gpio_i[4] gpio_o[4] gpio_out_en_o[4]
 }
 
 set ports_bottom {
@@ -74,10 +61,8 @@ set ports_bottom {
 set ports_left {
     ref_clk_i
     uart_tx_o
-    gpio_i[2] gpio_o[2] gpio_out_en_o[2]
     clk_i
     jtag_tdi_i
-    fetch_en_i
     gpio_i[0] gpio_o[0] gpio_out_en_o[0]
 }
 

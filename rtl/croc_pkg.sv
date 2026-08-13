@@ -50,9 +50,9 @@ package croc_pkg;
   // and then make sure it is implemented as an option in tc_sram_impl.sv
 
   /// Number of SRAM banks, each bank has its own OBI port (accessible in parallel)
-  localparam int unsigned NumSramBanks      = 32'd2;
+  localparam int unsigned NumSramBanks      = 32'd1;
   /// Number of 32-bit words per SRAM bank, determines the depth of each SRAM bank
-  localparam int unsigned SramBankNumWords  = 2048;
+  localparam int unsigned SramBankNumWords  = 512;
 
 
   //////////////////////

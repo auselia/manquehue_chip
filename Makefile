@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Croc SoC Physical Design Flow
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Unified Fusion Compiler (FC) RTL-to-GDS + KLayout DRC Makefile
+# Description: Unified Fusion Compiler (FC) RTL-to-GDS + KLayout/IC Validator DRC+LVS Makefile
 # -----------------------------------------------------------------------------
 
 SHELL := /bin/bash
@@ -172,6 +172,66 @@ LVS_DEVICE_CLASS_MAP ?=
 
 CACHE_DIR       := $(OUTPUTS_DIR)/.cache
 FOLDED_SC_CDL   := $(CACHE_DIR)/gf180mcu_fd_sc_mcu7t5v0.folded.cdl
+
+# ------------------------------------------------------------------------------
+# Sign-off / DRC + LVS configuration (Synopsys IC Validator + GF180MCU)
+# ------------------------------------------------------------------------------
+# Second, independent DRC/LVS engine using the ICV decks shipped alongside
+# the Synopsys PDK install (pdk_synopsys/DRC_ICV*, pdk_synopsys/LVS_ICV) --
+# useful as a cross-check against the KLayout `drc`/`lvs` targets above, or
+# on its own. LVS reuses the same verilog2spice.py/fold_wells.py helpers
+# from LVS_HOME/LVS_SC_CDL above; only the standard-cell CDL is re-folded
+# without the KLayout-specific model rename (see FOLDED_SC_CDL_ICV below).
+ICV_HOME_DIR      ?= /usr/synopsys/icvalidator/Y-2026.03-SP2
+ICV_PDK_HOME      ?= $(HOME)/pdk_synopsys
+ICV_HOST_INIT     ?= 4
+# Both ICV decks were authored assuming a 1nm (0.001um) GDS database unit,
+# but Fusion Compiler's write_gds exports at 0.1nm (0.0001um); without a
+# fix ICV aborts immediately with "ERROR: Library resolution "0.0001" does
+# not match specified runset layout_resolution "0.001"." This runset config
+# patches the deck's resolution_options() to match, via `icv -runset_config`
+# (confirmed 2026-08-14: both DRC decks and the LVS deck run clean with this
+# fix in place). If Fusion Compiler's GDS export precision ever changes,
+# update ICV_LAYOUT_RESOLUTION AND the matching value inside the file itself.
+ICV_RUNSET_CONFIG     ?= scripts/icv/resolution_override.rs
+ICV_LAYOUT_RESOLUTION ?= 0.0001
+
+# DRC: pick either the foundry-original, full-coverage deck (DRC_ICV/,
+# default -- needs BEOL_STACK/TOPMETAL/etc below) or the simpler, community-
+# ported DRC_ICV_MODIFIED/ deck (no extra env vars required, but its own
+# README warns it "may miss critical rules" -- see pdk_synopsys/
+# DRC_ICV_MODIFIED/DRC/ICV/README.md):
+#   make drc-icv ICV_DRC_RUNSET=$(ICV_PDK_HOME)/DRC_ICV_MODIFIED/DRC/ICV/gf180mcu_drc.rs
+ICV_DRC_RUNSET   ?= $(ICV_PDK_HOME)/DRC_ICV/DRC/ICV/gf180mcu_drc.rs
+# Required by DRC_ICV/gf180mcu_drc.rs. ICV_BEOL_STACK mirrors GF180MCU_OPT
+# above (A=1P3M B=1P4M C=1P5M); the rest have no equivalent in the KLayout
+# flow and default to the most common GF180MCU MCU tapeout choice --
+# override if your target metal stack/pad type differs.
+ICV_BEOL_STACK   ?= 1P5M
+ICV_TOPMETAL     ?= 9KA
+ICV_MIMCAP       ?= OPT_A
+ICV_PADBONDING   ?= WEDGE
+ICV_LATCH_CHECK  ?= DECK_ONLY
+# Extra icv command-line options, e.g. ICV_DRC_EXTRA="-svc *density*"
+ICV_DRC_EXTRA    ?=
+
+# LVS
+ICV_LVS_RUNSET   ?= $(ICV_PDK_HOME)/LVS_ICV/LVS/ICV/cmos018hv.3p3.6v.lvs.rs
+ICV_LVS_HOME     ?= $(patsubst %/,%,$(dir $(ICV_LVS_RUNSET)))
+# Extra icv command-line options, e.g. ICV_LVS_EXTRA="-vueshort"
+ICV_LVS_EXTRA    ?=
+# LVS_ICV's own unit.cdl declares device types in uppercase (NFET_05V0/
+# PFET_05V0, OpenPDK-style) and ICV compares device names case-insensitively
+# by default, so -- unlike the KLayout gf180mcu.lvs deck -- this needs NO
+# --rename-model: the real gf180mcu_fd_sc_mcu7t5v0 CDL's own lowercase
+# nfet_05v0/pfet_05v0 model names already match (confirmed 2026-08-14: ICV
+# LVS ran to completion and matched 117/118 hierarchical cells on croc_soc
+# with the plain, un-renamed fold below; the one remaining top-level
+# mismatch is very likely the same filler-cell ambiguity documented at
+# LVS_EXCLUDE_FROM_COMPARE above, not a naming issue). Folded separately
+# from FOLDED_SC_CDL above (same LVS_WELL_TIES, no LVS_MODEL_RENAME) and
+# cached alongside it; only rebuilt when the source CDL changes.
+FOLDED_SC_CDL_ICV := $(CACHE_DIR)/gf180mcu_fd_sc_mcu7t5v0.icv.folded.cdl
 
 # ------------------------------------------------------------------------------
 # Fusion Compiler dynamic step rules (from scripts/0*_*.tcl)
@@ -363,6 +423,171 @@ lvs:
 	 fi
 
 # ------------------------------------------------------------------------------
+# Physical Verification - Synopsys IC Validator DRC (GF180MCU)
+# ------------------------------------------------------------------------------
+# Runs `icv` on the run's GDS using the ICV decks under ICV_PDK_HOME
+# (pdk_synopsys/DRC_ICV by default). Results land in <run>/drc_icv/,
+# alongside the KLayout drc/ folder (if `make drc` also ran) -- both read
+# the exact same GDS, so they're a natural cross-check of each other.
+#
+# Typical use (after the FC flow has produced a GDS):
+#   make drc-icv                                     # checks outputs/latest
+#   make drc-icv ICV_BEOL_STACK=1P4M                  # 4LM stack instead of 5LM
+#   make drc-icv ICV_DRC_RUNSET=$(ICV_PDK_HOME)/DRC_ICV_MODIFIED/DRC/ICV/gf180mcu_drc.rs
+#   make drc-icv RUN=croc_soc_20260804_101500         # re-check an older run
+#   make finish drc-icv                               # build finish, then DRC
+.PHONY: drc-icv
+drc-icv:
+	@if [ ! -e "$(GDS)" ]; then \
+	  echo "[DRC-ICV] ERROR: GDS not found: $(GDS)"; \
+	  echo "[DRC-ICV] Run 'make finish' (or 'make all') first, or pass RUN=<run-folder> / GDS=<path/to.gds>."; \
+	  exit 1; \
+	fi
+	@if [ ! -x "$(ICV_HOME_DIR)/bin/icv" ]; then \
+	  echo "[DRC-ICV] ERROR: icv not found under ICV_HOME_DIR=$(ICV_HOME_DIR)"; \
+	  echo "[DRC-ICV] Set ICV_HOME_DIR to the IC Validator installation directory."; \
+	  exit 1; \
+	fi
+	@if [ ! -f "$(ICV_DRC_RUNSET)" ]; then \
+	  echo "[DRC-ICV] ERROR: runset not found: $(ICV_DRC_RUNSET)"; \
+	  echo "[DRC-ICV] Set ICV_PDK_HOME (or ICV_DRC_RUNSET directly) to where pdk_synopsys/DRC_ICV* lives."; \
+	  exit 1; \
+	fi
+	@gds_real="$$(readlink -f "$(GDS)")"; \
+	 run_dir="$$(dirname "$$gds_real")"; \
+	 out_dir="$$run_dir/drc_icv"; \
+	 mkdir -p "$$out_dir"; \
+	 set -o pipefail; \
+	 echo "[DRC-ICV] design : $$gds_real"; \
+	 echo "[DRC-ICV] runset : $(ICV_DRC_RUNSET)"; \
+	 echo "[DRC-ICV] stack  : BEOL_STACK=$(ICV_BEOL_STACK) TOPMETAL=$(ICV_TOPMETAL) MIMCAP=$(ICV_MIMCAP) PADBONDING=$(ICV_PADBONDING)"; \
+	 echo "[DRC-ICV] results: $$out_dir"; \
+	 ( cd "$$out_dir" && \
+	   PATH="$(ICV_HOME_DIR)/bin:$$PATH" ICV_HOME_DIR="$(ICV_HOME_DIR)" \
+	   BEOL_STACK="$(ICV_BEOL_STACK)" TOPMETAL="$(ICV_TOPMETAL)" \
+	   MIMCAP_SELECTION="$(ICV_MIMCAP)" PADBONDING="$(ICV_PADBONDING)" \
+	   LATCH_CHECK="$(ICV_LATCH_CHECK)" \
+	   icv -f gdsii -c "$(TOP)" -i "$$gds_real" -vue \
+	     -runset_config "$(REPO_DIR)/$(ICV_RUNSET_CONFIG)" \
+	     -host_init $(ICV_HOST_INIT) $(ICV_DRC_EXTRA) \
+	     "$(ICV_DRC_RUNSET)" \
+	 ) 2>&1 | tee "$$out_dir/drc_icv.log"
+	@echo "[DRC-ICV] Done. See <run>/drc_icv/$(TOP).RESULTS for the summary, or open"
+	@echo "[DRC-ICV]   <run>/drc_icv/$(TOP).vue in IC Validator Live DRC / VUE to browse violations."
+
+# ------------------------------------------------------------------------------
+# Physical Verification - Synopsys IC Validator LVS (GF180MCU)
+# ------------------------------------------------------------------------------
+# Rebuilds an ICV-flavored SPICE schematic from the exported gate-level
+# Verilog (same verilog2spice.py used by `make lvs`, but folded WITHOUT the
+# KLayout-specific --rename-model -- see FOLDED_SC_CDL_ICV above), then
+# runs ICV LVS comparing it against the GDS (black-boxing the same hard
+# macros as `make lvs`, via the same blackbox_gds_cells.rb). Results land
+# in <run>/lvs_icv/, alongside the KLayout lvs/ folder (if `make lvs` also
+# ran).
+#
+# Typical use (after the FC flow has produced a GDS + Verilog netlist):
+#   make lvs-icv                                     # latest run
+#   make lvs-icv ICV_BEOL_STACK=1P4M                  # 4LM stack instead of 5LM
+#   make lvs-icv RUN=croc_soc_20260804_101500         # re-check an older run
+#   make finish drc-icv lvs-icv                       # build, then DRC, then LVS
+.PHONY: lvs-icv
+lvs-icv:
+	@if [ ! -e "$(GDS)" ]; then \
+	  echo "[LVS-ICV] ERROR: GDS not found: $(GDS)"; \
+	  echo "[LVS-ICV] Run 'make finish' (or 'make all') first, or pass RUN=<run-folder> / GDS=<path/to.gds>."; \
+	  exit 1; \
+	fi
+	@if [ ! -e "$(VLOG)" ]; then \
+	  echo "[LVS-ICV] ERROR: Verilog netlist not found: $(VLOG)"; \
+	  echo "[LVS-ICV] Fusion Compiler must export it alongside the GDS (see 06_finish.tcl), or pass VLOG=<path/to.v>."; \
+	  exit 1; \
+	fi
+	@if [ ! -x "$(ICV_HOME_DIR)/bin/icv" ]; then \
+	  echo "[LVS-ICV] ERROR: icv not found under ICV_HOME_DIR=$(ICV_HOME_DIR)"; \
+	  echo "[LVS-ICV] Set ICV_HOME_DIR to the IC Validator installation directory."; \
+	  exit 1; \
+	fi
+	@if [ ! -f "$(ICV_LVS_RUNSET)" ]; then \
+	  echo "[LVS-ICV] ERROR: runset not found: $(ICV_LVS_RUNSET)"; \
+	  echo "[LVS-ICV] Set ICV_PDK_HOME (or ICV_LVS_RUNSET directly) to where pdk_synopsys/LVS_ICV lives."; \
+	  exit 1; \
+	fi
+	@if [ ! -f "$(LVS_HOME)/verilog2spice.py" ] || [ ! -f "$(LVS_HOME)/fold_wells.py" ]; then \
+	  echo "[LVS-ICV] ERROR: verilog2spice.py/fold_wells.py not found under LVS_HOME=$(LVS_HOME)"; \
+	  echo "[LVS-ICV] Set LVS_HOME to the folder holding them (shared with the KLayout 'lvs' target)."; \
+	  exit 1; \
+	fi
+	@if [ ! -e "$(LVS_SC_CDL)" ]; then \
+	  echo "[LVS-ICV] ERROR: standard-cell CDL not found: $(LVS_SC_CDL)"; \
+	  echo "[LVS-ICV] Set LVS_PDK_KIT (or LVS_SC_CDL directly) -- see the 'lvs' target above for details."; \
+	  exit 1; \
+	fi
+	@mkdir -p "$(CACHE_DIR)"
+	@if [ ! -e "$(FOLDED_SC_CDL_ICV)" ] || [ "$(LVS_SC_CDL)" -nt "$(FOLDED_SC_CDL_ICV)" ]; then \
+	  echo "[LVS-ICV] Preparing standard-cell CDL ($(LVS_WELL_TIES), no model rename): $(FOLDED_SC_CDL_ICV)"; \
+	  python3 "$(LVS_HOME)/fold_wells.py" $(LVS_WELL_TIES) "$(LVS_SC_CDL)" "$(FOLDED_SC_CDL_ICV)"; \
+	fi
+	@gds_real="$$(readlink -f "$(GDS)")"; \
+	 vlog_real="$$(readlink -f "$(VLOG)")"; \
+	 run_dir="$$(dirname "$$gds_real")"; \
+	 out_dir="$$run_dir/lvs_icv"; \
+	 mkdir -p "$$out_dir"; \
+	 set -o pipefail; \
+	 echo "[LVS-ICV] design  : $$gds_real"; \
+	 echo "[LVS-ICV] netlist : $$vlog_real"; \
+	 echo "[LVS-ICV] runset  : $(ICV_LVS_RUNSET)"; \
+	 echo "[LVS-ICV] stack   : BEOL_STACK=$(ICV_BEOL_STACK)"; \
+	 echo "[LVS-ICV] results : $$out_dir"; \
+	 echo "[LVS-ICV] Verilog -> SPICE ($(TOP).sp) via verilog2spice.py ..."; \
+	 python3 "$(LVS_HOME)/verilog2spice.py" \
+	     -v "$$vlog_real" -c "$(FOLDED_SC_CDL_ICV)" \
+	     $(foreach cdl,$(LVS_BLACKBOX_CDL),--blackbox-cdl "$(cdl)") \
+	     -o "$$out_dir/$(TOP).sp" \
+	   2>&1 | tee "$$out_dir/verilog2spice.log"; \
+	 v2s_status=$${PIPESTATUS[0]}; \
+	 if [ "$$v2s_status" -ne 0 ]; then \
+	   echo "[LVS-ICV] ERROR: verilog2spice.py reported missing cells (exit $$v2s_status)."; \
+	   echo "[LVS-ICV] Check $$out_dir/verilog2spice.log -- a macro's CDL is likely missing from LVS_BLACKBOX_CDL."; \
+	   exit 1; \
+	 fi; \
+	 lvs_gds="$$gds_real"; \
+	 if [ -n "$(strip $(LVS_BLACKBOX_CELLS))" ]; then \
+	   echo "[LVS-ICV] Black-boxing hard macro(s) in a copy of the GDS ($(LVS_BLACKBOX_CELLS)) ..."; \
+	   echo "[LVS-ICV] ($(GDS) itself is untouched -- this only affects what LVS signs off against.)"; \
+	   klayout -b -r "$(LVS_HOME)/blackbox_gds_cells.rb" \
+	       -rd input="$$gds_real" \
+	       -rd output="$$out_dir/$(TOP).lvs_blackbox.gds" \
+	       -rd cells="$(subst $(space),$(comma),$(LVS_BLACKBOX_CELLS))" \
+	     2>&1 | tee "$$out_dir/blackbox_gds.log"; \
+	   bb_status=$${PIPESTATUS[0]}; \
+	   if [ "$$bb_status" -ne 0 ]; then \
+	     echo "[LVS-ICV] ERROR: blackbox_gds_cells.rb failed (exit $$bb_status), see $$out_dir/blackbox_gds.log"; \
+	     exit 1; \
+	   fi; \
+	   lvs_gds="$$out_dir/$(TOP).lvs_blackbox.gds"; \
+	 fi; \
+	 echo "[LVS-ICV] Running IC Validator LVS (GF180MCU) ..."; \
+	 ( cd "$$out_dir" && \
+	   PATH="$(ICV_HOME_DIR)/bin:$$PATH" ICV_HOME_DIR="$(ICV_HOME_DIR)" \
+	   ICV_LVS="$(ICV_LVS_HOME)" BEOL_STACK="$(ICV_BEOL_STACK)" \
+	   icv -f gdsii -c "$(TOP)" -i "$$lvs_gds" \
+	     -s "$$out_dir/$(TOP).sp" -sf SPICE -vue \
+	     -runset_config "$(REPO_DIR)/$(ICV_RUNSET_CONFIG)" \
+	     -host_init $(ICV_HOST_INIT) $(ICV_LVS_EXTRA) \
+	     "$(ICV_LVS_RUNSET)" \
+	 ) 2>&1 | tee "$$out_dir/lvs_icv.log"; \
+	 if grep -q "LVS Compare Result: PASS" "$$out_dir/$(TOP).RESULTS" 2>/dev/null; then \
+	   echo "[LVS-ICV] MATCH. See $$out_dir/$(TOP).RESULTS for the summary, or open"; \
+	   echo "[LVS-ICV]   $$out_dir/$(TOP).vue in IC Validator Live DRC / VUE to browse the compare tree."; \
+	 else \
+	   echo "[LVS-ICV] MISMATCH (or run failed). See $$out_dir/$(TOP).RESULTS for the summary, or open"; \
+	   echo "[LVS-ICV]   $$out_dir/$(TOP).vue in IC Validator Live DRC / VUE to see exactly which"; \
+	   echo "[LVS-ICV]   circuits/nets/devices differ."; \
+	   exit 1; \
+	 fi
+
+# ------------------------------------------------------------------------------
 # Clean
 # ------------------------------------------------------------------------------
 .PHONY: clean distclean
@@ -456,6 +681,8 @@ help:
 	@echo "  make all        – Run all available Fusion Compiler steps sequentially"
 	@echo "  make drc        – KLayout GF180MCU DRC on the latest run's GDS"
 	@echo "  make lvs        – Verilog->SPICE + KLayout GF180MCU LVS on the latest run"
+	@echo "  make drc-icv    – Synopsys IC Validator GF180MCU DRC on the latest run's GDS"
+	@echo "  make lvs-icv    – Verilog->SPICE + Synopsys IC Validator GF180MCU LVS"
 	@echo "  make clean      – Delete the 'work', 'logs', and 'reports' directories"
 	@echo "  make distclean  – clean + also delete 'outputs' (exported GDS/netlists/results)"
 	@echo ""
@@ -491,12 +718,20 @@ help:
 	@echo "                                       has the real macro)"
 	@echo "  make finish drc lvs                – build finish, then DRC, then LVS"
 	@echo ""
+	@echo "DRC/LVS options (Synopsys IC Validator / GF180MCU):"
+	@echo "  make drc-icv ICV_BEOL_STACK=1P5M    – metal stack 1P3M=A 1P4M=B 1P5M=C (default 1P5M)"
+	@echo "  make drc-icv ICV_DRC_RUNSET=...     – switch to DRC_ICV_MODIFIED/ or a custom deck"
+	@echo "  make lvs-icv ICV_PDK_HOME=/path     – where pdk_synopsys/{DRC_ICV,LVS_ICV} live"
+	@echo "  make finish drc-icv lvs-icv         – build finish, then IC Validator DRC, then LVS"
+	@echo ""
 	@echo "Outputs (one self-contained folder per Fusion Compiler run):"
 	@echo "  outputs/$(TOP)_<timestamp>/$(TOP).gds/.v  – timestamped, never overwritten"
 	@echo "  outputs/latest                      – symlink to the most recent run folder"
-	@echo "  outputs/<run>/drc/                  – DRC .lyrdb + logs for that run"
-	@echo "  outputs/<run>/lvs/                  – LVS .sp/.lvsdb/extracted netlist + logs"
-	@echo "  outputs/.cache/                     – cached folded CDL (rebuilt only if stale)"
+	@echo "  outputs/<run>/drc/                  – KLayout DRC .lyrdb + logs for that run"
+	@echo "  outputs/<run>/lvs/                  – KLayout LVS .sp/.lvsdb/extracted netlist + logs"
+	@echo "  outputs/<run>/drc_icv/               – IC Validator DRC .RESULTS/.vue + logs"
+	@echo "  outputs/<run>/lvs_icv/               – IC Validator LVS .sp/.RESULTS/.vue + logs"
+	@echo "  outputs/.cache/                     – cached folded CDLs (rebuilt only if stale)"
 	@echo ""
 	@echo "Simulation (Verilator):"
 	@echo "  make sim                       – Compile + run (defaults to helloworld)"

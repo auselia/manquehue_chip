@@ -67,6 +67,10 @@ switch $ACTIVE_STEP {
         catch { redirect -file ${REPORT_DIR}/report_signal_em.rpt { report_signal_em } }
     }
 
+    "07_pt_export" {
+        redirect -file ${REPORT_DIR}/report_parasitics.rpt { report_parasitics }
+    }
+
     default {
         puts "WARNING: No stage-specific reporting mapped for $ACTIVE_STEP."
     }

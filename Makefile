@@ -252,6 +252,69 @@ ICV_FILL_INCLUDE_DIR  ?= $(ICV_PDK_HOME)/DRC_ICV_MODIFIED/DRC/ICV
 ICV_FILL_EXTRA        ?=
 
 # ------------------------------------------------------------------------------
+# Sign-off STA / power - Synopsys PrimeTime + PrimePower (GF180MCU, MCMM)
+# ------------------------------------------------------------------------------
+# Reads the SDC + per-corner SPEF that the FC flow's own scripts/07_pt_export.tcl
+# step writes into outputs/<run>/ (same folder as GDS/Verilog -- see that
+# script's header comment for why one write_parasitics call produces 3 SPEF
+# files, one per MCMM corner temperature). `make sta-pt`/`make power-pp`
+# don't depend on `pt_export` the way FC's own numbered steps chain off each
+# other -- like drc/lvs/drc-icv above, they just check the SDC/SPEF exist and
+# tell you to run `make pt_export` if not, rather than silently kicking off a
+# (potentially multi-hour) FC re-run as a side effect.
+PT_HOME_DIR ?= /usr/synopsys/prime/Y-2026.03-SP2
+SDC  ?= $(OUTPUTS_DIR)/$(RUN)/$(TOP).sdc
+
+# PrimeTime has no notion of FC's in-design MCMM (create_corner/create_mode/
+# create_scenario is an FC/ICC2-specific API -- confirmed 2026-08-15 that
+# plain pt_shell doesn't even have those commands, and pt_shell -multi_scenario
+# only adds create_scenario, built for distributing scenarios across a host
+# farm via per-scenario common_data/specific_data scripts). scripts/pt/
+# sta_corner.tcl instead runs one classic pt_shell session per corner, so
+# each corner's liberty views are spelled out explicitly here. Voltage/
+# temperature match scripts/common/mcmm.tcl's 3 corners exactly (slow=SS/
+# 3.0V/125C, typical=TT/3.3V/25C, fast=FF/3.6V/-40C); filenames are this PDK
+# kit's own gf180mcu_fd_sc_mcu7t5v0/gf180mcu_fd_io .db naming for that same
+# PVT triple (confirmed present under PT_PDK_DB_DIR 2026-08-15).
+PT_PDK_DB_DIR    ?= $(ICV_PDK_HOME)/db
+PT_SC_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ss_125C_3v00.db
+PT_SC_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__tt_025C_3v30.db
+PT_SC_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_3v60.db
+PT_IO_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ss_125C_2v97.db
+PT_IO_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__tt_025C_3v30.db
+PT_IO_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ff_n40C_3v63.db
+
+# SRAM macro: this PDK kit ships exactly ONE SRAM characterization
+# (gf180mcu_fd_ip_sram__sram512x8m8wm1, tt/25C/5.0V -- no ss/ff corner views,
+# and at 5.0V rather than this design's 3.0-3.6V MCMM rail; power_grid.tcl
+# ties every macro including the SRAM to the single design-wide VDD/VSS net,
+# so there is no separate 5V supply on this chip for a 5V characterization to
+# genuinely correspond to). Reused across all 3 corners below -- a real
+# PDK-IP gap inherited from pdk_synopsys, not a shortcut taken here; see the
+# session summary and scripts/pt/sta_corner.tcl's header comment. Only
+# shipped as .lib (text), not .db; Library Compiler (lc_shell, same Synopsys
+# install family as the rest of this flow) converts it once, cached the same
+# way FOLDED_SC_CDL is above and only rebuilt if the source .lib changes.
+PT_SRAM_LIB ?= $(HOME)/pdk_synopsys/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.lib
+PT_SRAM_DB  := $(CACHE_DIR)/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db
+LC_HOME_DIR ?= /usr/synopsys/lc/Y-2026.03-SP1
+
+# PrimePower: vectorless (default/statistical switching activity) analysis --
+# this environment has no gate-level VCD/SAIF from a real workload run yet
+# (sim/ only has scripts + sw sources, no captured activity dump), so power
+# numbers below are an early/averaged estimate, not simulation-derived
+# signoff power. Set PP_SAIF to a real activity file once one exists.
+PP_SAIF ?=
+PP_DEFAULT_TOGGLE_RATE ?= 0.1
+PP_DEFAULT_STATIC_PROB ?= 0.5
+# Default to `fast` only, mirroring mcmm.tcl's own set_scenario_status (only
+# the fast=FF/3.6V/-40C scenario has dynamic_power/leakage_power enabled --
+# highest MCMM voltage, dominates both switching and leakage power enough to
+# outweigh the low-temperature leakage reduction). Override to check other
+# corners too, e.g. PP_CORNERS="slow typical fast".
+PP_CORNERS ?= fast
+
+# ------------------------------------------------------------------------------
 # Fusion Compiler dynamic step rules (from scripts/0*_*.tcl)
 # ------------------------------------------------------------------------------
 # This block automatically reads any TCL file in scripts/ that starts with a number 
@@ -664,6 +727,173 @@ fill-icv:
 	 echo "[FILL-ICV]   Or full DRC with:      make drc GDS=$$out_dir/filled.gds"
 
 # ------------------------------------------------------------------------------
+# Signoff STA - Synopsys PrimeTime (GF180MCU, MCMM: slow/typical/fast)
+# ------------------------------------------------------------------------------
+# Runs one classic pt_shell session per corner (see scripts/pt/sta_corner.tcl's
+# header comment for why, instead of PT's own -multi_scenario distributed
+# mode) against the SDC + per-corner SPEF `make pt_export` wrote. Setup is
+# checked at slow+typical, hold at fast -- mirrors scripts/common/mcmm.tcl's
+# own set_scenario_status split exactly (the existing, already-validated FC
+# in-design convention: setup is worst at the slowest corner, hold is worst
+# at the fastest). Results land in <run>/sta_pt/: report_timing_setup /
+# report_constraint_setup / report_qor per slow+typical corner,
+# report_timing_hold / report_constraint_hold / report_qor for fast, plus a
+# combined summary printed at the end of the run.
+#
+# Typical use (after `make finish pt_export`):
+#   make sta-pt                                # all 3 corners, outputs/latest
+#   make sta-pt RUN=croc_soc_20260804_101500   # re-check an older run
+.PHONY: sta-pt
+sta-pt:
+	@if [ ! -x "$(PT_HOME_DIR)/bin/pt_shell" ]; then \
+	  echo "[STA-PT] ERROR: pt_shell not found under PT_HOME_DIR=$(PT_HOME_DIR)"; \
+	  exit 1; \
+	fi
+	@if [ ! -e "$(SDC)" ]; then \
+	  echo "[STA-PT] ERROR: SDC not found: $(SDC)"; \
+	  echo "[STA-PT] Run 'make pt_export' first (writes SDC+SPEF alongside GDS/Verilog)."; \
+	  exit 1; \
+	fi
+	@mkdir -p "$(CACHE_DIR)"
+	@if [ ! -e "$(PT_SRAM_DB)" ] || [ "$(PT_SRAM_LIB)" -nt "$(PT_SRAM_DB)" ]; then \
+	  echo "[STA-PT] Compiling SRAM liberty -> db (Library Compiler): $(PT_SRAM_DB)"; \
+	  PATH="$(LC_HOME_DIR)/bin:$$PATH" lc_shell -x " \
+	    read_lib $(PT_SRAM_LIB); \
+	    write_lib gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00 -format db -output $(PT_SRAM_DB); \
+	    exit" 2>&1 | tee "$(CACHE_DIR)/lc_sram.log"; \
+	  if [ ! -e "$(PT_SRAM_DB)" ]; then \
+	    echo "[STA-PT] ERROR: SRAM db compile failed, see $(CACHE_DIR)/lc_sram.log"; exit 1; \
+	  fi; \
+	fi
+	@vlog_real="$$(readlink -f "$(VLOG)")"; \
+	 sdc_real="$$(readlink -f "$(SDC)")"; \
+	 run_dir="$$(dirname "$$vlog_real")"; \
+	 out_dir="$$run_dir/sta_pt"; \
+	 mkdir -p "$$out_dir"; \
+	 set -o pipefail; \
+	 echo "[STA-PT] design  : $$vlog_real"; \
+	 echo "[STA-PT] sdc     : $$sdc_real"; \
+	 echo "[STA-PT] results : $$out_dir"; \
+	 for spec in "slow $(PT_SC_DB_slow) $(PT_IO_DB_slow) typ_125" \
+	             "typical $(PT_SC_DB_typical) $(PT_IO_DB_typical) typ_25" \
+	             "fast $(PT_SC_DB_fast) $(PT_IO_DB_fast) typ_-40"; do \
+	   set -- $$spec; corner=$$1; sc_db=$$2; io_db=$$3; spef_suffix=$$4; \
+	   spef="$$run_dir/$(TOP).$${spef_suffix}.spef"; \
+	   if [ ! -e "$$spef" ]; then \
+	     echo "[STA-PT] ERROR: SPEF not found for corner $$corner: $$spef"; \
+	     echo "[STA-PT] Run 'make pt_export' first."; \
+	     exit 1; \
+	   fi; \
+	   echo "[STA-PT] --- corner: $$corner ---"; \
+	   PATH="$(PT_HOME_DIR)/bin:$$PATH" pt_shell -x " \
+	     set CORNER $$corner; \
+	     set TOP $(TOP); \
+	     set VLOG $$vlog_real; \
+	     set SDC_FILE $$sdc_real; \
+	     set SPEF_FILE $$spef; \
+	     set SC_DB $$sc_db; \
+	     set IO_DB $$io_db; \
+	     set SRAM_DB $(PT_SRAM_DB); \
+	     set REPORT_DIR $$out_dir; \
+	     source $(REPO_DIR)/scripts/pt/sta_corner.tcl; \
+	     exit" \
+	   2>&1 | tee "$$out_dir/sta_pt.$$corner.log"; \
+	 done; \
+	 echo "[STA-PT] ================ Summary ================"; \
+	 for corner in slow typical; do \
+	   echo "[STA-PT] setup @ $$corner (Path Group 'clock'):"; \
+	   grep -A5 "Timing Path Group 'clock' (max_delay/setup)" "$$out_dir/report_qor.$$corner.rpt" 2>/dev/null | sed 's/^/  /'; \
+	 done; \
+	 echo "[STA-PT] hold @ fast (Path Group 'clock'):"; \
+	 grep -A5 "Timing Path Group 'clock' (min_delay/hold)" "$$out_dir/report_qor.fast.rpt" 2>/dev/null | sed 's/^/  /'; \
+	 echo "[STA-PT] Full reports: $$out_dir/*.rpt"
+
+# ------------------------------------------------------------------------------
+# Power analysis - Synopsys PrimePower (GF180MCU)
+# ------------------------------------------------------------------------------
+# Reuses the exact same netlist/SDC/SPEF/liberty setup as sta-pt (see
+# scripts/pt/power_corner.tcl -- power commands live directly in pt_shell,
+# not a separate pwr_shell session; that launcher disables read_verilog and
+# expects to attach to an already-built session instead), then applies
+# vectorless (default toggle_rate/static_probability) switching activity and
+# reports power. Set PP_SAIF=<path/to.saif> to use real simulated activity
+# instead once one exists; empty (the default) uses the vectorless estimate.
+#
+# Typical use (after `make finish pt_export`):
+#   make power-pp                                # fast corner only (default)
+#   make power-pp PP_CORNERS="slow typical fast"  # all 3, for comparison
+#   make power-pp PP_SAIF=sim/build/croc.saif     # real activity once available
+.PHONY: power-pp
+power-pp:
+	@if [ ! -x "$(PT_HOME_DIR)/bin/pt_shell" ]; then \
+	  echo "[POWER-PP] ERROR: pt_shell not found under PT_HOME_DIR=$(PT_HOME_DIR)"; \
+	  exit 1; \
+	fi
+	@if [ ! -e "$(SDC)" ]; then \
+	  echo "[POWER-PP] ERROR: SDC not found: $(SDC)"; \
+	  echo "[POWER-PP] Run 'make pt_export' first (writes SDC+SPEF alongside GDS/Verilog)."; \
+	  exit 1; \
+	fi
+	@mkdir -p "$(CACHE_DIR)"
+	@if [ ! -e "$(PT_SRAM_DB)" ] || [ "$(PT_SRAM_LIB)" -nt "$(PT_SRAM_DB)" ]; then \
+	  echo "[POWER-PP] Compiling SRAM liberty -> db (Library Compiler): $(PT_SRAM_DB)"; \
+	  PATH="$(LC_HOME_DIR)/bin:$$PATH" lc_shell -x " \
+	    read_lib $(PT_SRAM_LIB); \
+	    write_lib gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00 -format db -output $(PT_SRAM_DB); \
+	    exit" 2>&1 | tee "$(CACHE_DIR)/lc_sram.log"; \
+	  if [ ! -e "$(PT_SRAM_DB)" ]; then \
+	    echo "[POWER-PP] ERROR: SRAM db compile failed, see $(CACHE_DIR)/lc_sram.log"; exit 1; \
+	  fi; \
+	fi
+	@vlog_real="$$(readlink -f "$(VLOG)")"; \
+	 sdc_real="$$(readlink -f "$(SDC)")"; \
+	 run_dir="$$(dirname "$$vlog_real")"; \
+	 out_dir="$$run_dir/power_pp"; \
+	 mkdir -p "$$out_dir"; \
+	 set -o pipefail; \
+	 echo "[POWER-PP] design  : $$vlog_real"; \
+	 echo "[POWER-PP] sdc     : $$sdc_real"; \
+	 echo "[POWER-PP] corners : $(PP_CORNERS)"; \
+	 echo "[POWER-PP] results : $$out_dir"; \
+	 for corner in $(PP_CORNERS); do \
+	   case $$corner in \
+	     slow)    sc_db="$(PT_SC_DB_slow)";    io_db="$(PT_IO_DB_slow)";    spef_suffix=typ_125 ;; \
+	     typical) sc_db="$(PT_SC_DB_typical)"; io_db="$(PT_IO_DB_typical)"; spef_suffix=typ_25  ;; \
+	     fast)    sc_db="$(PT_SC_DB_fast)";    io_db="$(PT_IO_DB_fast)";    spef_suffix=typ_-40 ;; \
+	     *) echo "[POWER-PP] ERROR: unknown corner '$$corner' (expected slow|typical|fast)"; exit 1 ;; \
+	   esac; \
+	   spef="$$run_dir/$(TOP).$${spef_suffix}.spef"; \
+	   if [ ! -e "$$spef" ]; then \
+	     echo "[POWER-PP] ERROR: SPEF not found for corner $$corner: $$spef"; \
+	     echo "[POWER-PP] Run 'make pt_export' first."; \
+	     exit 1; \
+	   fi; \
+	   echo "[POWER-PP] --- corner: $$corner ---"; \
+	   PATH="$(PT_HOME_DIR)/bin:$$PATH" pt_shell -x " \
+	     set CORNER $$corner; \
+	     set TOP $(TOP); \
+	     set VLOG $$vlog_real; \
+	     set SDC_FILE $$sdc_real; \
+	     set SPEF_FILE $$spef; \
+	     set SC_DB $$sc_db; \
+	     set IO_DB $$io_db; \
+	     set SRAM_DB $(PT_SRAM_DB); \
+	     set REPORT_DIR $$out_dir; \
+	     set PP_TOGGLE_RATE $(PP_DEFAULT_TOGGLE_RATE); \
+	     set PP_STATIC_PROB $(PP_DEFAULT_STATIC_PROB); \
+	     set PP_SAIF {$(PP_SAIF)}; \
+	     source $(REPO_DIR)/scripts/pt/power_corner.tcl; \
+	     exit" \
+	   2>&1 | tee "$$out_dir/power_pp.$$corner.log"; \
+	 done; \
+	 echo "[POWER-PP] ================ Summary ================"; \
+	 for corner in $(PP_CORNERS); do \
+	   echo "[POWER-PP] $$corner:"; \
+	   grep "Total Power" "$$out_dir/report_power_summary.$$corner.rpt" 2>/dev/null | sed 's/^/  /'; \
+	 done; \
+	 echo "[POWER-PP] Full reports: $$out_dir/*.rpt"
+
+# ------------------------------------------------------------------------------
 # Clean
 # ------------------------------------------------------------------------------
 .PHONY: clean distclean
@@ -760,6 +990,8 @@ help:
 	@echo "  make drc-icv    – Synopsys IC Validator GF180MCU DRC on the latest run's GDS"
 	@echo "  make lvs-icv    – Verilog->SPICE + Synopsys IC Validator GF180MCU LVS"
 	@echo "  make fill-icv   – Synopsys IC Validator Metal1-5 dummy fill (density signoff)"
+	@echo "  make sta-pt     – Synopsys PrimeTime signoff STA (MCMM: slow/typical/fast)"
+	@echo "  make power-pp   – Synopsys PrimePower power analysis"
 	@echo "  make clean      – Delete the 'work', 'logs', and 'reports' directories"
 	@echo "  make distclean  – clean + also delete 'outputs' (exported GDS/netlists/results)"
 	@echo ""
@@ -770,6 +1002,7 @@ help:
 	@echo "  make cts"
 	@echo "  make route"
 	@echo "  make finish"
+	@echo "  make pt_export  (writes SDC + per-corner SPEF for sta-pt/power-pp)"
 	@echo ""
 	@echo "Run selection (shared by drc and lvs):"
 	@echo "  make drc                           – sign off outputs/latest (default)"
@@ -807,6 +1040,20 @@ help:
 	@echo "                                       – re-check density on the filled GDS (KLayout)"
 	@echo "  make finish fill-icv                – build finish, then fill"
 	@echo ""
+	@echo "Signoff STA / power (Synopsys PrimeTime / PrimePower):"
+	@echo "  make pt_export                       – FC step: write SDC + per-corner SPEF to outputs/<run>/"
+	@echo "  make sta-pt                          – PrimeTime STA, all 3 MCMM corners (slow/typical/fast)"
+	@echo "  make sta-pt RUN=$(TOP)_20260804_101500 – re-check an older run"
+	@echo "  make finish pt_export sta-pt          – build, export SDC/SPEF, then run signoff STA"
+	@echo "  Setup is checked at slow+typical, hold at fast (mirrors scripts/common/mcmm.tcl's"
+	@echo "  own set_scenario_status split). SRAM macro uses the same tt/25C/5.0V liberty view"
+	@echo "  at all 3 corners -- this PDK kit ships no ss/ff SRAM characterization (see"
+	@echo "  scripts/pt/sta_corner.tcl header comment); everything else is corner-accurate."
+	@echo ""
+	@echo "  make power-pp                        – PrimePower analysis, same SDC/SPEF/libs as sta-pt"
+	@echo "  Vectorless (default switching activity) power estimate -- no gate-level VCD/SAIF from a"
+	@echo "  real workload exists yet in this environment; set PP_SAIF=<file> once one does."
+	@echo ""
 	@echo "Outputs (one self-contained folder per Fusion Compiler run):"
 	@echo "  outputs/$(TOP)_<timestamp>/$(TOP).gds/.v  – timestamped, never overwritten"
 	@echo "  outputs/latest                      – symlink to the most recent run folder"
@@ -815,7 +1062,10 @@ help:
 	@echo "  outputs/<run>/drc_icv/               – IC Validator DRC .RESULTS/.vue + logs"
 	@echo "  outputs/<run>/lvs_icv/               – IC Validator LVS .sp/.RESULTS/.vue + logs"
 	@echo "  outputs/<run>/fill_icv/              – IC Validator filled.gds + logs"
-	@echo "  outputs/.cache/                     – cached folded CDLs (rebuilt only if stale)"
+	@echo "  outputs/<run>/$(TOP).sdc, .typ_*.spef – pt_export's SDC + per-corner parasitics"
+	@echo "  outputs/<run>/sta_pt/                – PrimeTime timing/constraint/QoR reports"
+	@echo "  outputs/<run>/power_pp/               – PrimePower reports"
+	@echo "  outputs/.cache/                     – cached folded CDLs + SRAM liberty->db (rebuilt only if stale)"
 	@echo ""
 	@echo "Simulation (Verilator):"
 	@echo "  make sim                       – Compile + run (defaults to helloworld)"

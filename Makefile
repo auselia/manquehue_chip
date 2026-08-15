@@ -208,7 +208,7 @@ ICV_DRC_RUNSET   ?= $(ICV_PDK_HOME)/DRC_ICV/DRC/ICV/gf180mcu_drc.rs
 # flow and default to the most common GF180MCU MCU tapeout choice --
 # override if your target metal stack/pad type differs.
 ICV_BEOL_STACK   ?= 1P5M
-ICV_TOPMETAL     ?= 9KA
+ICV_TOPMETAL     ?= 11KA
 ICV_MIMCAP       ?= OPT_A
 ICV_PADBONDING   ?= WEDGE
 ICV_LATCH_CHECK  ?= DECK_ONLY
@@ -232,6 +232,24 @@ ICV_LVS_EXTRA    ?=
 # from FOLDED_SC_CDL above (same LVS_WELL_TIES, no LVS_MODEL_RENAME) and
 # cached alongside it; only rebuilt when the source CDL changes.
 FOLDED_SC_CDL_ICV := $(CACHE_DIR)/gf180mcu_fd_sc_mcu7t5v0.icv.folded.cdl
+
+# Metal fill (density signoff). scripts/icv/croc_metal_fill.rs is a
+# purpose-built Metal1-Metal5 dummy-fill runset (not a pdk_synopsys file --
+# it lives in this repo) derived from pdk_synopsys/DRC_ICV_MODIFIED/DRC/
+# ICV/gf180mcu_fill.rs; see that file's header comment for the full
+# derivation and validation history (datatype fix, pad-ring-heuristic
+# removal, spacing retune against real GF180MCU DRC minimums). It still
+# needs -I pointed at DRC_ICV_MODIFIED/DRC/ICV for its
+# #include "gf180mcu_layers.rh".
+# Validated 2026-08-14 on croc_soc: raises Metal1-5 coverage from
+# 30.2%/18.9%/25.2%/17.7%/13.3% to 33.3%/39.4%/44.1%/60.8%/64.5% (all
+# above the gf180mcu_density.drc 30% signoff threshold), and a full
+# (non-density-only) KLayout DRC re-check found zero new violations
+# versus the unfilled baseline.
+ICV_FILL_RUNSET       ?= scripts/icv/croc_metal_fill.rs
+ICV_FILL_INCLUDE_DIR  ?= $(ICV_PDK_HOME)/DRC_ICV_MODIFIED/DRC/ICV
+# Extra icv command-line options, e.g. ICV_FILL_EXTRA="-vue"
+ICV_FILL_EXTRA        ?=
 
 # ------------------------------------------------------------------------------
 # Fusion Compiler dynamic step rules (from scripts/0*_*.tcl)
@@ -588,6 +606,64 @@ lvs-icv:
 	 fi
 
 # ------------------------------------------------------------------------------
+# Metal Fill - Synopsys IC Validator (GF180MCU, density signoff)
+# ------------------------------------------------------------------------------
+# Runs scripts/icv/croc_metal_fill.rs against the run's GDS and writes a new,
+# fill-merged GDS to <run>/fill_icv/filled.gds. See ICV_FILL_RUNSET above for
+# the validation history. This does NOT overwrite $(GDS) or touch outputs/
+# in place -- filled.gds is a distinct artifact; point drc/drc-icv/lvs/
+# lvs-icv at it explicitly (GDS=.../fill_icv/filled.gds) to sign it off.
+#
+# Typical use (after the FC flow has produced a GDS):
+#   make fill-icv                                    # latest run
+#   make fill-icv RUN=croc_soc_20260804_101500        # an older run
+#   make drc GDS=outputs/latest/fill_icv/filled.gds DRC_EXTRA=--density_only  # verify density
+#   make finish fill-icv                              # build finish, then fill
+.PHONY: fill-icv
+fill-icv:
+	@if [ ! -e "$(GDS)" ]; then \
+	  echo "[FILL-ICV] ERROR: GDS not found: $(GDS)"; \
+	  echo "[FILL-ICV] Run 'make finish' (or 'make all') first, or pass RUN=<run-folder> / GDS=<path/to.gds>."; \
+	  exit 1; \
+	fi
+	@if [ ! -x "$(ICV_HOME_DIR)/bin/icv" ]; then \
+	  echo "[FILL-ICV] ERROR: icv not found under ICV_HOME_DIR=$(ICV_HOME_DIR)"; \
+	  echo "[FILL-ICV] Set ICV_HOME_DIR to the IC Validator installation directory."; \
+	  exit 1; \
+	fi
+	@if [ ! -f "$(ICV_FILL_RUNSET)" ]; then \
+	  echo "[FILL-ICV] ERROR: runset not found: $(ICV_FILL_RUNSET)"; \
+	  exit 1; \
+	fi
+	@if [ ! -d "$(ICV_FILL_INCLUDE_DIR)" ]; then \
+	  echo "[FILL-ICV] ERROR: include dir not found: $(ICV_FILL_INCLUDE_DIR)"; \
+	  echo "[FILL-ICV] Set ICV_PDK_HOME (or ICV_FILL_INCLUDE_DIR directly) to where pdk_synopsys/DRC_ICV_MODIFIED lives."; \
+	  exit 1; \
+	fi
+	@gds_real="$$(readlink -f "$(GDS)")"; \
+	 run_dir="$$(dirname "$$gds_real")"; \
+	 out_dir="$$run_dir/fill_icv"; \
+	 mkdir -p "$$out_dir"; \
+	 set -o pipefail; \
+	 echo "[FILL-ICV] design : $$gds_real"; \
+	 echo "[FILL-ICV] runset : $(ICV_FILL_RUNSET)"; \
+	 echo "[FILL-ICV] results: $$out_dir"; \
+	 ( cd "$$out_dir" && \
+	   PATH="$(ICV_HOME_DIR)/bin:$$PATH" ICV_HOME_DIR="$(ICV_HOME_DIR)" \
+	   icv -f gdsii -c "$(TOP)" -i "$$gds_real" \
+	     -I "$(ICV_FILL_INCLUDE_DIR)" \
+	     -host_init $(ICV_HOST_INIT) $(ICV_FILL_EXTRA) \
+	     "$(REPO_DIR)/$(ICV_FILL_RUNSET)" \
+	 ) 2>&1 | tee "$$out_dir/fill_icv.log"; \
+	 if [ ! -e "$$out_dir/filled.gds" ]; then \
+	   echo "[FILL-ICV] ERROR: filled.gds was not produced -- check $$out_dir/fill_icv.log"; \
+	   exit 1; \
+	 fi; \
+	 echo "[FILL-ICV] Done. Filled GDS: $$out_dir/filled.gds"; \
+	 echo "[FILL-ICV]   Re-check density with: make drc GDS=$$out_dir/filled.gds DRC_EXTRA=--density_only"; \
+	 echo "[FILL-ICV]   Or full DRC with:      make drc GDS=$$out_dir/filled.gds"
+
+# ------------------------------------------------------------------------------
 # Clean
 # ------------------------------------------------------------------------------
 .PHONY: clean distclean
@@ -683,6 +759,7 @@ help:
 	@echo "  make lvs        – Verilog->SPICE + KLayout GF180MCU LVS on the latest run"
 	@echo "  make drc-icv    – Synopsys IC Validator GF180MCU DRC on the latest run's GDS"
 	@echo "  make lvs-icv    – Verilog->SPICE + Synopsys IC Validator GF180MCU LVS"
+	@echo "  make fill-icv   – Synopsys IC Validator Metal1-5 dummy fill (density signoff)"
 	@echo "  make clean      – Delete the 'work', 'logs', and 'reports' directories"
 	@echo "  make distclean  – clean + also delete 'outputs' (exported GDS/netlists/results)"
 	@echo ""
@@ -724,6 +801,12 @@ help:
 	@echo "  make lvs-icv ICV_PDK_HOME=/path     – where pdk_synopsys/{DRC_ICV,LVS_ICV} live"
 	@echo "  make finish drc-icv lvs-icv         – build finish, then IC Validator DRC, then LVS"
 	@echo ""
+	@echo "Metal fill / density signoff (Synopsys IC Validator / GF180MCU):"
+	@echo "  make fill-icv                       – fill outputs/latest's GDS -> .../fill_icv/filled.gds"
+	@echo "  make drc GDS=outputs/latest/fill_icv/filled.gds DRC_EXTRA=--density_only"
+	@echo "                                       – re-check density on the filled GDS (KLayout)"
+	@echo "  make finish fill-icv                – build finish, then fill"
+	@echo ""
 	@echo "Outputs (one self-contained folder per Fusion Compiler run):"
 	@echo "  outputs/$(TOP)_<timestamp>/$(TOP).gds/.v  – timestamped, never overwritten"
 	@echo "  outputs/latest                      – symlink to the most recent run folder"
@@ -731,6 +814,7 @@ help:
 	@echo "  outputs/<run>/lvs/                  – KLayout LVS .sp/.lvsdb/extracted netlist + logs"
 	@echo "  outputs/<run>/drc_icv/               – IC Validator DRC .RESULTS/.vue + logs"
 	@echo "  outputs/<run>/lvs_icv/               – IC Validator LVS .sp/.RESULTS/.vue + logs"
+	@echo "  outputs/<run>/fill_icv/              – IC Validator filled.gds + logs"
 	@echo "  outputs/.cache/                     – cached folded CDLs (rebuilt only if stale)"
 	@echo ""
 	@echo "Simulation (Verilator):"

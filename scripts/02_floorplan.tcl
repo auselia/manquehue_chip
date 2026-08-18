@@ -131,19 +131,6 @@ compile_targeted_boundary_cells -all_targets
 
 set_app_options -name place.legalize.enable_advanced_legalizer -value true
 
-# in-row worst case = distance/2. The old distance=28 (worst case 14um) left
-# only 1um margin under the tightest real rule (LU.3/LU.4 = 15um) even in an
-# unbroken row, confirmed by IC Validator signoff DRC showing LU.3/LU.4/DF.13
-# violations at BOTH 0.5 and 0.6 utilization -- this was never fully safe.
-# It gets measurably worse near SRAM macro edges, where keepout-fragmented
-# row segments push the nearest available tap even farther from cells at the
-# segment's far end than the nominal worst case assumes: comparing real
-# make drc-icv runs at target_utilization 0.5 (2026-08-12, distance=28) vs
-# 0.6 (2026-08-17, distance=28), DF.13 rose 180->759, NP.5d(i)/PP.3c(ii) rose
-# 301->877 each, LU.3/LU.4 rose slightly (102->109 / 102->104) -- all tap-
-# distance-family rules, all worse at the denser floorplan. distance=20
-# (worst case 10um) restores real margin under both the 15um and 20um
-# limits: 5um and 10um respectively, vs the old 1um.
 create_tap_cells -lib_cell $TAP_CELL -pattern stagger -distance 20
 
 save_block -as floorplan_pre_pg

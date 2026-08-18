@@ -22,7 +22,7 @@ create_lib -technology $TECH_FILE -ref_libs $REFERENCE_LIBRARY $DESIGN_LIBRARY
 puts "RM-info: Analyzing RTL using native .flist parsing..."
 
 # 1. Parse just the include directories and add them to FC's search_path
-set fp [open "../croc.flist" r]
+set fp [open "../flists/croc.flist" r]
 while {[gets $fp line] >= 0} {
     set line [string trim $line]
     if {[string match "+incdir+*" $line]} {
@@ -33,7 +33,7 @@ while {[gets $fp line] >= 0} {
 close $fp
 
 # 2. Analyze the design (the -F flag still handles the file paths and +defines natively)
-analyze -format sverilog -vcs "-F ../croc.flist"
+analyze -format sverilog -vcs "-F ../flists/croc.flist"
 
 # Elaborate the top module (croc_chip) defined in setup.tcl
 elaborate $TOP_MODULE

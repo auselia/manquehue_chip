@@ -10,7 +10,7 @@
 # -----------------------------------------------------------------------------
 
 set repo_dir  [file normalize [file join [file dirname [info script]] .. ..]]
-set flist     [file join $repo_dir "croc_fpga.flist"]
+set flist     [file join $repo_dir "flists" "croc_fpga.flist"]
 set xdc       [file join $repo_dir "constraints" "zedboard.xdc"]
 set part      "xc7z020clg484-1"
 set top       "croc_zedboard_top"

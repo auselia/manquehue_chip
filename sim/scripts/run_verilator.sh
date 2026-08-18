@@ -22,7 +22,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   cd "$BUILD_DIR"
   echo "=> Compiling cycle-accurate hardware model..."
   verilator --binary -j 0 -Wno-fatal --trace --trace-structs \
-    -F "$ROOT/croc_sim.flist" \
+    -F "$ROOT/flists/croc_sim.flist" \
     --top-module tb_croc_soc
 fi
 

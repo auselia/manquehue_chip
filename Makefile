@@ -273,28 +273,35 @@ SDC  ?= $(OUTPUTS_DIR)/$(RUN)/$(TOP).sdc
 # sta_corner.tcl instead runs one classic pt_shell session per corner, so
 # each corner's liberty views are spelled out explicitly here. Voltage/
 # temperature match scripts/common/mcmm.tcl's 3 corners exactly (slow=SS/
-# 3.0V/125C, typical=TT/3.3V/25C, fast=FF/3.6V/-40C); filenames are this PDK
+# 4.5V/125C, typical=TT/5.0V/25C, fast=FF/5.5V/-40C -- switched 2026-08-18
+# from the 3.0/3.3/3.6V family this design was previously, incorrectly, set
+# to; gf180mcu_fd_sc_mcu7t5v0 ships all three voltage families in the same
+# library, this design's actual target is 5V); filenames are this PDK
 # kit's own gf180mcu_fd_sc_mcu7t5v0/gf180mcu_fd_io .db naming for that same
 # PVT triple (confirmed present under PT_PDK_DB_DIR 2026-08-15).
 PT_PDK_DB_DIR    ?= $(ICV_PDK_HOME)/db
-PT_SC_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ss_125C_3v00.db
-PT_SC_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__tt_025C_3v30.db
-PT_SC_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_3v60.db
-PT_IO_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ss_125C_2v97.db
-PT_IO_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__tt_025C_3v30.db
-PT_IO_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ff_n40C_3v63.db
+PT_SC_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ss_125C_4v50.db
+PT_SC_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.db
+PT_SC_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_5v50.db
+PT_IO_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ss_125C_4v50.db
+PT_IO_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__tt_025C_5v00.db
+PT_IO_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ff_n40C_5v50.db
 
 # SRAM macro: this PDK kit ships exactly ONE SRAM characterization
-# (gf180mcu_fd_ip_sram__sram512x8m8wm1, tt/25C/5.0V -- no ss/ff corner views,
-# and at 5.0V rather than this design's 3.0-3.6V MCMM rail; power_grid.tcl
-# ties every macro including the SRAM to the single design-wide VDD/VSS net,
-# so there is no separate 5V supply on this chip for a 5V characterization to
-# genuinely correspond to). Reused across all 3 corners below -- a real
-# PDK-IP gap inherited from pdk_synopsys, not a shortcut taken here; see the
-# session summary and scripts/pt/sta_corner.tcl's header comment. Only
-# shipped as .lib (text), not .db; Library Compiler (lc_shell, same Synopsys
-# install family as the rest of this flow) converts it once, cached the same
-# way FOLDED_SC_CDL is above and only rebuilt if the source .lib changes.
+# (gf180mcu_fd_ip_sram__sram512x8m8wm1, tt/25C/5.0V -- no ss/ff corner
+# views). Previously this was a real PDK-IP gap: the rest of the design ran
+# a 3.0-3.6V MCMM rail while this macro was stuck at 5.0V for lack of any
+# alternative characterization, and power_grid.tcl ties every macro
+# including the SRAM to one design-wide VDD/VSS net, so there was no
+# separate 5V supply for that 5V characterization to genuinely correspond
+# to. Since the whole design switched to the 5.0V-nominal rail (2026-08-18,
+# see scripts/common/mcmm.tcl), this SRAM view now matches the rest of the
+# design instead of being the odd one out -- reused across all 3 corners
+# below because SS/FF SRAM views still don't exist in this PDK kit, but the
+# voltage itself is no longer a mismatch. Only shipped as .lib (text), not
+# .db; Library Compiler (lc_shell, same Synopsys install family as the rest
+# of this flow) converts it once, cached the same way FOLDED_SC_CDL is
+# above and only rebuilt if the source .lib changes.
 PT_SRAM_LIB ?= $(HOME)/pdk_synopsys/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.lib
 PT_SRAM_DB  := $(CACHE_DIR)/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db
 LC_HOME_DIR ?= /usr/synopsys/lc/Y-2026.03-SP1

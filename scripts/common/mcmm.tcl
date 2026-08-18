@@ -17,20 +17,28 @@ remove_modes -all
 #  - set_temperature
 ###########################################################
 
+# 5.0V-nominal rail (2026-08-18, switched from the 3.0/3.3/3.6V family this
+# was previously set to -- gf180mcu_fd_sc_mcu7t5v0 ships all three voltage
+# families in the same library, this design's actual target is 5V). This
+# also makes the SRAM macro's characterization (gf180mcu_fd_ip_sram__
+# sram512x8m8wm1__tt_025C_5v00, the only voltage this PDK kit ships for it)
+# finally match the rest of the design instead of being the one 5V outlier
+# on an otherwise 3.3V rail -- see scripts/pt/sta_corner.tcl and the
+# Makefile's PT_SRAM_LIB comment for that history.
 create_corner slow
 set_process_label ss
-set_voltage 3.0
+set_voltage 4.5
 set_temperature 125
 
 create_corner typical
 set_process_label tt
-set_voltage 3.3
+set_voltage 5.0
 set_temperature 25
 
 
 create_corner fast
 set_process_label ff
-set_voltage 3.6
+set_voltage 5.5
 set_temperature -40
 
 

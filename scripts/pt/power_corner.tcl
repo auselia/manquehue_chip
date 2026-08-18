@@ -11,8 +11,9 @@
 # set_scenario_status exactly: mcmm.tcl enables dynamic_power/leakage_power
 # ONLY for the `fast` scenario (disabled for typical/slow) -- that's the
 # existing, already-validated FC in-design convention for this design, not a
-# new choice made here. `fast` = FF/3.6V/-40C: highest voltage in the MCMM
-# set, which dominates both switching power (P ~ CV^2f) and leakage current
+# new choice made here. `fast` = FF/5.5V/-40C: highest voltage in the MCMM
+# set (5.0V-nominal rail, switched 2026-08-18 -- see scripts/common/
+# mcmm.tcl), which dominates both switching power (P ~ CV^2f) and leakage current
 # (roughly exponential in V) enough to outweigh the low-temperature leakage
 # reduction, so it is the right worst-case power corner despite not being
 # the highest-temperature one.

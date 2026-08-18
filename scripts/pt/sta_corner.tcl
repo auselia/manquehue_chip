@@ -70,13 +70,14 @@ file mkdir $REPORT_DIR
 ###############################################################################
 # NOTE on SRAM_DB: this PDK kit ships exactly one SRAM characterization,
 # gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00 (nom_voltage 5.0V) -- no
-# ss/ff corner views, and at 5.0V rather than the 3.0/3.3/3.6V rail the rest
-# of this design's MCMM corners use (croc_soc's power_grid.tcl ties every
-# macro, SRAM included, to the single design-wide VDD/VSS net -- there is no
-# separate 5V rail on this chip). Every corner below therefore links the SAME
-# tt/25C/5V SRAM view. This is a real PDK-IP gap, not a shortcut taken here --
-# flagged clearly in the session summary. If GlobalFoundries/a future kit
-# ships ss/ff SRAM corners, swap SRAM_DB per corner exactly like SC_DB/IO_DB.
+# ss/ff corner views. This design's MCMM corners were switched to the
+# 5.0V-nominal rail (2026-08-18, see scripts/common/mcmm.tcl), so this SRAM
+# view now matches the rest of the design's actual operating voltage instead
+# of being a mismatch against a 3.0/3.3/3.6V rail. Every corner below still
+# links the SAME tt/25C/5V SRAM view, because SS/FF SRAM characterizations
+# still don't exist in this PDK kit -- that part remains a real PDK-IP gap.
+# If GlobalFoundries/a future kit ships ss/ff SRAM corners, swap SRAM_DB per
+# corner exactly like SC_DB/IO_DB.
 set link_library   "* $SC_DB $IO_DB $SRAM_DB"
 set target_library "$SC_DB"
 

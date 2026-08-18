@@ -44,3 +44,9 @@ vivado*.str
 .Xil/
 *.bit
 *.dcp
+
+# Synopsys Formality (fm_shell) working directories -- created in the repo
+# root whenever it's invoked from there (scripts/fm/lec_rtl_vs_gate.tcl)
+FM_INFO/
+fm_checkpoint_sessions/
+formality_svf/

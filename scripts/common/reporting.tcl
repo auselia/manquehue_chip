@@ -57,7 +57,10 @@ proc reflow_long_lines {filename {threshold 300}} {
 # -----------------------------------------------------------------------------
 # Global Must-Haves (Run for everything except RTL read-in)
 # -----------------------------------------------------------------------------
-if {$ACTIVE_STEP != "01_read_rtl"} {
+# Skipped for 03_synthesis: that stage already gets the same WNS/TNS (plus
+# area) from report_qor -summary below, just sliced by corner instead of by
+# path group -- generating both there is duplication, not two signals.
+if {$ACTIVE_STEP != "01_read_rtl" && $ACTIVE_STEP != "03_synthesis"} {
     puts "INFO: Generating Global QoR Snapshot..."
     create_qor_snapshot -name ${ACTIVE_STEP}_snapshot
     redirect -file ${REPORT_DIR}/global_qor_snapshot.rpt { report_qor_snapshot -name ${ACTIVE_STEP}_snapshot }
@@ -132,26 +135,6 @@ switch $ACTIVE_STEP {
         redirect -file ${REPORT_DIR}/report_qor_summary.rpt { report_qor -summary }
         redirect -file ${REPORT_DIR}/check_legality.rpt { check_legality }
         redirect -file ${REPORT_DIR}/report_constraints.rpt { report_constraints -all_violators }
-
-        # This is a PRE-CTS estimate: at this point in the flow no clock tree
-        # exists yet, so every clock is ideal (zero-latency, unpropagated),
-        # not the real routed tree. It's cheap and useful as an early sanity
-        # check for gross synthesis problems, but it is NOT signoff timing --
-        # say so directly in the report so it can't be mistaken for one.
-        # Real signoff timing (propagated clocks, real SPEF, all 3 MCMM
-        # corners) lives in outputs/<run>/sta_pt/ from `make sta-pt`.
-        redirect -file ${REPORT_DIR}/report_timing_worst.rpt {
-            puts "########################################################################"
-            puts "# PRE-CTS ESTIMATE ONLY -- NOT SIGNOFF TIMING"
-            puts "# Ideal (zero-latency, unpropagated) clocks -- no clock tree exists yet"
-            puts "# at this stage. Useful only to catch gross synthesis problems early."
-            puts "# For real signoff timing (propagated clocks, real SPEF, all MCMM"
-            puts "# corners), see outputs/<run>/sta_pt/ from 'make sta-pt' instead."
-            puts "########################################################################"
-            puts ""
-            report_timing -delay_type max -max_paths 50
-        }
-
         redirect -file ${REPORT_DIR}/check_pre_placement.rpt { check_design -checks pre_placement_stage }
     }
 

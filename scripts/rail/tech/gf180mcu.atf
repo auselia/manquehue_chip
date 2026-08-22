@@ -1,0 +1,124 @@
+#-----------------------------------------------------------------------------
+# gf180mcu.atf -- DRAFT, hand-authored RedHawk Apache Technology File for
+# GF180MCU (5LM+1TM stack, 11kA top metal), for use with `make rail` in
+# synopsys_croc (rail.tech_file / RedHawk-SC Fusion).
+#
+# STATUS: first-pass draft, syntax UNVERIFIED against a real ATF spec (none
+# was available locally or to the author at authoring time). Values are
+# real, sourced from GF180MCU's own open-source PDK data; the surrounding
+# ATF keyword/block syntax is a best-effort guess to be corrected by
+# redhawk_sc's own parser errors and by human review before being trusted
+# for any real signoff claim. Needs review -- see conversation/commit
+# history for context before relying on this.
+#
+# All numeric values below are taken directly from:
+#   ~/.ciel/ciel/gf180mcu/versions/<rev>/gf180mcuD/libs.tech/magic/gf180mcuD.tech
+# (the open-source GF180MCU PDK's own Magic tech file, managed by ciel),
+# specifically its "extract" section, which itself cites GlobalFoundries'
+# published process documents:
+#   - Resistance (resist/contact blocks):  180MCU_YI-141-EP059-01_10.pdf
+#   - Capacitance (areacap/sidewall/etc.): PDS_035_03
+# "typ" corner values used throughout (magic's variant() with no hrhc/lrhc
+# suffix); hrhc/lrhc corner values are also present in the source .tech file
+# if a corner-specific ATF is ever needed.
+#
+# Stack (from gf180mcuD.tech 'height' section, z0/thickness in um):
+#   Metal1  z=1.23  t=0.55   Rs=90  mOhm/sq
+#   Via1    z=1.78  t=0.60   R=4500 mOhm/via (via1 not separately listed in
+#                              the contact block above metal2 -- see NOTE)
+#   Metal2  z=2.38  t=0.55   Rs=90  mOhm/sq
+#   Via2    z=2.93  t=0.60   R=4500 mOhm/via (m2c)
+#   Metal3  z=3.53  t=0.55   Rs=90  mOhm/sq
+#   Via3    z=4.08  t=0.60   R=4500 mOhm/via
+#   Metal4  z=4.68  t=0.55   Rs=90  mOhm/sq
+#   Via4    z=5.23  t=0.60   R=4500 mOhm/via
+#   Metal5  z=5.83  t=1.0025 Rs=40  mOhm/sq   (thick top/RDL-like metal)
+#
+# NOTE: the source .tech file's 'contact' block lists m2c/m3c/via3/via4 all
+# at 4500 mOhm -- it does not give a separately-named via1 resistance
+# (likely because via1 sits between metal1/metal2 and isn't broken out
+# under a different name in this deck). Reused the same 4500 mOhm value for
+# via1 pending confirmation -- flag this specifically in review.
+#-----------------------------------------------------------------------------
+
+UNITS
+    LENGTH   UM
+    RESISTANCE OHM
+    CAPACITANCE FF
+END
+
+LAYER Metal1
+    TYPE       CONDUCTOR
+    HEIGHT     1.23
+    THICKNESS  0.55
+    RPSQ       0.090
+    AREA_CAP   0.029304
+END
+
+LAYER Via1
+    TYPE       VIA
+    FROM_LAYER Metal1
+    TO_LAYER   Metal2
+    HEIGHT     1.78
+    THICKNESS  0.60
+    RES        4.5
+END
+
+LAYER Metal2
+    TYPE       CONDUCTOR
+    HEIGHT     2.38
+    THICKNESS  0.55
+    RPSQ       0.090
+    AREA_CAP   0.015016
+END
+
+LAYER Via2
+    TYPE       VIA
+    FROM_LAYER Metal2
+    TO_LAYER   Metal3
+    HEIGHT     2.93
+    THICKNESS  0.60
+    RES        4.5
+END
+
+LAYER Metal3
+    TYPE       CONDUCTOR
+    HEIGHT     3.53
+    THICKNESS  0.55
+    RPSQ       0.090
+    AREA_CAP   0.010094
+END
+
+LAYER Via3
+    TYPE       VIA
+    FROM_LAYER Metal3
+    TO_LAYER   Metal4
+    HEIGHT     4.08
+    THICKNESS  0.60
+    RES        4.5
+END
+
+LAYER Metal4
+    TYPE       CONDUCTOR
+    HEIGHT     4.68
+    THICKNESS  0.55
+    RPSQ       0.090
+    AREA_CAP   0.007602
+END
+
+LAYER Via4
+    TYPE       VIA
+    FROM_LAYER Metal4
+    TO_LAYER   Metal5
+    HEIGHT     5.23
+    THICKNESS  0.60
+    RES        4.5
+END
+
+LAYER Metal5
+    TYPE       CONDUCTOR
+    HEIGHT     5.83
+    THICKNESS  1.0025
+    RPSQ       0.040
+    AREA_CAP   0.0
+END

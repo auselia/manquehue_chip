@@ -322,6 +322,56 @@ PP_DEFAULT_STATIC_PROB ?= 0.5
 PP_CORNERS ?= fast
 
 # ------------------------------------------------------------------------------
+# Sign-off Rail Analysis - RedHawk-SC Fusion (in-design, via Fusion Compiler)
+# ------------------------------------------------------------------------------
+# Unlike drc/lvs/sta-pt/power-pp, this does NOT read an exported outputs/<run>
+# artifact -- it reopens the live 'finish' block in work/design.dlib (see
+# scripts/rail/analyze_rail.tcl) and runs RedHawk-SC's analyze_rail directly
+# against FC's own routed PDN, so it always reflects whatever 'make finish'
+# (or 'make all') last built, not a specific archived RUN. Nothing about the
+# block is modified/saved -- taps and the rail result exist only for the
+# session; reports land in outputs/latest/rail_rh/.
+#
+# create_taps -top_pg treats croc_soc's top-level VDD/VSS pins (the 6+6
+# discrete Metal5 pins) as the ideal external supply -- this is the direct
+# test of whether those 6 pins are enough, or where the worst IR drop is if
+# not.
+#
+# No standalone 'redhawk' binary exists in this env -- RedHawk-SC ships
+# bundled inside the IC Validator install instead (confirmed 2026-08-22:
+# ICV_HOME_DIR/pfsc/linux/bin/redhawk_sc runs and is licensed --
+# SNPS_INDESIGN_RH_RAIL, 100 seats).
+RAIL_PRODUCT      ?= redhawk_sc
+RAIL_REDHAWK_PATH ?= $(ICV_HOME_DIR)/pfsc/linux/bin
+RAIL_VOLTAGE_DROP ?= static
+# analyze_rail needs a tech file describing per-layer R/C (RAIL-300) -- FC's
+# own docs call this an "ATF" but this RedHawk-SC build only actually
+# accepts itf/ircx/nrc (confirmed empirically 2026-08-22, "unrecognized
+# type" on a hand-authored .atf). scripts/rail/tech/gf180mcu.itf is the
+# real thing, not hand-authored: recovered directly from GlobalFoundries'
+# own field-solver binary (~/pdk_synopsys/pex/*.nxtgrd, the same officially
+# -released PEX kit as the TLUplus files) via StarRC's grdgenxo
+# -nxtgrd2itf converter, then had its CONDUCTOR/VIA names remapped from
+# TLUplus-internal names (TM/M4../V1..) to GF180MCU's real LEF/DEF names
+# (Metal5/Metal4../Via1..) per ~/pdk_synopsys/tech/tluplus/mdb2itf.map --
+# required, or nearly every via/pin fails to resolve (141k+ connectivity
+# errors before the rename, ~0 after). See that file's own header for full
+# provenance, and grdgenxo needs the libnsl RPM installed first (`sudo dnf
+# install -y libnsl` on this Rocky 8.10 box) or it won't even launch.
+RAIL_TECH_FILE    ?= scripts/rail/tech/gf180mcu.itf
+# KNOWN GAP (2026-08-22): static analysis (the default) works end to end,
+# real per-pin numbers, e.g. croc_soc's 6 VDD+6 VSS pins measured at
+# ~0.21% worst-case drop. RAIL_VOLTAGE_DROP=dynamic_vectorless also SOLVES
+# cleanly (real transient sim, 0 unconnected vias/pins in its own summary)
+# but report_rail_result/get_attribute can't extract per-pin dynamic
+# values afterward -- every attempt (voltage_drop_or_rise, effective_
+# voltage_drop, direct get_attribute on a real pin) returns empty or
+# "RAIL-1120 PG pin(s) might be disconnected to ideal voltage", despite the
+# solve's own connectivity counters being clean. Not yet root-caused;
+# static's result already gives a strong, complete answer on its own
+# (dynamic would only sharpen it further, not change the conclusion).
+
+# ------------------------------------------------------------------------------
 # Fusion Compiler dynamic step rules (from scripts/0*_*.tcl)
 # ------------------------------------------------------------------------------
 # This block automatically reads any TCL file in scripts/ that starts with a number 
@@ -901,6 +951,62 @@ power-pp:
 	 echo "[POWER-PP] Full reports: $$out_dir/*.rpt"
 
 # ------------------------------------------------------------------------------
+# Sign-off Rail Analysis - RedHawk-SC Fusion (in-design voltage drop / IR drop)
+# ------------------------------------------------------------------------------
+# Runs scripts/rail/analyze_rail.tcl against work/design.dlib's 'finish'
+# block (always the current build, not a specific RUN -- see the RAIL_*
+# variables above). Reports land in outputs/latest/rail_rh/.
+#
+# Typical use (after `make finish`):
+#   make rail                                         # static, uses RAIL_TECH_FILE's default
+#   make rail RAIL_VOLTAGE_DROP=dynamic_vectorless    # dynamic (solves clean; see KNOWN GAP above
+#                                                      # re: per-pin report extraction not working yet)
+.PHONY: rail
+rail:
+	@if [ ! -x "$$(command -v fc_shell)" ]; then \
+	  echo "[RAIL] ERROR: fc_shell not found on PATH."; \
+	  exit 1; \
+	fi
+	@if [ ! -e "$(WORK_DIR)/design.dlib/finish" ]; then \
+	  echo "[RAIL] ERROR: no 'finish' block in $(WORK_DIR)/design.dlib."; \
+	  echo "[RAIL] Run 'make finish' (or 'make all') first."; \
+	  exit 1; \
+	fi
+	@if [ ! -x "$(RAIL_REDHAWK_PATH)/redhawk_sc" ]; then \
+	  echo "[RAIL] ERROR: redhawk_sc not found under RAIL_REDHAWK_PATH=$(RAIL_REDHAWK_PATH)"; \
+	  echo "[RAIL] Set RAIL_REDHAWK_PATH to the directory containing the redhawk_sc executable."; \
+	  exit 1; \
+	fi
+	@if [ -z "$(RAIL_TECH_FILE)" ] || [ ! -e "$(RAIL_TECH_FILE)" ]; then \
+	  echo "[RAIL] ERROR: RAIL_TECH_FILE not set or not found: '$(RAIL_TECH_FILE)'"; \
+	  echo "[RAIL] Default is scripts/rail/tech/gf180mcu.itf (checked into this repo --"; \
+	  echo "[RAIL] see its header for provenance). If it's missing, restore it or set"; \
+	  echo "[RAIL] RAIL_TECH_FILE to another real ITF/IRCX/NRC tech file."; \
+	  exit 1; \
+	fi
+	@out_dir="$(OUTPUTS_DIR)/latest/rail_rh"; \
+	 mkdir -p "$$out_dir"; \
+	 tech_file_real="$$(readlink -f "$(RAIL_TECH_FILE)")"; \
+	 out_dir_real="$$(readlink -f "$$out_dir")"; \
+	 set -o pipefail; \
+	 echo "[RAIL] design    : $(TOP) ('finish' block, $(WORK_DIR)/design.dlib)"; \
+	 echo "[RAIL] product   : $(RAIL_PRODUCT)"; \
+	 echo "[RAIL] tech_file : $$tech_file_real"; \
+	 echo "[RAIL] mode      : $(RAIL_VOLTAGE_DROP)"; \
+	 echo "[RAIL] results   : $$out_dir"; \
+	 cd $(WORK_DIR) && fc_shell -batch -x " \
+	   set TOP $(TOP); \
+	   set REPORT_DIR $$out_dir_real; \
+	   set RAIL_PRODUCT $(RAIL_PRODUCT); \
+	   set RAIL_REDHAWK_PATH $(RAIL_REDHAWK_PATH); \
+	   set RAIL_TECH_FILE $$tech_file_real; \
+	   set RAIL_VOLTAGE_DROP $(RAIL_VOLTAGE_DROP); \
+	   source ../scripts/rail/analyze_rail.tcl; \
+	   exit" \
+	 2>&1 | tee "$$out_dir_real/rail.$(RAIL_VOLTAGE_DROP).log"; \
+	 echo "[RAIL] Full report: $$out_dir/voltage_drop.$(RAIL_VOLTAGE_DROP).rpt"
+
+# ------------------------------------------------------------------------------
 # Clean
 # ------------------------------------------------------------------------------
 .PHONY: clean distclean
@@ -999,6 +1105,7 @@ help:
 	@echo "  make fill-icv   – Synopsys IC Validator Metal1-5 dummy fill (density signoff)"
 	@echo "  make sta-pt     – Synopsys PrimeTime signoff STA (MCMM: slow/typical/fast)"
 	@echo "  make power-pp   – Synopsys PrimePower power analysis"
+	@echo "  make rail       – RedHawk-SC in-design voltage/IR drop (static works; dynamic partial)"
 	@echo "  make clean      – Delete the 'work', 'logs', and 'reports' directories"
 	@echo "  make distclean  – clean + also delete 'outputs' (exported GDS/netlists/results)"
 	@echo ""
@@ -1061,6 +1168,15 @@ help:
 	@echo "  Vectorless (default switching activity) power estimate -- no gate-level VCD/SAIF from a"
 	@echo "  real workload exists yet in this environment; set PP_SAIF=<file> once one does."
 	@echo ""
+	@echo "Signoff rail analysis (RedHawk-SC Fusion, in-design voltage/IR drop):"
+	@echo "  make rail                                         – static voltage drop, latest 'finish' block"
+	@echo "  make rail RAIL_VOLTAGE_DROP=dynamic_vectorless    – dynamic (solves clean, per-pin report"
+	@echo "                                                       extraction not working yet, see Makefile)"
+	@echo "  Treats croc_soc's 6 VDD + 6 VSS top-level pins as the ideal supply (create_taps -top_pg)"
+	@echo "  and solves for voltage drop across the real, routed PDN -- this is the direct answer to"
+	@echo "  whether those 6 pins are enough. Uses scripts/rail/tech/gf180mcu.itf by default (real"
+	@echo "  GF180MCU parasitics recovered from the PDK's own field-solver binary, see its header)."
+	@echo ""
 	@echo "Outputs (one self-contained folder per Fusion Compiler run):"
 	@echo "  outputs/$(TOP)_<timestamp>/$(TOP).gds/.v  – timestamped, never overwritten"
 	@echo "  outputs/latest                      – symlink to the most recent run folder"
@@ -1072,6 +1188,7 @@ help:
 	@echo "  outputs/<run>/$(TOP).sdc, .typ_*.spef – pt_export's SDC + per-corner parasitics"
 	@echo "  outputs/<run>/sta_pt/                – PrimeTime timing/constraint/QoR reports"
 	@echo "  outputs/<run>/power_pp/               – PrimePower reports"
+	@echo "  outputs/latest/rail_rh/               – RedHawk-SC rail analysis report + log"
 	@echo "  outputs/.cache/                     – cached folded CDLs + SRAM liberty->db (rebuilt only if stale)"
 	@echo ""
 	@echo "Simulation (Verilator):"

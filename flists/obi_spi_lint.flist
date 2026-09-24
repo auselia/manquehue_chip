@@ -1,0 +1,65 @@
+# Standalone lint flist for the new obi_spi (spi_host OBI<->TL-UL) block.
+# Not yet wired into croc_sim.flist -- this checks it compiles/elaborates
+# in isolation before integration into user_domain.sv.
+# Paths relative to this file's location (repo root/flists).
+
++incdir+../rtl/obi/include
++incdir+../rtl/obi_spi/vendor/opentitan
+
++define+TARGET_RTL
++define+TARGET_VERILATOR
++define+VERILATOR=1
+
+# ---- deps from elsewhere in Croc ----
+../rtl/common_cells/cf_math_pkg.sv
+../rtl/obi/obi_pkg.sv
+../rtl/register_interface/lowrisc_opentitan/prim_subreg.sv
+../rtl/register_interface/lowrisc_opentitan/prim_subreg_ext.sv
+../rtl/register_interface/lowrisc_opentitan/prim_subreg_arb.sv
+
+# ---- our own packages ----
+../rtl/obi_spi/top_pkg.sv
+../rtl/obi_spi/lc_ctrl_pkg.sv
+
+# ---- vendored OpenTitan spi_host + tlul + prim ----
+../rtl/obi_spi/vendor/opentitan/prim_assert.sv
+../rtl/obi_spi/vendor/opentitan/prim_util_pkg.sv
+../rtl/obi_spi/vendor/opentitan/prim_secded_pkg.sv
+../rtl/obi_spi/vendor/opentitan/prim_secded_39_32_enc.sv
+../rtl/obi_spi/vendor/opentitan/prim_secded_39_32_dec.sv
+../rtl/obi_spi/vendor/opentitan/prim_secded_64_57_enc.sv
+../rtl/obi_spi/vendor/opentitan/prim_secded_64_57_dec.sv
+../rtl/obi_spi/vendor/opentitan/prim_flop.sv
+../rtl/obi_spi/vendor/opentitan/prim_flop_2sync.sv
+../rtl/obi_spi/vendor/opentitan/prim_fifo_sync.sv
+../rtl/obi_spi/vendor/opentitan/prim_packer_fifo.sv
+../rtl/obi_spi/vendor/opentitan/prim_intr_hw.sv
+../rtl/obi_spi/vendor/opentitan/tlul_pkg.sv
+../rtl/obi_spi/vendor/opentitan/tlul_err.sv
+../rtl/obi_spi/vendor/opentitan/tlul_err_resp.sv
+../rtl/obi_spi/vendor/opentitan/tlul_fifo_sync.sv
+../rtl/obi_spi/vendor/opentitan/tlul_socket_1n.sv
+../rtl/obi_spi/vendor/opentitan/tlul_cmd_intg_chk.sv
+../rtl/obi_spi/vendor/opentitan/tlul_rsp_intg_gen.sv
+../rtl/obi_spi/vendor/opentitan/tlul_adapter_reg.sv
+../rtl/obi_spi/vendor/opentitan/prim_fifo_async.sv
+../rtl/obi_spi/vendor/opentitan/prim_sync_reqack.sv
+../rtl/obi_spi/vendor/opentitan/prim_sync_reqack_data.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_command_cdc.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_data_cdc.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_cmd_pkg.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_reg_pkg.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_reg_top.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_byte_merge.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_byte_select.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_shift_register.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_fsm.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_window.sv
+../rtl/obi_spi/vendor/opentitan/spi_host_core.sv
+../rtl/obi_spi/vendor/opentitan/spi_host.sv
+
+# ---- our bridge + wrapper ----
+../rtl/obi_spi/obi_tlul_bridge.sv
+../rtl/obi_spi/obi_spi_host.sv
+../rtl/croc_pkg.sv
+../rtl/obi_spi/obi_spi_host_lint_harness.sv

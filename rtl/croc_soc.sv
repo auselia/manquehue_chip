@@ -5,7 +5,7 @@
 // Authors:
 // - Philippe Sauter <phsauter@iis.ee.ethz.ch>
 
-module croc_soc import croc_pkg::*; #(
+module croc_soc import croc_pkg::*; import spi_host_reg_pkg::*; #(
   parameter int unsigned GpioCount = 2
 ) (
   input  logic clk_i,
@@ -34,6 +34,23 @@ module croc_soc import croc_pkg::*; #(
   output logic [GpioCount-1:0] gpio_out_en_o // Output enable signal; 0 -> input, 1 -> output
 );
 
+  // Pin budget: the ADC/LoRa SPI master (obi_spi_host, in user_domain) does
+  // NOT get its own package pins. Its 5 signals (SCK, CS0, CS1, MOSI, MISO)
+  // share physical pads with uart_rx_i/uart_tx_o, status_o and gpio0/gpio1,
+  // switched by the pinmux register in user_domain.sv (UserPinmux, resets to
+  // "everything in its stock role"). This keeps croc_soc.sv's package pin
+  // count unchanged from the pre-obi_spi_host pinout -- see rtl/obi_spi/README.md
+  // and the project's pin-budget notes for why this specific pad assignment
+  // (only standard single-lane SPI is used, so sd[3:2] are unused/tied off):
+  //
+  //   uart_rx_i  (in)     <-> spi MISO  (sd[1])   -- native direction match
+  //   uart_tx_o  (out)    <-> spi SCK               -- native direction match
+  //   status_o   (out)    <-> spi CS0   (csb[0])    -- native direction match
+  //   gpio0_io   (bidir)  <-> spi CS1   (csb[1])
+  //   gpio1_io   (bidir)  <-> spi MOSI  (sd[0])
+  //
+  // jtag_trst_ni is untouched -- no pin was reclaimed from JTAG for this.
+
   logic synced_rst_n;
 
   rstgen i_rstgen (
@@ -56,6 +73,20 @@ localparam int unsigned NumExternalIrqs = 4;
 logic [NumExternalIrqs-1:0] interrupts;
 logic [      GpioCount-1:0] gpio_in_sync;
 
+// croc_domain's own pre-mux drivers for the shared pads
+logic                  croc_uart_tx_o;
+logic                  croc_status_o;
+logic [GpioCount-1:0]  croc_gpio_o;
+logic [GpioCount-1:0]  croc_gpio_out_en_o;
+
+// user_domain's raw obi_spi_host signals, pre-mux
+logic             user_spi_sck_o;
+logic [NumCS-1:0] user_spi_csb_o;
+logic [3:0]       user_spi_sd_o;
+logic [3:0]       user_spi_sd_en_o;
+logic [3:0]       user_spi_sd_i;
+logic [2:0]       pinmux_sel;
+
 croc_domain #(
   .GpioCount       ( GpioCount       ),
   .NumExternalIrqs ( NumExternalIrqs )
@@ -72,11 +103,11 @@ croc_domain #(
   .jtag_trst_ni,
 
   .uart_rx_i,
-  .uart_tx_o,
+  .uart_tx_o ( croc_uart_tx_o ),
 
   .gpio_i,
-  .gpio_o,
-  .gpio_out_en_o,
+  .gpio_o        ( croc_gpio_o        ),
+  .gpio_out_en_o ( croc_gpio_out_en_o ),
 
   .gpio_in_sync_o ( gpio_in_sync ),
 
@@ -87,7 +118,7 @@ croc_domain #(
   .user_mgr_obi_rsp_o  ( user_mgr_obi_rsp ),
 
   .interrupts_i ( interrupts ),
-  .core_busy_o  ( status_o   )
+  .core_busy_o  ( croc_status_o )
 );
 
 user_domain #(
@@ -112,7 +143,41 @@ user_domain #(
   .qspi_sd_o   ( qspi_sd_o   ),
   .qspi_sd_i   ( qspi_sd_i   ),
   .qspi_sd_en_o ( qspi_sd_en_o ),
-  .qspi_csn_o   ( qspi_csn_o   )
+  .qspi_csn_o   ( qspi_csn_o   ),
+
+  .spi_sck_o    ( user_spi_sck_o    ),
+  .spi_csb_o    ( user_spi_csb_o    ),
+  .spi_sd_o     ( user_spi_sd_o     ),
+  .spi_sd_en_o  ( user_spi_sd_en_o  ),
+  .spi_sd_i     ( user_spi_sd_i     ),
+
+  .pinmux_sel_o ( pinmux_sel )
 );
+
+//-------------------------------------------------------------------------------------------------
+// Pad-sharing pinmux -- see NOTE above and rtl/obi_spi/README.md
+//-------------------------------------------------------------------------------------------------
+
+  // uart_rx_i (in): fans out to both consumers unconditionally, no mux needed
+  // -- the UART peripheral harmlessly ignores it while nobody reads its rx
+  // register, and obi_spi_host only samples sd[1] when it's actually driving
+  // a transaction on CS0/CS1.
+  assign user_spi_sd_i = {2'b00, uart_rx_i, 1'b0}; // sd[3:2] unused (no quad/dual), sd[1]=MISO, sd[0]=unused (MOSI pad's own input is never sampled)
+
+  assign uart_tx_o = pinmux_sel[0] ? user_spi_sck_o : croc_uart_tx_o;
+  assign status_o  = pinmux_sel[2] ? user_spi_csb_o[0] : croc_status_o;
+
+  // Default to full passthrough (any GpioCount > 2 stays untouched on bits
+  // [GpioCount-1:2]), override just gpio0/gpio1 when SPI mode is selected.
+  always_comb begin
+    gpio_o        = croc_gpio_o;
+    gpio_out_en_o = croc_gpio_out_en_o;
+    if (pinmux_sel[1]) begin
+      gpio_o[0]        = user_spi_csb_o[1]; // CS1
+      gpio_out_en_o[0] = 1'b1;
+      gpio_o[1]        = user_spi_sd_o[0];    // MOSI
+      gpio_out_en_o[1] = user_spi_sd_en_o[0];
+    end
+  end
 
 endmodule

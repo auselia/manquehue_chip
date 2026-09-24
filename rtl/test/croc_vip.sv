@@ -379,29 +379,13 @@ module croc_vip #(
   // ---------------------------------------------------------
   // DEBUG: Verify MEM.TXT is visible and formatted correctly
   // ---------------------------------------------------------
-  initial begin
-    // Create a small temporary array to hold the first 16 bytes
-    automatic logic [7:0] debug_mem [0:15]; 
-    
-    // Initialize to X so we know if the read fails
-    for(int i=0; i<16; i++) debug_mem[i] = 8'hXX;
-
-    // Delay slightly to ensure file system is ready
-    #1ns; 
-    
-    $display("==================================================");
-    $display("@%t | [DEBUG] Attempting to read MEM.TXT...", $time);
-    
-    // Read the file exactly as the flash model does
-    $readmemh("MEM.TXT", debug_mem);
-    
-    $display("@%t | [DEBUG] Read successful. Checking first 4 bytes:", $time);
-    $display("@%t | [DEBUG] Byte 0: %h (Expected: 6F)", $time, debug_mem[0]);
-    $display("@%t | [DEBUG] Byte 1: %h (Expected: 00)", $time, debug_mem[1]);
-    $display("@%t | [DEBUG] Byte 2: %h (Expected: C0)", $time, debug_mem[2]);
-    $display("@%t | [DEBUG] Byte 3: %h (Expected: 00)", $time, debug_mem[3]);
-    $display("==================================================");
-  end
+  // Was: an ad-hoc $readmemh("MEM.TXT", debug_mem) into a fixed 16-byte
+  // array, unconnected to the real flash model. $readmemh loads every
+  // addressed byte in the file regardless of the target array's size, so
+  // this fatally overflowed ("file address beyond bounds of array") on any
+  // MEM.TXT bigger than 16 bytes -- i.e. any real program. Never
+  // functional against a real trampoline+QSPI-flash-model run; removed
+  // rather than guarded, since it fed no output anyone depended on.
 
   ////////////
   //  GPIO  //

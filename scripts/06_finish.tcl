@@ -52,6 +52,7 @@ file mkdir $RUN_DIR
 
 set GDS_OUT   [file join $RUN_DIR "${TOP_MODULE}.gds"]
 set VLOG_OUT  [file join $RUN_DIR "${TOP_MODULE}.v"]
+set LEF_OUT   [file join $RUN_DIR "${TOP_MODULE}.lef"]
 
 # NOTE: *fillcap* (decoupling-cap fillers, inserted above via DCAP_CELLS)
 # is deliberately NOT in this exclude list, unlike *fill_*/*filltie*/
@@ -70,6 +71,17 @@ set GDS_FILE_LIST [glob ${PDK_DIR}/gds/*.gds]
 write_gds -merge_files $GDS_FILE_LIST -merge_gds_top_cell $TOP_MODULE \
     -layer_map ${ICC2GDS_LAYERMAP} -long_names $GDS_OUT
 
+# Abstract macro LEF, for downstream flows (e.g. the wafer.space chip_top
+# integration) that treat croc_soc as a hardened macro rather than RTL to
+# resynthesize -- they need pins/obstruction geometry, not a full recompute
+# of the technology's layer/via/routing-grid definitions, which their own
+# PDK tech LEF already supplies independently. -include cell restricts
+# write_lef to exactly that: version/bus-bit/divider/macros/extensions
+# sections only, no tech section (per write_lef(2): "tech: includes all
+# sections except for macros" is the complement we're deliberately NOT
+# using here).
+write_lef -design $TOP_MODULE -include cell $LEF_OUT
+
 # Refresh the "latest" pointer. It targets the bare run-folder name so the
 # symlink stays valid even if the whole outputs/ directory is later moved.
 set LATEST_LINK [file join $OUTPUTS_DIR "latest"]
@@ -78,6 +90,7 @@ exec ln -sfn $RUN_NAME $LATEST_LINK
 
 puts "INFO: Wrote GDS      -> $GDS_OUT"
 puts "INFO: Wrote netlist  -> $VLOG_OUT"
+puts "INFO: Wrote LEF      -> $LEF_OUT"
 puts "INFO: latest run     -> outputs/latest -> ${RUN_NAME}/"
 
 set ACTIVE_STEP "06_finish"

@@ -1,38 +1,7 @@
-###############################################################################
-# scripts/common/dft_scan.tcl -- basic internal scan chain configuration
-#
-# Sourced from scripts/03_synthesis.tcl between `compile_fusion -to
-# logic_opto` and `compile_fusion -from initial_place -to initial_opto`,
-# matching the FC DFT User Guide's recommended in-compile flow (Ch1,
-# Figure 1): set_scan_configuration/set_dft_signal -> create_test_protocol
-# -> dft_drc -> preview_dft -> insert_dft -> dft_drc.
-#
-# Scope, deliberately: ONE plain internal (multiplexed flip-flop) scan
-# chain. No compression, no core wrapping, no on-chip clocking, no test
-# points, no LBIST/MBIST/SRAM BIST -- this exists purely so a bring-up
-# engineer can freeze the chip and shift the full flop state in/out over a
-# handful of pins, which is the single highest-value, lowest-complexity
-# debug tool available before knowing what's actually wrong.
-###############################################################################
-
-###############################################################################
-# 1. Test I/O pins -- reused GPIO, zero RTL changes
-###############################################################################
-# croc_soc's actual elaborated GpioCount is 2 (confirmed against the real
-# gate netlist, outputs/latest/croc_soc.v: `input [1:0] gpio_i` -- NOT 16 as
-# an earlier, stale assumption in this project's own notes suggested).
-# That's exactly enough for one chain's SI/SE/SO if SI and SE share the two
-# spare gpio_i bits and SO uses one spare gpio_o bit (gpio_o[1] stays free):
-#   gpio_i[0] -> ScanDataIn   gpio_i[1] -> ScanEnable   gpio_o[0] -> ScanDataOut
-# FC auto-inserts the muxing to share these with their normal GPIO function
-# (see "Sharing a Scan Input/Output With a Functional Port" in the DFT
-# guide) -- no dedicated pins, no RTL edits. If a future revision adds real
-# GPIO pins back, dedicated SI/SE/SO ports would be the more conventional
-# choice; this reuse is the pragmatic fit for the pins this build actually
-# has.
-set_dft_signal -view spec -type ScanDataIn  -port {gpio_i[0]}
-set_dft_signal -view spec -type ScanEnable  -port {gpio_i[1]} -active_state 1
-set_dft_signal -view spec -type ScanDataOut -port {gpio_o[0]}
+# Test I/O pins
+set_dft_signal -view spec -type ScanDataIn  -port {jtag_tdi_i}
+set_dft_signal -view spec -type ScanEnable  -port {jtag_tms_i} -active_state 1
+set_dft_signal -view spec -type ScanDataOut -port {jtag_tdo_o}
 
 ###############################################################################
 # 2. Clocks and reset
@@ -90,7 +59,7 @@ set_scan_configuration -chain_count 1 -clock_mixing mix_clocks
 # SHIFT, leaving the real functional reset path intact and testable during
 # capture -- the mux method would permanently block the functional reset
 # path, per the guide's own tradeoff table. Reusing the ScanEnable pin
-# (gpio_i[1]) as the gate control signal needs no new pin.
+# (jtag_tms_i) as the gate control signal needs no new pin.
 #
 # Confirmed 2026-08-17: this dropped D2/D3 to 0 and D15 (a downstream
 # consequence of D3) from 3539 to 0 as well, leaving only D10 (48, a
@@ -102,8 +71,8 @@ set_scan_configuration -chain_count 1 -clock_mixing mix_clocks
 # the actual scan chain stitching -- see step 4.
 set_dft_configuration -fix_reset enable
 set_dft_configuration -fix_set enable
-set_autofix_configuration -type reset -method gate -control_signal {gpio_i[1]}
-set_autofix_configuration -type set   -method gate -control_signal {gpio_i[1]}
+set_autofix_configuration -type reset -method gate -control_signal {jtag_tms_i}
+set_autofix_configuration -type set   -method gate -control_signal {jtag_tms_i}
 
 ###############################################################################
 # 4. Insertion sequence (FC DFT User Guide Ch1 Figure 1 / Ch15 AutoFix flow)

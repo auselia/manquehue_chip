@@ -85,14 +85,27 @@ set_property PACKAGE_PIN U4  [get_ports {qspi_csn_o[2]}]  ; # pin10 JC4_N: CS2 (
 set_property IOSTANDARD LVCMOS33 [get_ports {qspi_clk_o qspi_csn_o[*] qspi_sd_io[*]}]
 
 ## ------------------------------------------------------------------
-## GPIO -> LEDs (bank 33). croc_soc's GpioCount is now 2, so only LD0/LD1
-## are wired to the GPIO peripheral (e.g. for blink.c).
+## GPIO / status -> Pmod JD (bank 13), NOT the onboard LEDs.
+##
+## Ports are still named led_io/led2_o (unchanged from the LED-wired
+## revision -- Vivado only cares about the PACKAGE_PIN mapping here, so
+## renaming the RTL ports wasn't needed for this). Rerouted off LD0/LD1/LD2
+## for the obi_spi_host + pinmux bring-up: gpio0/gpio1/status_o are also
+## csb_o[1]/sd_o[0](MOSI)/csb_o[0] once user_pkg::UserPinmux is set (see
+## rtl/user_domain.sv) -- those pins need to reach an external header, not
+## an LED that can't be clipped to a wire. LEDs LD0-LD2 are unused by this
+## build as a result; trade made deliberately for this bring-up variant.
+##
+## Pin numbers from Digilent's official Zedboard-Master.xdc, JD block
+## (github.com/Digilent/digilent-xdc) -- same P-first convention as the
+## JC assignment above (pin1=JDn_P, pin2=JDn_N, ...). Only 3 of JD's 8
+## signal pins are used; JD pins 4/7/8/9/10 stay free for later (e.g. an
+## AFE wake IRQ input).
 ## ------------------------------------------------------------------
-set_property PACKAGE_PIN T22 [get_ports {led_io[0]}]
-set_property PACKAGE_PIN T21 [get_ports {led_io[1]}]
+set_property PACKAGE_PIN V7  [get_ports led2_o]       ; # JD pin1 (JD1_P): status_o / csb_o[0] (CS0)
+set_property PACKAGE_PIN W7  [get_ports {led_io[0]}]  ; # JD pin2 (JD1_N): gpio0_io / csb_o[1]  (CS1)
+set_property PACKAGE_PIN V5  [get_ports {led_io[1]}]  ; # JD pin3 (JD2_P): gpio1_io / sd_o[0]   (MOSI)
 set_property IOSTANDARD LVCMOS33 [get_ports {led_io[*]}]
-
-set_property PACKAGE_PIN U22 [get_ports led2_o]
 set_property IOSTANDARD LVCMOS33 [get_ports led2_o]
 
 ## ------------------------------------------------------------------

@@ -129,9 +129,9 @@ set TAP_CELL      [get_lib_cells *mcu${STDCELL_TRACK_SIZE}t5v0__filltie]
 set_boundary_cell_rules -left_boundary_cell $BOUNDARY_CELL -right_boundary_cell $BOUNDARY_CELL
 compile_targeted_boundary_cells -all_targets
 
-set_app_options -name place.legalize.enable_advanced_legalizer -value true
+create_tap_cells -lib_cell $TAP_CELL -pattern stagger -distance 40
 
-create_tap_cells -lib_cell $TAP_CELL -pattern stagger -distance 20
+set_app_options -name place.legalize.enable_advanced_legalizer -value true
 
 save_block -as floorplan_pre_pg
 

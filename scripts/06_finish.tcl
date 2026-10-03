@@ -19,6 +19,23 @@ set FILL_CELLS [get_object_name [sort_collection -descending [get_lib_cells *mcu
 
 create_stdcell_fillers -lib_cells $DCAP_CELLS -type_utilization [list $DCAP_CELLS 20]
 connect_pg_net -automatic
+
+# DF.12 / DF.13: every tap needs a transistor within 15 um. Remove the taps that have none.
+set TAP_DEVICE_DISTANCE 15.0
+set orphan_taps {}
+foreach_in_collection tap [get_cells -physical_context -filter "ref_name =~ *filltie*"] {
+  set bbox [get_attribute $tap bbox]
+  set area [list [list [expr {[lindex $bbox 0 0] - $TAP_DEVICE_DISTANCE}] [expr {[lindex $bbox 0 1] - $TAP_DEVICE_DISTANCE}]] \
+                 [list [expr {[lindex $bbox 1 0] + $TAP_DEVICE_DISTANCE}] [expr {[lindex $bbox 1 1] + $TAP_DEVICE_DISTANCE}]]]
+  set nearby [get_objects_by_location -classes cell -within $area -quiet]
+  if {[sizeof_collection $nearby] > 0} {
+    set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_*"]
+  }
+  if {[sizeof_collection $nearby] == 0} { lappend orphan_taps $tap }
+}
+puts "INFO: removing [llength $orphan_taps] taps with no device within $TAP_DEVICE_DISTANCE um"
+if {[llength $orphan_taps] > 0} { remove_cells [add_to_collection {} $orphan_taps] }
+
 remove_stdcell_fillers_with_violation
 create_stdcell_fillers -lib_cells $FILL_CELLS
 connect_pg_net -automatic
@@ -26,6 +43,21 @@ connect_pg_net -automatic
 route_detail -incremental true
 
 change_names -rules verilog
+
+###################################
+# Top-level power pins
+###################################
+# write_gds writes pin text for terminals, and LVS needs it to name the VDD and VSS ports.
+foreach {net rects} $PG_PINS {
+  foreach rect $rects {
+    lassign $rect x0 y0 x1 y1
+    set area [list [list $x0 $y0] [list $x1 $y1]]
+    if {[sizeof_collection [get_shapes -intersect $area -filter "layer_name == $PG_PIN_LAYER && net.name == $net" -quiet]] == 0} {
+      error "power pin $net {$rect} is not on a $PG_PIN_LAYER shape of net $net"
+    }
+    create_terminal -port [get_ports $net] -boundary $area -layer [get_layers $PG_PIN_LAYER]
+  }
+}
 
 # -----------------------------------------------------------------------------
 # Timestamped, self-archiving GDS / netlist export

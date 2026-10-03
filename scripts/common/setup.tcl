@@ -12,7 +12,7 @@ set DESIGN_NAME         $TOP_MODULE
 set DESIGN_LIBRARY      "design.dlib"
 
 set CLOCK_PORT_NAME     "clk_i" 
-set CLOCK_PERIOD        55.0
+set CLOCK_PERIOD        50.0
 
 # -----------------------------------------------------------------------------
 # 2. PDK & Technology Paths

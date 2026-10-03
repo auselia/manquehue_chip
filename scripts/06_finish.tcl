@@ -27,7 +27,7 @@ foreach_in_collection tap [get_cells -physical_context -filter "ref_name =~ *fil
   set bbox [get_attribute $tap bbox]
   set area [list [list [expr {[lindex $bbox 0 0] - $TAP_DEVICE_DISTANCE}] [expr {[lindex $bbox 0 1] - $TAP_DEVICE_DISTANCE}]] \
                  [list [expr {[lindex $bbox 1 0] + $TAP_DEVICE_DISTANCE}] [expr {[lindex $bbox 1 1] + $TAP_DEVICE_DISTANCE}]]]
-  set nearby [get_objects_by_location -classes cell -within $area -quiet]
+  set nearby [get_objects_by_location -classes cell -intersect $area -quiet]
   if {[sizeof_collection $nearby] > 0} {
     set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_*"]
   }

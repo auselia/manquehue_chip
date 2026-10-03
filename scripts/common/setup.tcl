@@ -14,6 +14,14 @@ set DESIGN_LIBRARY      "design.dlib"
 set CLOCK_PORT_NAME     "clk_i" 
 set CLOCK_PERIOD        50.0
 
+# Top-level power pins: Metal5 rectangles {llx lly urx ury} in um, one list per net.
+# Each rectangle must lie on a shape of that net (the PG rings).
+set PG_PIN_LAYER Metal5
+set PG_PINS {
+  VDD {{475 13 484 23} {487.4 13 496.4 23} {499.8 13 508.8 23} {512.2 13 521.2 23} {524.6 13 533.6 23} {537 13 546 23}}
+  VSS {{475 1 484 11} {487.4 1 496.4 11} {499.8 1 508.8 11} {512.2 1 521.2 11} {524.6 1 533.6 11} {537 1 546 11}}
+}
+
 # -----------------------------------------------------------------------------
 # 2. PDK & Technology Paths
 # -----------------------------------------------------------------------------

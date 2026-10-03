@@ -59,6 +59,13 @@ set SDC_OUT  [file join $RUN_DIR "${TOP_MODULE}.sdc"]
 # ("croc_soc.typ.spef.typ_125.spef"), confirmed 2026-08-15.
 set SPEF_BASE [file join $RUN_DIR "${TOP_MODULE}"]
 
+# Sign off with the real hold uncertainty from mode_func.tcl (04_cts.tcl added 0.1 ns while implementing).
+foreach s [get_attribute [get_scenarios] -name name] {
+  current_scenario $s
+  set_clock_uncertainty -hold 0.25 [get_clocks clock]
+  set_clock_uncertainty -hold 0.5  [get_clocks jtag_tck]
+}
+
 # Constraints are mode-based, not corner-based (mode_func.tcl has no
 # per-corner logic), so which scenario is "current" doesn't change what
 # write_sdc emits -- picked `typical` for a well-defined, deterministic

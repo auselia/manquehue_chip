@@ -14,6 +14,9 @@ open_block synthesis
 foreach s [get_attribute [get_scenarios] -name name] {
   current_scenario $s
   set_clock_uncertainty -setup 0.7 [get_clocks clock]
+  # extra 0.1 ns hold margin while implementing (mode_func.tcl: 0.25 / 0.5); 07_pt_export.tcl restores it
+  set_clock_uncertainty -hold 0.35 [get_clocks clock]
+  set_clock_uncertainty -hold 0.6  [get_clocks jtag_tck]
 }
 
 # remove early synthesis constraints

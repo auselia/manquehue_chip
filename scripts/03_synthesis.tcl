@@ -7,6 +7,11 @@
 source [file dirname [info script]]/common/open_lib.tcl
 open_block floorplan
 
+# Timing effort
+set_app_options -name compile.flow.high_effort_timing -value 1
+set_app_options -name opt.timing.effort               -value high
+set_app_options -name route_opt.flow.enable_ccd       -value true
+
 # Remove oversized and clock cells from synthesis
 set_lib_cell_purpose -include none [get_lib_cells $SYN_IGNORE_CELLS]
 

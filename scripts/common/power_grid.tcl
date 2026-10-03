@@ -24,7 +24,11 @@ connect_pg_net -net VSS [get_pins -of_objects $all_macros -physical_context -fil
 
 connect_pg_net -automatic
 
-set_pg_via_master_rule via_master_mesh_top -contact_code Via4_VV
+# V3.2b/V4.2b: cuts in a 4x4 or larger array need 0.36 um spacing (default is the 0.26 um minimum)
+set PG_VIA_CUT_SPACING {0.36 0.36}
+set_pg_via_master_rule via_master_mesh_top -contact_code Via4_VV -cut_spacing $PG_VIA_CUT_SPACING
+set_pg_via_master_rule via_master_sram_v3 -contact_code Via3_VV -cut_spacing $PG_VIA_CUT_SPACING
+set_pg_via_master_rule via_master_sram_v4 -contact_code Via4_VV -cut_spacing $PG_VIA_CUT_SPACING
 
 ##############################################################
 # 1. Power Ring around Design Boundary
@@ -60,11 +64,11 @@ set_pg_strategy_via_rule ring_to_macro_vias \
     -via_rule { \
         {{{strategies: sram_inner_ring_strat}} \
          {{macro_pins: all} {layers: Metal3}} \
-         {via_master: {Via3_VV Via4_VV}}} \
+         {via_master: {via_master_sram_v3 via_master_sram_v4}}} \
          \
         {{{strategies: sram_inner_ring_strat}} \
          {{macro_pins: all} {layers: Metal3}} \
-         {via_master: {Via3_VV Via4_VV}} \
+         {via_master: {via_master_sram_v3 via_master_sram_v4}} \
          {between_parallel: true}} \
     }
 

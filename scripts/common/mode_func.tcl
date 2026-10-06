@@ -1,94 +1,28 @@
-################################################################################
-# mode_func.tcl  --  functional-mode constraints for croc_soc
-#
-# Port list verified against croc_soc.sv.
-# Clock domains verified against croc_domain.sv / user_domain.sv / obi_qspi.sv /
-# qqspi.v and against check_timing.rpt (356/356 unclocked endpoints were in
-# i_dmi_jtag; zero anywhere else).
-#
-# What changed vs. the original:
-#   1. jtag_tck_i is now a real clock. This was the sole cause of all 356
-#      'unclocked' endpoints, all 283 TCK-002 register clock pins with no fanin
-#      clock, and the 10,914 TCK-001 warnings in the mapped netlist.
-#   2. clk_i and jtag_tck_i declared asynchronous (the dmi_cdc 2-phase crossing
-#      is NOT a synchronous path and must not be timed as one).
-#   3. Ports are classified instead of blanket-swept with all_inputs/all_outputs.
-#   4. testmode_i pinned to 0 by case analysis (functional mode).
-#   5. Async/static straps get false paths instead of meaningless setup checks.
-#   6. Drive + load models added -- without them the I/O delays were fiction.
-#   7. Explicit max_transition / max_capacitance / max_fanout.
-#
-# Expects from the setup file: CLOCK_PORT_NAME, CLOCK_PERIOD
-################################################################################
+###############################################################################
+# Croc SoC Physical Design Flow
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# Description: Functional-mode constraints for croc_soc
+###############################################################################
 
 current_mode func
 
-################################################################################
-# 0. Parameters
-################################################################################
-
-#-------------------------------------------------------------------------------
 # Main system clock.
-#
-# 10.0 ns (100 MHz) is NOT reachable on GF180MCU with this netlist. Measured
-# floor from your own route database: data arrival 40.17 ns + 1.79 setup +
-# uncertainty => ~43 ns (~23 MHz). Gate delays on the critical path run
-# 0.4-1.2 ns per stage at the slow corner and the fetch->OBI->peripheral cone is
-# ~60 levels deep.
-#
-# 50 ns (20 MHz) gives ~15% margin over that floor. Close it here first, then
-# binary-search down (40 -> 30 -> 25) until post-route WNS goes negative. That
-# number is your real Fmax.
-#-------------------------------------------------------------------------------
 if { ![info exists CLOCK_PORT_NAME] } { set CLOCK_PORT_NAME "clk_i" }
 if { ![info exists CLOCK_PERIOD]    } { set CLOCK_PERIOD    50.0    }
 
-#-------------------------------------------------------------------------------
-# JTAG test clock. Driven off-chip by the debug probe; it never needs to be
-# fast, and keeping it slow costs nothing.
-#-------------------------------------------------------------------------------
+# JTAG test clock. Driven off-chip by the debug probe
 set JTAG_TCK_PORT   "jtag_tck_i"
-set JTAG_TCK_PERIOD 100.0                            ;# 10 MHz
+set JTAG_TCK_PERIOD 100.0; # 10 MHz
 
-#-------------------------------------------------------------------------------
-# ref_clk_i: NOT a clock in this netlist.
-#
-# It is a port on croc_soc and is fanned out to croc_domain (i_core_wrap,
-# i_timer) and user_domain (where it is declared and never used). But
-# check_timing found ZERO unclocked registers outside i_dmi_jtag, which means
-# ref_clk_i clocks nothing today -- it is either tied off inside those modules
-# or synchronized into the clk_i domain as data.
-#
-# Treated below as an asynchronous DATA input into the clk_i domain. Verify with:
-#     all_fanout -from [get_ports ref_clk_i] -flat -endpoints_only
-# If it ever does clock registers, set REF_CLK_ACTIVE to 1.
-#-------------------------------------------------------------------------------
-set REF_CLK_PORT    "ref_clk_i"
-set REF_CLK_PERIOD  30517.578                        ;# 32.768 kHz RTC
-set REF_CLK_ACTIVE  0
+# Margins
+set SETUP_UNCERT 2.75; # Based on v0.1 clock QOR report
+set HOLD_UNCERT      0.25; # Based on v0.1 clock QOR report +0.23 ns slack.
+set CLOCK_IDEAL_TRAN 0.4; # TODO: Educated guess.
 
-#-------------------------------------------------------------------------------
-# QSPI. See section 11. Leave at 0 unless you know what you are turning on.
-#-------------------------------------------------------------------------------
-set QSPI_SOURCE_SYNC 0
-
-#-------------------------------------------------------------------------------
-# Margins.
-#
-# Pre-CTS uncertainty must cover expected skew + jitter. Your last CTS run
-# measured 3.02 ns of global skew at the slow corner -- the old fixed 1.0 ns was
-# fiction. 5% of the period is a sane opening budget. Tune it to whatever
-# report_clock_qor actually gives you, then shrink it after set_propagated_clock.
-#-------------------------------------------------------------------------------
-set SETUP_UNCERT     [expr {max(0.05 * $CLOCK_PERIOD, 0.5)}]
-set HOLD_UNCERT      0.25
-set CLOCK_IDEAL_TRAN 0.4        ;# ignored once propagated; kills pre-CTS optimism
-set IO_DELAY_FRAC    0.20       ;# fraction of period reserved for off-chip delay
-
-# Off-chip environment. croc_soc instantiates real GF180 IO pads, so these
-# describe the board side of the pad, not a standard-cell driver.
-set EXT_INPUT_TRAN   1.0        ;# ns, slew arriving at the pad
-set EXT_LOAD         5.0        ;# pF, board/trace/probe load on outputs
+# Off-chip environment
+set IO_DELAY_FRAC    0.20   ;# fraction of period for delay outside the macro: pad (3 ns in / 7-12 ns out, gf180mcu_fd_io) + board
+set EXT_INPUT_TRAN   0.3    ;# ns, input-pad Y slew into the macro (TODO: read from IO liberty)
+set EXT_LOAD         0.2    ;# pF, pad A-pin cap + macro-to-pad wire (TODO: read from IO liberty)
 
 # Design rule constraints.
 set MAX_TRAN_DATA    1.5
@@ -112,58 +46,6 @@ create_clock -name jtag_tck \
              -period $JTAG_TCK_PERIOD \
              [get_ports $JTAG_TCK_PORT]
 
-if { $REF_CLK_ACTIVE } {
-  create_clock -name ref_clk \
-               -period $REF_CLK_PERIOD \
-               [get_ports $REF_CLK_PORT]
-}
-
-
-################################################################################
-# 2. QSPI generated clock -- OPTIONAL, off by default
-#
-# qqspi.v drives sclk from a register on posedge clk:
-#     always @(posedge clk) sclk <= sclk_next;   // toggles every clk edge
-# so qspi_clk_o is a divide-by-2 of clk_i. BUT it clocks nothing inside the
-# chip -- every register in qqspi/obi_qspi is on clk_i, which is exactly why
-# check_timing found no unclocked flops in i_obi_qspi.
-#
-# Declaring it a generated clock therefore:
-#   - creates a clock with zero sinks (CTS-905), no tree to build, and
-#   - invents a launch/capture edge relationship between `clock` and a
-#     divide-by-2 that you then have to repair with a multicycle path.
-#
-# Meanwhile the thing that actually matters (does the PSRAM/flash see valid
-# setup at its pins?) is a board-level check across two chip boundaries that
-# internal STA cannot answer regardless.
-#
-# The default path (section 8) constrains every QSPI pin against `clock`, which
-# is LITERALLY correct per the RTL: qspi_sd_i is captured by a clk_i flop
-# (spi_buf <= ... sio_in), and qspi_sd_o / qspi_csn_o / qspi_clk_o are all
-# launched by clk_i flops.
-#
-# Turn this on only if you specifically want source-synchronous analysis, and
-# expect to tune the edges.
-################################################################################
-
-if { $QSPI_SOURCE_SYNC } {
-  create_generated_clock -name qspi_clk \
-    -source [get_ports $CLOCK_PORT_NAME] \
-    -divide_by 2 \
-    [get_ports qspi_clk_o]
-
-  # Data is launched on the clk_i edge where sclk FALLS; the external device
-  # captures on the sclk RISE one clk_i period later. Model the launch edge, and
-  # expect to add a set_multicycle_path to get the capture edge right. VERIFY
-  # with report_timing -to [get_ports qspi_sd_o*] before trusting this.
-  set QSPI_IO_DELAY [expr {$IO_DELAY_FRAC * 2.0 * $CLOCK_PERIOD}]
-  set_output_delay -mode func -clock qspi_clk -clock_fall $QSPI_IO_DELAY \
-                   [get_ports {qspi_sd_o* qspi_sd_en_o* qspi_csn_o*}]
-  set_input_delay  -mode func -clock qspi_clk $QSPI_IO_DELAY \
-                   [get_ports qspi_sd_i*]
-}
-
-
 ################################################################################
 # 3. Clock properties
 ################################################################################
@@ -174,11 +56,6 @@ set_clock_uncertainty -mode func -hold  $HOLD_UNCERT  [get_clocks clock]
 # TCK is slow and off-chip: loose, fixed margins.
 set_clock_uncertainty -mode func -setup 2.0 [get_clocks jtag_tck]
 set_clock_uncertainty -mode func -hold  0.5 [get_clocks jtag_tck]
-
-if { $REF_CLK_ACTIVE } {
-  set_clock_uncertainty -mode func -setup 2.0 [get_clocks ref_clk]
-  set_clock_uncertainty -mode func -hold  0.5 [get_clocks ref_clk]
-}
 
 set_clock_transition $CLOCK_IDEAL_TRAN [get_clocks *]
 
@@ -194,28 +71,13 @@ set_clock_transition $CLOCK_IDEAL_TRAN [get_clocks *]
 # tool tries to time the dmi_cdc 2-phase crossing synchronously -- meaningless
 # and unfixable. The RTL already handles the crossing safely (cdc_2phase +
 # reset controller in i_dmi_jtag/i_dmi_cdc).
-#
-# NOTE (from the set_clock_groups man page): a relationship on a master clock
-# does NOT propagate to its generated clocks. qspi_clk must be listed explicitly
-# in the same group as `clock`, or it would have no declared relationship to
-# jtag_tck.
 ################################################################################
 
 set GRP_SYS [get_clocks clock]
-if { $QSPI_SOURCE_SYNC } {
-  set GRP_SYS [add_to_collection $GRP_SYS [get_clocks qspi_clk]]
-}
 
-if { $REF_CLK_ACTIVE } {
-  set_clock_groups -asynchronous -name async_domains \
-    -group $GRP_SYS \
-    -group [get_clocks jtag_tck] \
-    -group [get_clocks ref_clk]
-} else {
   set_clock_groups -asynchronous -name async_domains \
     -group $GRP_SYS \
     -group [get_clocks jtag_tck]
-}
 
 # ADVANCED (do this only after the basic version closes): instead of fully
 # cutting the CDC, keep the asynchronous crosstalk model but still bound the
@@ -269,29 +131,20 @@ set ASYNC_PORTS [get_ports {rst_ni jtag_trst_ni fetch_en_i testmode_i}]
 set JTAG_IN  [get_ports {jtag_tdi_i jtag_tms_i}]
 set JTAG_OUT [get_ports {jtag_tdo_o}]
 
-# QSPI pins, only carved out if the optional generated clock is enabled.
-if { $QSPI_SOURCE_SYNC } {
-  set QSPI_IN  [get_ports qspi_sd_i*]
-  set QSPI_OUT [get_ports {qspi_clk_o qspi_sd_o* qspi_sd_en_o* qspi_csn_o*}]
-} else {
-  set QSPI_IN  [get_ports -quiet ""]
-  set QSPI_OUT [get_ports -quiet ""]
-}
-
 # Everything else: functional I/O in the clk_i domain.
 #   ref_clk_i, uart_rx_i, gpio_i  -> async in reality, but each lands one gate
 #                                    from a 2-FF synchronizer, so constraining
 #                                    them costs nothing and keeps them visible.
 #   qspi_sd_i                     -> genuinely captured by a clk_i flop.
 set FUNC_IN  [all_inputs]
-foreach coll [list $CLK_PORTS $ASYNC_PORTS $JTAG_IN $QSPI_IN] {
+foreach coll [list $CLK_PORTS $ASYNC_PORTS $JTAG_IN] {
   if { [sizeof_collection $coll] > 0 } {
     set FUNC_IN [remove_from_collection $FUNC_IN $coll]
   }
 }
 
 set FUNC_OUT [all_outputs]
-foreach coll [list $JTAG_OUT $QSPI_OUT] {
+foreach coll [list $JTAG_OUT] {
   if { [sizeof_collection $coll] > 0 } {
     set FUNC_OUT [remove_from_collection $FUNC_OUT $coll]
   }
@@ -320,12 +173,6 @@ set IO_DELAY [expr {$IO_DELAY_FRAC * $CLOCK_PERIOD}]
 set_input_delay  -mode func -clock clock $IO_DELAY $FUNC_IN
 set_output_delay -mode func -clock clock $IO_DELAY $FUNC_OUT
 
-# If you would rather cut the genuinely asynchronous single-bit inputs cleanly
-# (they all land in 2-FF synchronizers) instead of timing them:
-#
-#   set_false_path -from [get_ports {ref_clk_i uart_rx_i gpio_i*}]
-
-
 ################################################################################
 # 9. JTAG I/O -- constrained against tck, not clk
 ################################################################################
@@ -350,8 +197,17 @@ set_output_delay -mode func -clock jtag_tck -clock_fall $JTAG_IO_DELAY $JTAG_OUT
 # telling the truth for the first time.
 ################################################################################
 
-set_input_transition $EXT_INPUT_TRAN [all_inputs]
-set_load             $EXT_LOAD       [all_outputs]
+# set_load only applies to the current corner and set_input_transition to the current scenario, and
+# mcmm.tcl leaves the last one (fast) current when it sources this file. Applying them once here
+# put the load and the input slew on fast only, so slow and typical, which size the outputs for
+# setup and feed the exported SDC, saw zero load and an ideal input. Set them in every scenario.
+set previous_scenario [current_scenario]
+foreach_in_collection scenario [all_scenarios] {
+  current_scenario $scenario
+  set_input_transition $EXT_INPUT_TRAN [all_inputs]
+  set_load             $EXT_LOAD       [all_outputs]
+}
+current_scenario $previous_scenario
 
 
 ################################################################################

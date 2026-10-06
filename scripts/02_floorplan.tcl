@@ -33,7 +33,9 @@ initialize_floorplan \
 compile_fusion -to initial_map
 check_design_states -verbose
 
-set_block_pin_constraints -self -allowed_layers {Metal1 Metal2 Metal3} -pin_spacing 2
+# Pins on routing layers only: the parent flow routes from Metal2 up, so a Metal1 pin needs a Via1 pad wider
+# than the pin. Left and right edges get horizontal Metal3 pins, top and bottom get vertical Metal2.
+set_block_pin_constraints -self -allowed_layers {Metal2 Metal3} -pin_spacing 2
 
 set ports_top {
     jtag_trst_ni
@@ -70,8 +72,6 @@ create_pin_constraint -type individual -ports $ports_top -sides 2
 create_pin_constraint -type individual -ports $ports_right -sides 3
 create_pin_constraint -type individual -ports $ports_bottom -sides 4
 create_pin_constraint -type individual -ports $ports_left -sides 1
-
-create_pin_constraint -type individual -ports [get_ports *clk_i] -width 0.1 -length 0.4
 
 place_pins -self
 

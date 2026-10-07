@@ -39,6 +39,12 @@ analyze -format sverilog -vcs "-F ../flists/croc.flist"
 elaborate $TOP_MODULE
 set_top_module
 
+# Dedicated scan ports (the RTL has none). dft_scan.tcl declares them as SI/SE/SO and
+# mode_func.tcl ties scan_se_i to 0, so they must exist before the constraints are read.
+create_port -direction in  scan_si_i
+create_port -direction in  scan_se_i
+create_port -direction out scan_so_o
+
 ###########################################################
 # Technology setup
 ###########################################################

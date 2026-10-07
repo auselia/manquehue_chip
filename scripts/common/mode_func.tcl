@@ -104,6 +104,10 @@ set GRP_SYS [get_clocks clock]
 
 set_case_analysis 0 [get_ports testmode_i]
 
+# scan_se_i is the dedicated scan-enable. It is 0 in functional mode, so the scan
+# muxes and the reset/set gating are timed in their functional position.
+set_case_analysis 0 [get_ports scan_se_i]
+
 
 ################################################################################
 # 6. Port classification
@@ -125,7 +129,7 @@ set CLK_PORTS [get_ports [list $CLOCK_PORT_NAME $JTAG_TCK_PORT]]
 #   jtag_trst_ni -> TAP async reset
 #   fetch_en_i   -> static strap, lands in i_ext_intr_sync (2-FF synchronizer)
 #   testmode_i   -> already handled by case analysis above
-set ASYNC_PORTS [get_ports {rst_ni jtag_trst_ni fetch_en_i testmode_i}]
+set ASYNC_PORTS [get_ports {rst_ni jtag_trst_ni fetch_en_i testmode_i scan_se_i}]
 
 # JTAG data pins live in the tck domain, not the clk_i domain.
 set JTAG_IN  [get_ports {jtag_tdi_i jtag_tms_i}]

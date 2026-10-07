@@ -40,6 +40,9 @@ set_block_pin_constraints -self -allowed_layers {Metal2 Metal3} -pin_spacing 2
 set ports_top {
     jtag_trst_ni
     testmode_i
+    scan_si_i
+    scan_se_i
+    scan_so_o
 }
 
 set ports_right {

@@ -16,23 +16,19 @@
 ###############################################################################
 
 ###############################################################################
-# 1. Test I/O pins -- reused GPIO, zero RTL changes
+# 1. Test I/O pins -- dedicated ports
 ###############################################################################
-# croc_soc's actual elaborated GpioCount is 2 (confirmed against the real
-# gate netlist, outputs/latest/croc_soc.v: `input [1:0] gpio_i` -- NOT 16 as
-# an earlier, stale assumption in this project's own notes suggested).
-# That's exactly enough for one chain's SI/SE/SO if SI and SE share the two
-# spare gpio_i bits and SO uses one spare gpio_o bit (gpio_o[1] stays free):
-#   gpio_i[0] -> ScanDataIn   gpio_i[1] -> ScanEnable   gpio_o[0] -> ScanDataOut
-# FC auto-inserts the muxing to share these with their normal GPIO function
-# (see "Sharing a Scan Input/Output With a Functional Port" in the DFT
-# guide) -- no dedicated pins, no RTL edits. If a future revision adds real
-# GPIO pins back, dedicated SI/SE/SO ports would be the more conventional
-# choice; this reuse is the pragmatic fit for the pins this build actually
-# has.
-set_dft_signal -view spec -type ScanDataIn  -port {gpio_i[0]}
-set_dft_signal -view spec -type ScanEnable  -port {gpio_i[1]} -active_state 1
-set_dft_signal -view spec -type ScanDataOut -port {gpio_o[0]}
+# One scan chain, three dedicated ports (created in 01_read_rtl.tcl; the
+# RTL has no scan ports):
+#   scan_si_i -> ScanDataIn   scan_se_i -> ScanEnable   scan_so_o -> ScanDataOut
+# An earlier revision shared gpio_i[0]/gpio_i[1]/gpio_o[0] with the scan
+# signals. FC inserted the muxing, but gpio_i[1] then drove every scan flop's
+# SE and the reset/set gating, so any 1 on that GPIO input in normal operation
+# put the flops into scan mode. With dedicated ports the functional GPIOs are
+# untouched and scan_se_i is tied to 0 outside test (mode_func.tcl).
+set_dft_signal -view spec -type ScanDataIn  -port {scan_si_i}
+set_dft_signal -view spec -type ScanEnable  -port {scan_se_i} -active_state 1
+set_dft_signal -view spec -type ScanDataOut -port {scan_so_o}
 
 ###############################################################################
 # 2. Clocks and reset
@@ -89,8 +85,8 @@ set_scan_configuration -chain_count 1 -clock_mixing mix_clocks
 # chosen specifically because it only de-asserts the reset during SCAN
 # SHIFT, leaving the real functional reset path intact and testable during
 # capture -- the mux method would permanently block the functional reset
-# path, per the guide's own tradeoff table. Reusing the ScanEnable pin
-# (gpio_i[1]) as the gate control signal needs no new pin.
+# path, per the guide's own tradeoff table. The ScanEnable pin
+# (scan_se_i) is the gate control signal.
 #
 # Confirmed 2026-08-17: this dropped D2/D3 to 0 and D15 (a downstream
 # consequence of D3) from 3539 to 0 as well, leaving only D10 (48, a
@@ -102,8 +98,8 @@ set_scan_configuration -chain_count 1 -clock_mixing mix_clocks
 # the actual scan chain stitching -- see step 4.
 set_dft_configuration -fix_reset enable
 set_dft_configuration -fix_set enable
-set_autofix_configuration -type reset -method gate -control_signal {gpio_i[1]}
-set_autofix_configuration -type set   -method gate -control_signal {gpio_i[1]}
+set_autofix_configuration -type reset -method gate -control_signal {scan_se_i}
+set_autofix_configuration -type set   -method gate -control_signal {scan_se_i}
 
 ###############################################################################
 # 4. Insertion sequence (FC DFT User Guide Ch1 Figure 1 / Ch15 AutoFix flow)
@@ -136,7 +132,7 @@ insert_dft
 # rules that actually gate scan-chain INCLUSION (D1-D17): all ~3964
 # eligible flops are in the chain. For the bring-up use case this exists
 # for -- freeze the chip, shift the current flop state out (or a chosen
-# state in) over gpio_i[0]/gpio_i[1]/gpio_o[0] -- that should work as-is.
+# state in) over scan_si_i/scan_se_i/scan_so_o -- that should work as-is.
 # Getting a clean, ATPG-signoff-grade C1 result is future work, not
 # something this session's "nothing fancy" scope chased down further.
 dft_drc

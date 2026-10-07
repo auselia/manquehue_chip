@@ -12,6 +12,9 @@ module croc_soc (
     rst_ni,
     ref_clk_i,
     testmode_i,
+    scan_si_i,
+    scan_se_i,
+    scan_so_o,
     status_o,
     jtag_tck_i,
     jtag_tdi_i,
@@ -36,6 +39,9 @@ input        clk_i;
 input        rst_ni;
 input        ref_clk_i;
 input        testmode_i;
+input        scan_si_i;
+input        scan_se_i;
+output       scan_so_o;
 output       status_o;
 
 input        jtag_tck_i;

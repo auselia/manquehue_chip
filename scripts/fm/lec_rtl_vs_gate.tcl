@@ -5,7 +5,21 @@
 # post-route, post change_names -- exactly what 06_finish.tcl exports to
 # GDS) is logically equivalent to the original RTL (croc.flist).
 #
-# SVF_FILE (optional): path to the .svf FC's compile_fusion wrote during
+# STATUS (2026-10-07): passes (4095 compare points, all 3964 flops equivalent) when run through
+# scripts/fm/run_lec.sh. What it took, in order of impact:
+#   - SVF guidance from ALL six FC sessions (read_rtl .. finish), passed as one ordered list. The SVF
+#     carries the phase-inverted registers (set-type flops storing the complement) and the merged and
+#     removed registers; without it every flop that reads an inverted one fails (3.7k of 4.1k points).
+#     Formality still reports "guide_checkpoint rejected" and FM-632; the guides are used anyway.
+#   - lec_strip_pg.py: PG ports/pins and fill cells out of the netlist.
+#   - verification_failing_point_limit 0 (the default 20 hid the unverified points).
+#   - verification_clock_gate_hold_mode low for FC's 232 clock-gate latches.
+#   - set_dont_verify_points -all_bbox_pgpins for the SRAM macros' supply pins.
+# Scope: functional mode only (testmode_i = 0 on both sides, scan_se_i = 0 on the netlist), the SRAMs
+# are black boxes on both sides, and the 232 clock-gate latches and the scan ports are unmatched.
+# LEC_CONST_REG_X / LEC_MERGE_DUP made no difference once the SVF is used.
+#
+# SVF_FILE (optional; a list of files in flow order): path to the .svf FC's compile_fusion wrote during
 # 03_synthesis.tcl (set_verification_checkpoints, added 2026-08-15
 # specifically because a plain/non-SVF run got stuck at ~99% "Unverified"
 # compare points -- see the git history of this file and
@@ -88,18 +102,22 @@ file mkdir $REPORT_DIR
 # flists/croc.flist is written for FC's cwd (work/), so its paths start with ../rtl. Formality
 # runs from anywhere, so write a copy with absolute paths into the report directory.
 set REPO_ROOT [file normalize [file join [file dirname [info script]] .. ..]]
-set fh [open $FLIST]
-set flist_txt [read $fh]
-close $fh
-regsub -all {\.\./rtl} $flist_txt "$REPO_ROOT/rtl" flist_txt
-set fh [open $REPORT_DIR/croc_abs.flist w]
-puts $fh $flist_txt
-close $fh
-set FLIST $REPORT_DIR/croc_abs.flist
+# LEC_REL_FLIST 1 keeps the flist as given (run from a directory one level below the repo, like FC's
+# work/), so the file names match what an SVF recorded.
+if { ![info exists LEC_REL_FLIST] || !$LEC_REL_FLIST } {
+  set fh [open $FLIST]
+  set flist_txt [read $fh]
+  close $fh
+  regsub -all {\.\./rtl} $flist_txt "$REPO_ROOT/rtl" flist_txt
+  set fh [open $REPORT_DIR/croc_abs.flist w]
+  puts $fh $flist_txt
+  close $fh
+  set FLIST $REPORT_DIR/croc_abs.flist
+}
 
 if { $SVF_FILE != "" } {
   puts "INFO: Using SVF guidance: $SVF_FILE"
-  set_svf $SVF_FILE
+  set_svf -ordered $SVF_FILE
 }
 
 # croc_soc is a single power-domain design (power_grid.tcl ties every macro
@@ -138,6 +156,15 @@ set verification_set_undriven_signals SYNTHESIS
 # Fusion Compiler inserts latch-based clock gates (clock_gate_<reg>, 232 of them) that the RTL does
 # not have. Without this Formality cannot match those latches and every flop behind a gate fails.
 set_app_var verification_clock_gate_hold_mode low
+
+# Optional experiments, both default off (set before sourcing this script):
+#  LEC_CONST_REG_X 1: treat registers that a constant keeps permanently disabled as X downstream
+#                     (man verification_propagate_const_reg_x). The testmode_i/scan_se_i constants make
+#                     such registers, and without this the failures that depend on them stay failures.
+#  LEC_MERGE_DUP 1:   merge registers with identical inputs on both sides (man
+#                     verification_merge_duplicated_registers); FC merges duplicates during synthesis.
+if { [info exists LEC_CONST_REG_X] && $LEC_CONST_REG_X } { set_app_var verification_propagate_const_reg_x true }
+if { [info exists LEC_MERGE_DUP] && $LEC_MERGE_DUP } { set_app_var verification_merge_duplicated_registers true }
 
 ###############################################################################
 # 1. Reference (RTL) side
@@ -203,6 +230,10 @@ match
 
 redirect -file ${REPORT_DIR}/report_unmatched_points.rpt { report_unmatched_points }
 redirect -file ${REPORT_DIR}/report_black_boxes.rpt { report_black_boxes }
+
+# The SRAM macros' VDD/VSS pins exist on the RTL side (the model comes from the liberty with PG pins)
+# but not in the PG-stripped netlist; they carry no logic, so leave them out of the compare.
+set_dont_verify_points -all_bbox_pgpins
 
 verify
 

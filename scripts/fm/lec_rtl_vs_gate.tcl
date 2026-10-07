@@ -73,8 +73,29 @@ foreach v {TOP VLOG FLIST SC_DB IO_DB SRAM_DB REPORT_DIR} {
   }
 }
 if { ![info exists SVF_FILE] } { set SVF_FILE "" }
+# Scan-enable port, held at 0 (functional mode). Dedicated scan_se_i exists only in the gate
+# netlist; for a netlist from before the dedicated scan pins pass SCAN_SE gpio_i\[1\] (that port
+# exists on both sides and is then constrained on both).
+if { ![info exists SCAN_SE] } { set SCAN_SE scan_se_i }
+
+# Formality stops verifying after 20 failing compare points by default. The first plain run
+# (30 of ~4100 points: 10 pass, 20 fail, rest unverified) hit exactly that limit, so the
+# "unverified" points were never tried. 0 = no limit.
+set_app_var verification_failing_point_limit 0
 
 file mkdir $REPORT_DIR
+
+# flists/croc.flist is written for FC's cwd (work/), so its paths start with ../rtl. Formality
+# runs from anywhere, so write a copy with absolute paths into the report directory.
+set REPO_ROOT [file normalize [file join [file dirname [info script]] .. ..]]
+set fh [open $FLIST]
+set flist_txt [read $fh]
+close $fh
+regsub -all {\.\./rtl} $flist_txt "$REPO_ROOT/rtl" flist_txt
+set fh [open $REPORT_DIR/croc_abs.flist w]
+puts $fh $flist_txt
+close $fh
+set FLIST $REPORT_DIR/croc_abs.flist
 
 if { $SVF_FILE != "" } {
   puts "INFO: Using SVF guidance: $SVF_FILE"
@@ -113,6 +134,10 @@ set_app_var hdlin_allow_partial_pg_netlist true
 # but re-run analyze_points after enabling SVF_FILE before assuming these
 # are still doing anything useful; SVF guidance may make them redundant.
 set verification_set_undriven_signals SYNTHESIS
+
+# Fusion Compiler inserts latch-based clock gates (clock_gate_<reg>, 232 of them) that the RTL does
+# not have. Without this Formality cannot match those latches and every flop behind a gate fails.
+set_app_var verification_clock_gate_hold_mode low
 
 ###############################################################################
 # 1. Reference (RTL) side
@@ -156,12 +181,20 @@ read_db -i -technology_library $SC_DB
 read_db -i -technology_library $IO_DB
 read_db -i -technology_library $SRAM_DB
 
-read_verilog -i -netlist $VLOG
+# The signoff netlist has PG pins/ports and fill cells the RTL does not; strip them first (see the script).
+exec python3 $REPO_ROOT/scripts/utils/lec_strip_pg.py $VLOG $REPORT_DIR/netlist_lec.v
+read_verilog -i -netlist $REPORT_DIR/netlist_lec.v
 
 set_top i:/WORK/$TOP
 
 set TESTMODE_I [get_ports -quiet i:/WORK/croc_soc/testmode_i]
 if { [sizeof_collection $TESTMODE_I] > 0 } { set_constant -type port $TESTMODE_I 0 }
+
+# Scan enable: 0 on whichever side has the port (the netlist always, the RTL only for a shared GPIO).
+foreach side {r i} {
+  set SE [get_ports -quiet ${side}:/WORK/$TOP/$SCAN_SE]
+  if { [sizeof_collection $SE] > 0 } { set_constant -type port $SE 0 }
+}
 
 ###############################################################################
 # 3. Match + verify

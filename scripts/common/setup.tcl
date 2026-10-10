@@ -43,6 +43,8 @@ set TECHNOLOGY          "gf180mcu"
 
 # Tech Files & Layermaps
 set PDK_DIR             $TECHLIB_DATA_DIR
+# Official SRAM layouts (see 06_finish.tcl): ciel's gf180mcu_fd_ip_sram, override with SRAM_GDS_DIR
+if { [info exists ::env(SRAM_GDS_DIR)] } { set SRAM_GDS_DIR $::env(SRAM_GDS_DIR) } else { set SRAM_GDS_DIR "$::env(HOME)/.ciel/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/gds" }
 set TECH_FILE           "${PDK_DIR}/tech/gf180nm_mcu_5LM_1TM_11K_${STDCELL_TRACK_SIZE}t_mw.tf"
 set ICC2GDS_LAYERMAP    "${PDK_DIR}/tech/gf180nm_mcu_5LM_1TM_11K_icc2gds.layermap"
 

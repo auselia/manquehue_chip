@@ -106,7 +106,12 @@ write_verilog -include all \
 # boundary shape in the GDS top cell, which write_gds does not emit for the top block.
 create_shape -shape_type rect -layer PR_bndry -boundary [get_attribute [current_block] boundary_bbox]
 
-set GDS_FILE_LIST [glob ${PDK_DIR}/gds/*.gds]
+# The SRAM layouts come from the official PDK, not from the Synopsys-prepared copy in ${PDK_DIR}/gds: that
+# copy has 5 extra diffusion contacts per SRAM, which gives 268 Magic DRC errors in the chip run
+# (MV Diffusion contact width, CO.1 + 2 * CO.6). With the official SRAM GDS Magic reports none of them.
+# The standard cells in the Synopsys copy are identical to the official ones (checked by XOR).
+set GDS_FILE_LIST [lsearch -all -inline -not -glob [glob ${PDK_DIR}/gds/*.gds] *gf180mcu_fd_ip_sram__*]
+lappend GDS_FILE_LIST {*}[glob ${SRAM_GDS_DIR}/gf180mcu_fd_ip_sram__*.gds]
 # 1 nm database unit: the wafer.space precheck and LibreLane's Magic step both require it.
 write_gds -units 1000 -merge_files $GDS_FILE_LIST -merge_gds_top_cell $TOP_MODULE \
     -layer_map ${ICC2GDS_LAYERMAP} -long_names $GDS_OUT

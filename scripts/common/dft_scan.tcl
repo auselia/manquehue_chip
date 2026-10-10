@@ -61,6 +61,9 @@ set_dft_signal -view existing_dft -type Reset -port rst_ni -active_state 0
 # 2026-08-17: adding this constraint dropped D3 (reset line not
 # controlled) from 3649 to 2885 pre-AutoFix.
 set_dft_signal -view spec -type Constant -port testmode_i -active_state 1
+# The same port again as a TestMode signal for AutoFix: the control signal of set_autofix_configuration
+# must be declared as -type TestMode -usage autofix (or as a ScanEnable); a plain Constant is rejected (DFT-1964).
+set_dft_signal -view spec -type TestMode -usage autofix -port testmode_i -active_state 1
 
 set_scan_configuration -chain_count 1 -clock_mixing mix_clocks
 
@@ -82,11 +85,13 @@ set_scan_configuration -chain_count 1 -clock_mixing mix_clocks
 #
 # AutoFix is the tool's purpose-built answer: it inserts real gating logic
 # directly at each uncontrollable reset/set pin. -method gate (vs. mux) was
-# chosen specifically because it only de-asserts the reset during SCAN
-# SHIFT, leaving the real functional reset path intact and testable during
-# capture -- the mux method would permanently block the functional reset
-# path, per the guide's own tradeoff table. The ScanEnable pin
-# (scan_se_i) is the gate control signal.
+# chosen because it leaves the functional reset path in place when the
+# control signal is inactive (the mux method would permanently block it,
+# per the guide's own tradeoff table). The gate control signal is
+# testmode_i, which is high in every test state, so the resets are held
+# inactive during shift AND capture and while the clocks are off. With
+# scan_se_i as the control signal the resets were held inactive only while
+# scan_se_i was 1, and Clock Rule C1 fired 2936 times (see below).
 #
 # Confirmed 2026-08-17: this dropped D2/D3 to 0 and D15 (a downstream
 # consequence of D3) from 3539 to 0 as well, leaving only D10 (48, a
@@ -98,8 +103,8 @@ set_scan_configuration -chain_count 1 -clock_mixing mix_clocks
 # the actual scan chain stitching -- see step 4.
 set_dft_configuration -fix_reset enable
 set_dft_configuration -fix_set enable
-set_autofix_configuration -type reset -method gate -control_signal {scan_se_i}
-set_autofix_configuration -type set   -method gate -control_signal {scan_se_i}
+set_autofix_configuration -type reset -method gate -control_signal {testmode_i}
+set_autofix_configuration -type set   -method gate -control_signal {testmode_i}
 
 ###############################################################################
 # 4. Insertion sequence (FC DFT User Guide Ch1 Figure 1 / Ch15 AutoFix flow)
@@ -114,25 +119,29 @@ dft_drc
 preview_dft
 insert_dft
 
-# KNOWN, DOCUMENTED CAVEAT (2026-08-17): post-insertion dft_drc still
-# reports Clock Rule C1 (unstable scan cells when clocks off) on ~74% of
-# the ~3964 scanned cells, plus smaller C5/C8/C26 counts. Investigated at
-# length: it is NOT caused by clock mixing (confirmed by rerunning with
-# two unmixed per-domain chains -- identical violation count), NOT fixed by
-# switching the lock-up element to a flip-flop instead of a latch, and NOT
-# fixed by -clock_gating_init_cycles (the documented fix for a different,
-# narrower clock-gating-latch-at-time-zero scenario). The most likely
-# remaining cause is this design's pervasive integrated clock-gating cells
-# (nearly every register bank has one) interacting with DFT DRC's
-# "simulate with every clock PI off" check in a way not resolved here.
+# Clock Rule C1 ("unstable scan cells when clocks off"), and what it was.
+# With scan_se_i as the AutoFix control signal, post-insertion dft_drc
+# reported C1 on 2936 scan flops, every one of them the same message:
+# "Clock PIs off did not force off clock input <flop>/RN (2886) or /SETN
+# (50) of scan DFF <flop>/Q". The check puts every clock off and asks
+# whether the clock-like inputs of each scan flop, which includes the async
+# reset and set pins, are quiet. Those pins are driven by internal reset
+# logic (reset synchronizer, ndmreset) whose value is unknown in that state,
+# and the AutoFix gate (reset | scan_se_i) only forced them inactive while
+# scan_se_i was 1, which it is not in the clocks-off state. Gating with
+# testmode_i (TestMode, -usage autofix) holds them inactive in that state:
+# C1 drops from 2936 to 0 at synthesis and on the finished block, the chain
+# still traces completely (3964 scan cells), and the total DRC violations
+# drop from 3029 to 104. An earlier note here blamed the clock-gating cells;
+# that was not the cause (reruns with unmixed chains, a flop lock-up element
+# and -clock_gating_init_cycles did not change C1 because none of them
+# touches the reset pins).
 #
-# Practical read: C1/C5/C8/C26 are about CAPTURE-mode stability (matters
-# for formal, automated ATPG pattern generation -- TestMAX and friends),
-# not SHIFT-mode operation. The chain itself is built and DRC-clean on the
-# rules that actually gate scan-chain INCLUSION (D1-D17): all ~3964
-# eligible flops are in the chain. For the bring-up use case this exists
-# for -- freeze the chip, shift the current flop state out (or a chosen
-# state in) over scan_si_i/scan_se_i/scan_so_o -- that should work as-is.
-# Getting a clean, ATPG-signoff-grade C1 result is future work, not
-# something this session's "nothing fancy" scope chased down further.
+# Cost of this choice: scanning needs testmode_i = 1 as well as scan_se_i = 1,
+# and the resets stay inactive during capture, so an ATPG tool cannot test
+# the reset paths. Normal operation is unchanged (testmode_i = 0).
+#
+# Left over (warnings only): S22 x1 (the chain is shifted by two clocks,
+# clk_i and jtag_tck_i, so both must toggle during shift), C5 x38, C8 x17,
+# C26 x48 ("clock rst_ni used as data"), D10 x48 (clock feeding data input).
 dft_drc

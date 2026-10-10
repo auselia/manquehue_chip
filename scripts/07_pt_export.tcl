@@ -53,6 +53,7 @@ if { ![file isdirectory $RUN_DIR] } {
 }
 
 set SDC_OUT  [file join $RUN_DIR "${TOP_MODULE}.sdc"]
+set SDC_SCAN_OUT [file join $RUN_DIR "${TOP_MODULE}_scan.sdc"]
 # Base name only (no .spef extension): write_parasitics appends
 # .<spec>_<temperature>.spef per corner itself (e.g. .typ_125.spef for the
 # 125C `slow` scenario) -- giving it an extension here would just double up
@@ -97,25 +98,35 @@ current_scenario typical
 # set_propagated_clock as the only network-delay directive PT sees -- that's
 # what makes its clock analysis genuinely SPEF-driven (real per-path latency
 # and skew from the routed tree) instead of a copy of FC's own number.
-write_sdc -output $SDC_OUT
+proc write_pt_sdc { sdc_out } {
+  write_sdc -output $sdc_out
 
-set SDC_FH [open $SDC_OUT r]
-set SDC_LINES [split [read $SDC_FH] "\n"]
-close $SDC_FH
-set SDC_FH [open $SDC_OUT w]
-set SKIP_CONTINUATION 0
-foreach line $SDC_LINES {
-  if { [regexp {^set_clock_latency\M} $line] } {
-    set SKIP_CONTINUATION [expr {[string index $line end] == "\\"}]
-    continue
+  set SDC_FH [open $sdc_out r]
+  set SDC_LINES [split [read $SDC_FH] "\n"]
+  close $SDC_FH
+  set SDC_FH [open $sdc_out w]
+  set SKIP_CONTINUATION 0
+  foreach line $SDC_LINES {
+    if { [regexp {^set_clock_latency\M} $line] } {
+      set SKIP_CONTINUATION [expr {[string index $line end] == "\\"}]
+      continue
+    }
+    if { $SKIP_CONTINUATION } {
+      set SKIP_CONTINUATION [expr {[string index $line end] == "\\"}]
+      continue
+    }
+    puts $SDC_FH $line
   }
-  if { $SKIP_CONTINUATION } {
-    set SKIP_CONTINUATION [expr {[string index $line end] == "\\"}]
-    continue
-  }
-  puts $SDC_FH $line
+  close $SDC_FH
 }
-close $SDC_FH
+
+write_pt_sdc $SDC_OUT
+
+# Scan-shift constraints (mode `scan`: scan_se_i = testmode_i = 1, shift waveforms), written the same
+# way for the scan-mode PrimeTime check. The functional sign-off keeps using ${TOP_MODULE}.sdc.
+current_scenario scan_typical
+write_pt_sdc $SDC_SCAN_OUT
+current_scenario typical
 
 # Parasitics extracted from the exact routed+filled geometry using the tech
 # already loaded via read_parasitic_tech (tech_setup.tcl). This is FC's own
@@ -130,6 +141,7 @@ set ACTIVE_STEP "07_pt_export"
 source [file dirname [info script]]/common/reporting.tcl
 
 puts "INFO: Wrote SDC   -> $SDC_OUT"
+puts "INFO: Wrote SDC   -> $SDC_SCAN_OUT (scan shift)"
 puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_125.spef (slow)"
 puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_25.spef (typical)"
 puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_-40.spef (fast)"

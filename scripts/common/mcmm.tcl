@@ -49,8 +49,9 @@ set_temperature -40
 # configurations of the design (e.g., functional, test, 
 # low-power). Each mode may enable different clocks, resets, 
 # or I/O behaviors for timing analysis.
-# In this case we have only one mode:
+# In this case we have two modes:
 #  - func (for normal operation)
+#  - scan (scan shift: scan_se_i = testmode_i = 1, hold only)
 ###########################################################
 create_mode func
 # mode details are configured later in mode_func.tcl
@@ -82,3 +83,29 @@ set_scenario_status -none -hold true  -dynamic_power true  -leakage_power true  
 
 # mode setup needs to know all scenarios
 source [file dirname [info script]]/mode_func.tcl
+
+###########################################################
+# Scan mode
+#
+# The functional scenarios pin scan_se_i and testmode_i to 0, so the
+# scan-shift paths (Q -> SI of the next flop) are never timed and never
+# fixed. These scenarios time them and run hold fixing on them in every
+# corner; setup, design rules and power are off (the shift period is 100 ns
+# and only hold is limited by clock skew). They are created after
+# mode_func.tcl has been sourced so that its design-level constraints stay
+# on the functional scenarios.
+###########################################################
+create_mode scan
+
+create_scenario -name scan_slow    -mode scan -corner slow
+create_scenario -name scan_typical -mode scan -corner typical
+create_scenario -name scan_fast    -mode scan -corner fast
+
+set_scenario_status {scan_slow scan_typical scan_fast} -setup false -hold true \
+  -max_transition false -max_capacitance false \
+  -dynamic_power false -leakage_power false -cell_em false -signal_em false
+
+source [file dirname [info script]]/mode_scan.tcl
+
+# leave `fast` current, as before the scan scenarios existed
+current_scenario fast

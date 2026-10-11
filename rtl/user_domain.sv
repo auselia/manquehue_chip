@@ -30,15 +30,19 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   output logic [2:0] qspi_csn_o
 );
 
-  assign interrupts_o = '0;
+  logic fft_irq;
+  // interrupts_o[2]: AE-FFT accelerator done.  Lines 0 and 1 are kept free for the SPI host (obi-spi branch).
+  assign interrupts_o = {{(NumExternalIrqs-3){1'b0}}, fft_irq, 2'b00};
 
 
   //////////////////////
   // User Manager MUX //
   /////////////////////
 
-  // No manager so we don't need a obi_mux module and just terminate the request properly
-  assign user_mgr_obi_req_o = '0;
+  // The only user manager is the AE-FFT accelerator DMA, so no obi_mux is needed yet.
+  // Add an obi_mux here when a second manager (for example iDMA) joins.
+  mgr_obi_req_t fft_mgr_obi_req;
+  assign user_mgr_obi_req_o = fft_mgr_obi_req;
 
 
   ////////////////////////////
@@ -62,6 +66,8 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   sbr_obi_rsp_t user_design_obi_rsp;
   sbr_obi_req_t user_qspi_obi_req;
   sbr_obi_rsp_t user_qspi_obi_rsp;
+  sbr_obi_req_t user_fft_obi_req;
+  sbr_obi_rsp_t user_fft_obi_rsp;
 
   // Fanout into more readable signals
   assign user_error_obi_req               = all_user_sbr_obi_req[UserError];
@@ -72,6 +78,8 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   assign all_user_sbr_obi_rsp[UserQSpi] = user_qspi_obi_rsp;
   assign user_design_obi_req               = all_user_sbr_obi_req[UserDesign];
   assign all_user_sbr_obi_rsp[UserDesign]  = user_design_obi_rsp;
+  assign user_fft_obi_req                  = all_user_sbr_obi_req[UserFft];
+  assign all_user_sbr_obi_rsp[UserFft]     = user_fft_obi_rsp;
 
 
   //-----------------------------------------------------------------------------------------------
@@ -136,6 +144,17 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
     .spi_sd_i     ( qspi_sd_i     ),
     .spi_sd_en_o  ( qspi_sd_en_o  ),
     .spi_csn_o    ( qspi_csn_o    )
+  );
+
+  // AE-FFT accelerator: register file on the subordinate port, DMA on the user manager port
+  fft_hwpe i_fft_hwpe (
+    .clk_i,
+    .rst_ni,
+    .obi_sbr_req_i ( user_fft_obi_req ),
+    .obi_sbr_rsp_o ( user_fft_obi_rsp ),
+    .obi_mgr_req_o ( fft_mgr_obi_req  ),
+    .obi_mgr_rsp_i ( user_mgr_obi_rsp_i ),
+    .irq_o         ( fft_irq          )
   );
 
   // UserDesign placeholder.

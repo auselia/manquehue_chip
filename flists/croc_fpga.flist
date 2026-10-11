@@ -223,6 +223,18 @@
 ../rtl/clint/clint.sv
 ../rtl/obi_timer/obi_timer.sv
 ../rtl/croc_domain.sv
+# ---- AE-FFT accelerator (fft_hwpe) ----
+../rtl/user_domain/fft/fft_cos_rom.sv
+../rtl/user_domain/fft/fft_trig.sv
+../rtl/user_domain/fft/fft_window.sv
+../rtl/user_domain/fft/fft_pre.sv
+../rtl/user_domain/fft/fft_butterfly.sv
+../rtl/user_domain/fft/fft_post.sv
+../rtl/user_domain/fft/fft_feat.sv
+../rtl/user_domain/fft/fft_hwpe_core.sv
+../rtl/user_domain/fft/fft_hwpe_regs.sv
+../rtl/user_domain/fft/fft_hwpe_ctrl.sv
+../rtl/user_domain/fft/fft_hwpe.sv
 ../rtl/user_domain.sv
 ../rtl/croc_soc.sv
 

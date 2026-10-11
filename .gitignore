@@ -50,3 +50,7 @@ vivado*.str
 FM_INFO/
 fm_checkpoint_sessions/
 formality_svf/
+# AE-FFT accelerator build outputs
+sim/fft/build/
+sim/sw/aefft_test/build/
+sim/sw/aefft_test/bin/

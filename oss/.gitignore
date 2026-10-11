@@ -1,1 +1,6 @@
 build/
+yosys/out/
+yosys/tmp/
+yosys/reports/
+yosys/*.log
+yosys/src/*.aig

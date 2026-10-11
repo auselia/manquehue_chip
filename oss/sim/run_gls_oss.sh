@@ -102,8 +102,8 @@ $W/sram.v
 $W/croc_soc_gls.v
 EOF
 
-verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX" -j "${JOBS:-8}" -Wno-fatal -Wno-lint -Wno-style \
-  -Wno-SPECIFYIGN --timing -f files.f --top-module tb_croc_soc -o Vgls > build.log 2>&1 \
+verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX OPT_FAST=${GLS_OPT:--O0} OPT_SLOW=${GLS_OPT:--O0} OPT_GLOBAL=${GLS_OPT:--O0}" -j "${JOBS:-8}" --build-jobs "${JOBS:-8}" -Wno-fatal -Wno-lint -Wno-style \
+  -Wno-SPECIFYIGN --output-split 10000 --output-split-cfuncs 5000 --timing -f files.f --top-module tb_croc_soc -o Vgls > build.log 2>&1 \
   || { echo "verilator build failed, see $W/build.log"; exit 1; }
 echo "run start $(date +%T)" > run.status
 set +e

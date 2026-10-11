@@ -15,7 +15,7 @@
 #define REG(o)   (*(volatile uint32_t *)(FFT_BASE + (o)))
 #define IRQ_MIP  (1u << 22)          // user irq line 2 -> fast interrupt 4 + 2 -> mip bit 16 + 6
 
-static uint32_t work[66];     // dump of block 0, then the halved block 1
+static uint32_t work[64];     // copy of block 0, then the halved block 1
 
 static void put(const char *s) {
     while (*s) uart_write(*s++);
@@ -32,7 +32,7 @@ static uint32_t mip(void) {
 }
 
 // bit n of fails is set when check n failed: 0 CONFIG, 1 irq timeout, 2 busy, 3 done, 4 error, 5 flags,
-// 6 peak_bin, 7 peak_pow, 8 band, 9 total, 10 td, 11 td_prev, 12 irq not cleared, 13 dump checksum
+// 6 peak_bin, 7 peak_pow, 8 band, 9 total, 10 td, 11 td_prev, 12 irq not cleared, 13 spectrum checksum
 static uint32_t fails;
 
 static void check(int n, uint32_t got, uint32_t exp) {
@@ -40,29 +40,30 @@ static void check(int n, uint32_t got, uint32_t exp) {
 }
 int main() {
     uart_init();
-    check(0, REG(0x14), 0x01001007u);
+    check(0, REG(0x14), 0x02001007u);
 
     for (int b = 0; b < NBLK; b++) {
         REG(0x18) = cfg[b][0];
         REG(0x1C) = cfg[b][1];
         REG(0x20) = cfg[b][2];
-        if (b == 1) {                           // block 1: every sample of block 0 halved
+        if (b == 0) {                           // the run overwrites blk0: keep a copy for block 1
+            for (int i = 0; i < 64; i++) work[i] = blk0[i];
+        } else {                                // block 1: every sample of block 0 halved
             for (int i = 0; i < 64; i++) {
-                uint32_t w = blk0[i];
+                uint32_t w = work[i];
                 int32_t lo = (int16_t)w >> 1, hi = (int16_t)(w >> 16) >> 1;
                 work[i] = (uint32_t)(lo & 0xFFFF) | ((uint32_t)hi << 16);
             }
         }
         REG(0x08) = (b == 0) ? (uint32_t)blk0 : (uint32_t)work;
-        REG(0x0C) = (b == 0) ? (uint32_t)work : 0;
         REG(0x10) = 1;                          // interrupt on done
         REG(0x04) = 0x46;                       // clear DONE, SAT, ERROR
         REG(0x00) = 1u | (cfg[b][3] & 2u);      // START (+ CLR_PREV on the first block)
 
         uint32_t t = 0;
-        while (!(mip() & IRQ_MIP) && ++t < 20000) {
+        while (!(mip() & IRQ_MIP) && ++t < 100000) {
         }
-        check(1, t < 20000, 1);
+        check(1, t < 100000, 1);
 
         uint32_t st = REG(0x04);
         check(2, st & 1, 0);
@@ -79,8 +80,9 @@ int main() {
         check(12, (mip() & IRQ_MIP) != 0, 0);
         if (b == 0) {
             uint32_t sum = 0;
-            for (int i = 0; i < 65; i++) sum += work[i];
-            check(13, sum, DUMP_SUM);
+            volatile uint32_t *z = (volatile uint32_t *)blk0;
+            for (int i = 0; i < 64; i++) sum += z[i];
+            check(13, sum, Z_SUM);
         }
     }
 

@@ -7,14 +7,16 @@ doc/spec_fft.tex (SETUP0, SETUP1, THRESH, STATUS).
 Contract of the numeric steps (the RTL must match all of them):
   d  = sample - DC_OFFSET                         (17-bit, no clip)
   g  = clip16(d << GAIN_SHIFT)                    (SAT if it clipped)
-  TD = sum((g*g) >> 10)                           (32-bit saturating, SAT if it saturated)
+  TD = sum((g*g) >> 10)                           (32-bit; cannot saturate for 128 samples)
   xw = (g * HANN[n] + 2^14) >> 15                 (HANN[n] = (32768 - cos(2 pi n/128)) >> 1, from the ROM)
-  z[m] = xw[2m] + j*xw[2m+1]                      (64 complex values)
-  Z  = 64-point FFT of z, radix-2 DIT, 6 stages; each butterfly rounds the twiddle product
-       ((c*u + 2^14) >> 15) and then halves both outputs with round-half-up ((v + 1) >> 1),
-       then clips them to 16 bits (SAT if it clipped)
-  X[k] = Xe[k] + W128^k * Xo[k]  for k = 0..64    (rounded halving of sums, rounded Q15 product)
-  P[k] = min((Xr^2 + Xi^2) >> EN_SHIFT, 2^32 - 1) (Xr and Xi are 18-bit signed; SAT if it clipped)
+  z[m] = xw[2m] + j*xw[2m+1]                      (64 complex values, stored in place, natural order)
+  Z  = 64-point FFT, radix-2 DIF in place, 6 stages, output in bit-reversed order.  Per butterfly:
+         lo' = clip16((lo + up + 1) >> 1)
+         d   = clip16((lo - up + 1) >> 1)
+         up' = clip16((W * d + 2^14) >> 15),  W = c - j s, c = cos, s = +sin of 2 pi k/128, k = b << (stage + 1)
+  X[k] = Xe[k] + W128^k * Xo[k]  for k = 0..64   (Xe, Xo halved with rounding, Xo components clipped to 16 bit)
+  X16  = clip16(X)                                (SAT if it clipped)
+  P[k] = (X16r^2 + X16i^2) >> EN_SHIFT           (fits 32 bit)
   features over k = KMIN..64:  PEAK (lowest bin wins a tie), TOTAL; BAND over [BAND_LO, BAND_HI] within them
   BAND_OK = BAND*256 >= TOTAL*BAND_THR
   DECAY   = PREV_VALID and TD*256 < TD_PREV*DECAY_THR
@@ -73,65 +75,65 @@ def run_block(samples, cfg, state):
     """samples: 128 ints.  cfg: dict of register fields.  state: dict(td_prev, prev_valid), updated in place."""
     gs, es = cfg['gain_shift'], cfg['en_shift']
     sat = 0
-    g = []
-    for s in samples:
-        d = int(s) - cfg['dc_offset']
-        v = d << gs
+
+    def clip(v):
+        nonlocal sat
         c = clip16(v)
-        sat |= (c != v)
-        g.append(c)
+        sat |= int(c != v)
+        return c
+
+    g = [clip((int(s) - cfg['dc_offset']) << gs) for s in samples]
     td = 0
     for v in g:
         td += (v * v) >> 10
-    if td > MASK32:
-        td, sat = MASK32, 1
     xw = [rshift_round(g[n] * int(HANN[n]), 15) for n in range(N)]
-    re = [xw[2 * m] for m in range(M)]
-    im = [xw[2 * m + 1] for m in range(M)]
-    # bit-reversed load
-    r = [0] * M
-    i = [0] * M
-    for m in range(M):
-        r[bitrev6(m)], i[bitrev6(m)] = re[m], im[m]
+    r = [xw[2 * m] for m in range(M)]
+    i = [xw[2 * m + 1] for m in range(M)]
+    # in-place radix-2 DIF, natural order in, bit-reversed order out; every stage halves with rounding
     for s in range(6):
-        half = 1 << s
-        span = half << 1
-        for gb in range(0, M, span):
-            for b in range(half):
-                lo, up = gb + b, gb + b + half
-                k = b * (M // span) * 2                    # W_128^k with k even: the 64-point twiddle
-                c, sn = cos_k(k), sin_k(k)
-                pr = rshift_round(c * r[up] + sn * i[up], 15)
-                pi_ = rshift_round(c * i[up] - sn * r[up], 15)
-                lr, li = r[lo], i[lo]
-                outs = [rshift_round(lr + pr, 1), rshift_round(li + pi_, 1),
-                        rshift_round(lr - pr, 1), rshift_round(li - pi_, 1)]
-                for o in outs:
-                    sat |= (clip16(o) != o)
-                r[lo], i[lo], r[up], i[up] = [clip16(o) for o in outs]
-    Z = list(zip(r, i))
-    zr = r + [r[0]]
-    zi = i + [i[0]]
+        half = 32 >> s
+        for n in range(32):
+            b = n & (half - 1)
+            lo = ((n & ~(half - 1)) << 1) | b
+            up = lo + half
+            k = b << (s + 1)                                   # W_128^k, k even: the 64-point twiddle
+            c, sn = cos_k(k), sin_k(k)
+            sr = clip(rshift_round(r[lo] + r[up], 1))
+            si = clip(rshift_round(i[lo] + i[up], 1))
+            dr = clip(rshift_round(r[lo] - r[up], 1))
+            di = clip(rshift_round(i[lo] - i[up], 1))
+            pr = clip(rshift_round(c * dr + sn * di, 15))
+            pi_ = clip(rshift_round(c * di - sn * dr, 15))
+            r[lo], i[lo], r[up], i[up] = sr, si, pr, pi_
+    Z = [(r[bitrev6(k)], i[bitrev6(k)]) for k in range(M)]     # natural order from the bit-reversed memory
+    mem_image = [(r[a], i[a]) for a in range(M)]               # what is left in the buffer after the run
+    zr = [z[0] for z in Z] + [Z[0][0]]
+    zi = [z[1] for z in Z] + [Z[0][1]]
     Xr = [0] * (M + 1)
     Xi = [0] * (M + 1)
+    X16 = []
+    P = []
     for k in range(M + 1):
         ar, ai = zr[k], zi[k]
-        br, bi = zr[M - k], -zi[M - k]
-        er, ei = rshift_round(ar + br, 1), rshift_round(ai + bi, 1)
-        dr, di = rshift_round(ar - br, 1), rshift_round(ai - bi, 1)
+        yr, yi = zr[M - k], zi[M - k]
+        er = rshift_round(ar + yr, 1)
+        ei = rshift_round(ai - yi, 1)
+        dr = clip(rshift_round(ar - yr, 1))
+        di = clip(rshift_round(ai + yi, 1))
         o_r, o_i = di, -dr
-        c, sn = cos_k(k), -sin_k(k)                         # W128^k = cos - j sin
-        Xr[k] = er + rshift_round(c * o_r - sn * o_i, 15)
-        Xi[k] = ei + rshift_round(c * o_i + sn * o_r, 15)
-    P = [(Xr[k] * Xr[k] + Xi[k] * Xi[k]) >> es for k in range(M + 1)]
-    for k in range(M + 1):
-        if P[k] > MASK32:
-            P[k], sat = MASK32, 1
+        c, sn = cos_k(k), sin_k(k)
+        Xr[k] = er + rshift_round(c * o_r + sn * o_i, 15)
+        Xi[k] = ei + rshift_round(c * o_i - sn * o_r, 15)
+        a, b = clip(Xr[k]), clip(Xi[k])
+        X16.append((a, b))
+        P.append((a * a + b * b) >> es)
     kmin, blo, bhi = cfg['kmin'], cfg['band_lo'], cfg['band_hi']
-    pk, pkp, tot, band = kmin, -1, 0, 0
+    pk, pkp, tot, band = kmin, 0, 0, 0
+    first = True
     for k in range(kmin, M + 1):
-        if P[k] > pkp:
+        if first or P[k] > pkp:
             pk, pkp = k, P[k]
+        first = False
         tot += P[k]
         if blo <= k <= bhi:
             band += P[k]
@@ -139,21 +141,13 @@ def run_block(samples, cfg, state):
         tot, sat = MASK32, 1
     if band > MASK32:
         band, sat = MASK32, 1
-    pkp = max(pkp, 0)
-    if pkp > MASK32:
-        pkp, sat = MASK32, 1
-    dump = []
-    for k in range(M + 1):
-        a, b = clip16(Xr[k]), clip16(Xi[k])
-        sat |= (a != Xr[k]) or (b != Xi[k])
-        dump.append((a, b))
     band_ok = int(band * 256 >= tot * cfg['band_thr'])
     decay = int(bool(state['prev_valid']) and td * 256 < state['td_prev'] * cfg['decay_thr'])
     td_prev_before = state['td_prev']
     state['td_prev'], state['prev_valid'] = td, 1
-    return dict(xw=xw, Z=Z, X=dump, Xr=Xr, Xi=Xi, P=P, peak=pk, peak_pow=pkp, band=band, total=tot, td=td,
+    return dict(xw=xw, Z=Z, X=X16, Xr=Xr, Xi=Xi, P=P, peak=pk, peak_pow=pkp, band=band, total=tot, td=td,
                 td_prev_before=td_prev_before, td_prev=td, sat=int(sat), band_ok=band_ok, decay=decay,
-                prev_valid=1)
+                prev_valid=1, mem_image=mem_image)
 
 
 def ref_spectrum(samples, cfg):

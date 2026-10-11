@@ -17,7 +17,6 @@ verilator --binary --timing -Wall -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL
   -GNB=$NB -GVDIR="\"$HERE/vectors\"" -GRSP_LAT=$LAT -GRANDOM_GNT=$RG \
   --top-module tb_fft_hwpe -Mdir obj \
   $ROOT/rtl/obi/obi_pkg.sv $ROOT/rtl/common_cells/cf_math_pkg.sv $ROOT/rtl/croc_pkg.sv \
-  $RTL/fft_cos_rom.sv $RTL/fft_trig.sv $RTL/fft_window.sv $RTL/fft_pre.sv $RTL/fft_butterfly.sv \
-  $RTL/fft_post.sv $RTL/fft_feat.sv $RTL/fft_hwpe_core.sv $RTL/fft_hwpe_regs.sv $RTL/fft_hwpe_ctrl.sv \
+  $RTL/fft_cos_rom.sv $RTL/fft_trig.sv $RTL/fft_hwpe_core.sv $RTL/fft_hwpe_regs.sv \
   $RTL/fft_hwpe.sv $HERE/tb/tb_fft_hwpe.sv > verilator.log 2>&1 || { echo "verilator failed, see $BUILD/verilator.log"; grep -m5 "%Error" verilator.log; exit 1; }
 ./obj/Vtb_fft_hwpe

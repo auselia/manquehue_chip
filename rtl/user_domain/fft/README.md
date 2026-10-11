@@ -1,19 +1,18 @@
-# fft_hwpe: AE-FFT accelerator
+# fft_hwpe: AE-FFT accelerator (minimum-area version)
 
-OBI subordinate (registers, 4 KB at `UserFftAddrBase`) and OBI manager (DMA) for the Croc user domain.
-Interrupt: `interrupts_o[2]` of the user domain.  See `sim/fft/README.md` for the verification and the register map in `fft_hwpe.sv`.
+OBI subordinate (registers, 4 KB at `UserFftAddrBase`) and OBI manager (SRAM access) for the Croc user domain.
+Interrupt: `interrupts_o[2]` of the user domain.  Verification: `sim/fft/README.md`.  Register offsets: `fft_hwpe.sv`.
+
+It transforms 128 real 16-bit samples (64 words) in place in the system SRAM, with no local data memory and one
+serial 16 x 16 multiplier, and returns the peak bin, band energy, total energy, time-domain energy, BAND_OK and DECAY.
+A run takes about 29 000 clock cycles (1.5 ms at 20 MHz), for one triggered block.
 
 | File | Function |
 |---|---|
-| `fft_hwpe.sv` | Top: registers, controller, core |
-| `fft_hwpe_regs.sv` | OBI register file |
-| `fft_hwpe_ctrl.sv` | DMA: reads 64 words, optional 65-word dump, error handling |
-| `fft_hwpe_core.sv` | Load, FFT, post-processing sequencing and the local memory |
-| `fft_pre.sv` | Offset, gain, window, time-domain energy term |
-| `fft_butterfly.sv` | Radix-2 butterfly with rounding (from FFTodile) |
-| `fft_post.sv` | Real-FFT post-processing for one bin |
-| `fft_feat.sv` | Power, peak, band and total energy |
-| `fft_cos_rom.sv`, `fft_trig.sv`, `fft_window.sv` | 33-entry cosine ROM, twiddle lookup, Hann window |
+| `fft_hwpe.sv` | Top: registers and core |
+| `fft_hwpe_regs.sv` | OBI register file. SRC_ADDR keeps only the SRAM word index |
+| `fft_hwpe_core.sv` | Sequencer, serial multiplier, bus master, features |
+| `fft_trig.sv`, `fft_cos_rom.sv` | Twiddle and window values from one 33-entry cosine ROM |
 
-Licence: Apache-2.0.  `fft_butterfly.sv`, the register file and the DMA controller follow FFTodile
-(ETH Zurich and University of Bologna).
+The source buffer is overwritten: by the windowed samples, then by the spectrum Z[k] at word `SRC + bitreverse6(k)`.
+Licence: Apache-2.0.  The sequencing and the register file follow FFTodile (ETH Zurich and University of Bologna).

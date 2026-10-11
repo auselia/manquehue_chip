@@ -4,12 +4,15 @@
 //
 // Based on fft_obi of FFTodile (ETH Zurich and University of Bologna).
 
-// AE-FFT accelerator for the Croc user domain: OBI subordinate (registers), OBI manager (DMA), interrupt.
-// 128 real samples from the system SRAM in, spectrum features out.  See doc/spec_fft.tex.
+// AE-FFT accelerator for the Croc user domain: OBI subordinate (registers), OBI manager (SRAM access), interrupt.
+// 128 real samples in the system SRAM in, spectrum features out.  See doc/spec_fft.tex.
 //
-// Register offsets (bytes): 00 CTRL, 04 STATUS, 08 SRC_ADDR, 0C DST_ADDR, 10 IRQ_CTRL, 14 CONFIG,
+// Register offsets (bytes): 00 CTRL, 04 STATUS, 08 SRC_ADDR, 0C DST_ADDR (unused), 10 IRQ_CTRL, 14 CONFIG,
 // 18 SETUP0, 1C SETUP1, 20 THRESH, 24 PEAK_BIN, 28 PEAK_POW, 2C BAND_ENERGY, 30 TOTAL_ENERGY,
 // 34 TD_ENERGY, 38 TD_PREV, 3C CYCLES.
+//
+// The source buffer (64 words, SRC_ADDR) is overwritten: first by the windowed samples, then by the
+// 64-point spectrum Z[k] at word SRC + bitreverse6(k).
 
 module fft_hwpe
   import croc_pkg::*;
@@ -26,31 +29,27 @@ module fft_hwpe
   output logic irq_o
 );
 
-  logic [31:0] src_addr, dst_addr;
+  localparam int unsigned IdxW = $clog2(NumSramBanks * SramBankNumWords);
+
+  logic [IdxW-1:0] src_idx;
   logic        irq_en;
   logic [3:0]  gain_shift, en_shift;
   logic signed [15:0] dc_offset;
   logic [6:0]  kmin, band_lo, band_hi;
   logic [7:0]  band_thr, decay_thr;
-
   logic        ctrl_start, ctrl_clr_prev;
-  logic        start_pulse, abort, dump_en;
   logic        busy, done_pulse, error_pulse, done_q;
-
-  logic        sample_valid, sample_ready, result_valid, result_ready, core_done;
-  logic [31:0] sample, result;
-
   logic        sat, prev_valid, band_ok, decay;
   logic [6:0]  peak_bin;
-  logic [31:0] peak_pow, band_energy, total_energy, td_energy, td_prev, cycles;
+  logic [31:0] peak_pow, band_energy, total_energy, td_energy, td_prev;
+  logic [15:0] cycles;
 
   assign irq_o = irq_en & done_q;
 
-  fft_hwpe_regs i_regs (
+  fft_hwpe_regs #(.IdxW(IdxW)) i_regs (
     .clk_i, .rst_ni,
     .obi_sbr_req_i, .obi_sbr_rsp_o,
-    .src_addr_o     ( src_addr      ),
-    .dst_addr_o     ( dst_addr      ),
+    .src_idx_o      ( src_idx       ),
     .irq_en_o       ( irq_en        ),
     .gain_shift_o   ( gain_shift    ),
     .en_shift_o     ( en_shift      ),
@@ -70,7 +69,6 @@ module fft_hwpe
     .band_ok_i      ( band_ok       ),
     .decay_i        ( decay         ),
     .done_o         ( done_q        ),
-    .error_o        (               ),
     .peak_bin_i     ( peak_bin      ),
     .peak_pow_i     ( peak_pow      ),
     .band_energy_i  ( band_energy   ),
@@ -80,32 +78,11 @@ module fft_hwpe
     .cycles_i       ( cycles        )
   );
 
-  fft_hwpe_ctrl i_ctrl (
+  fft_hwpe_core #(.IdxW(IdxW)) i_core (
     .clk_i, .rst_ni,
-    .ctrl_start_i          ( ctrl_start   ),
-    .src_addr_i            ( src_addr     ),
-    .dst_addr_i            ( dst_addr     ),
-    .obi_mgr_req_o, .obi_mgr_rsp_i,
-    .start_pulse_o         ( start_pulse  ),
-    .abort_o               ( abort        ),
-    .dump_en_o             ( dump_en      ),
-    .core_sample_valid_o   ( sample_valid ),
-    .core_sample_o         ( sample       ),
-    .core_sample_ready_i   ( sample_ready ),
-    .core_result_valid_i   ( result_valid ),
-    .core_result_ready_o   ( result_ready ),
-    .core_result_i         ( result       ),
-    .core_done_i           ( core_done    ),
-    .busy_o                ( busy         ),
-    .done_pulse_o          ( done_pulse   ),
-    .error_pulse_o         ( error_pulse  )
-  );
-
-  fft_hwpe_core i_core (
-    .clk_i, .rst_ni,
-    .start_i        ( start_pulse   ),
-    .abort_i        ( abort         ),
+    .start_i        ( ctrl_start    ),
     .clr_prev_i     ( ctrl_clr_prev ),
+    .src_idx_i      ( src_idx       ),
     .gain_shift_i   ( gain_shift    ),
     .en_shift_i     ( en_shift      ),
     .dc_offset_i    ( dc_offset     ),
@@ -114,15 +91,10 @@ module fft_hwpe
     .band_hi_i      ( band_hi       ),
     .band_thr_i     ( band_thr      ),
     .decay_thr_i    ( decay_thr     ),
-    .dump_en_i      ( dump_en       ),
-    .sample_valid_i ( sample_valid  ),
-    .sample_ready_o ( sample_ready  ),
-    .sample_i       ( sample        ),
-    .result_valid_o ( result_valid  ),
-    .result_ready_i ( result_ready  ),
-    .result_o       ( result        ),
-    .busy_o         (               ),
-    .done_o         ( core_done     ),
+    .obi_mgr_req_o, .obi_mgr_rsp_i,
+    .busy_o         ( busy          ),
+    .done_o         ( done_pulse    ),
+    .error_o        ( error_pulse   ),
     .sat_o          ( sat           ),
     .prev_valid_o   ( prev_valid    ),
     .band_ok_o      ( band_ok       ),

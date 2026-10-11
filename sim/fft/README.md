@@ -2,10 +2,11 @@
 
 RTL: `rtl/user_domain/fft/`.  Specification: `doc/spec_fft.tex` of the Auselia AFE project (not in this repository).
 
-The accelerator takes 128 signed 16-bit samples (two per 32-bit word) from the system SRAM, applies offset, gain,
-a Hann window, a 64-point complex FFT and real-FFT post-processing, and returns the peak bin, the band energy,
-the total energy, the time-domain energy, and the flags BAND_OK and DECAY.  It is based on the iterative
-radix-2 core of FFTodile (ETH Zurich and University of Bologna, Apache-2.0).
+The accelerator transforms 128 signed 16-bit samples (two per 32-bit word) in place in the system SRAM:
+offset, gain, Hann window, 64-point complex FFT (radix-2 DIF) and real-FFT post-processing.  It returns the peak bin,
+the band energy, the total energy, the time-domain energy, and the flags BAND_OK and DECAY.
+It is meant for one triggered block, so it is built for minimum area: no local data memory and one serial multiplier.
+A run takes about 29 000 clock cycles.  It is based on FFTodile (ETH Zurich and University of Bologna, Apache-2.0).
 
 ## Layout
 
@@ -14,9 +15,8 @@ radix-2 core of FFTodile (ETH Zurich and University of Bologna, Apache-2.0).
 | `model/aefft_model.py` | Bit-accurate golden model. The numeric contract is in its docstring. |
 | `gen_vectors.py` | Makes the test vectors: synthetic cases and recorded AE blocks. |
 | `vectors/` | Generated hex files (`in`, `cfg`, `exp_*`), `names.txt`, `vectors.json`. |
-| `tb/tb_fft_hwpe_core.sv` | Core test: load stage, FFT output, every bin power, dump stream, result registers. |
-| `tb/tb_fft_hwpe.sv` | Bus test: registers, DMA, interrupt, dump on and off, random grant, bus error. |
-| `run_core.sh`, `run_bus.sh` | Build and run one test with Verilator. |
+| `tb/tb_fft_hwpe.sv` | Test on the bus interfaces: registers, SRAM access, interrupt, random grant, bus error. |
+| `run_bus.sh` | Build and run it with Verilator (`run_bus.sh LATENCY RANDOM_GNT`). |
 | `run_all.sh` | Full regression. |
 | `../sw/aefft_test/` | System test: C program on the CVE2 core of the full SoC. |
 
@@ -24,7 +24,7 @@ radix-2 core of FFTodile (ETH Zurich and University of Bologna, Apache-2.0).
 
 ```bash
 export PATH=/path/to/oss-cad-suite/bin:$PATH      # Verilator 5
-sim/fft/run_all.sh                                 # core test and bus test sweep
+sim/fft/run_all.sh                                 # bus test sweep, 6 timing settings
 sim/sw/aefft_test/build.sh                         # needs riscv64-unknown-elf-gcc
 BUILD_ONLY=1 sim/scripts/run_verilator.sh          # build the SoC model once
 SKIP_BUILD=1 sim/scripts/run_verilator.sh sim/sw/aefft_test/bin/aefft_test.hex   # expect: AEFFT PASS
@@ -36,18 +36,29 @@ The committed vectors already contain them, so the CSV files are not needed to r
 ## What the tests compare
 
 Every check is bit-exact against the golden model:
-windowed samples after load, `Z[k]` after the FFT, `P[k]` of every bin, the 65-word dump, `PEAK_BIN`, `PEAK_POW`,
-`BAND_ENERGY`, `TOTAL_ENERGY`, `TD_ENERGY`, `TD_PREV`, and the STATUS flags SAT, PREV_VALID, BAND_OK, DECAY.
+the windowed buffer after the first pass, the spectrum `Z[k]` left in the buffer, the clipped `X[k]` and the power
+`P[k]` of every bin, `PEAK_BIN`, `PEAK_POW`, `BAND_ENERGY`, `TOTAL_ENERGY`, `TD_ENERGY`, `TD_PREV`, and the STATUS
+flags SAT, PREV_VALID, BAND_OK, DECAY.
 
-Test blocks: 99 blocks from synthetic signals (zero, DC, impulse, full scale, one sine per bin, saturation,
+Test blocks: 101 blocks from synthetic signals (zero, DC, impulse, full scale, one sine per bin, saturation,
 random, burst with decay, threshold equality) and recorded AE data (3 blocks of each of 5 quiet records and
-3 tone records, 7 events with a following block, a gain sweep).
+3 tone records, 7 events with a following block, a gain sweep).  The injected bus error is checked too.
+
+## History
+
+The first version (commit c98da9b) had a 2048-flop local memory and 12 parallel multipliers: 1.39 mm2 in GF180.
+This version keeps the data in the system SRAM and shares one serial multiplier: see `synth/REPORT.md`
+in the AFE project for the numbers.
 
 ## Specification changes made while building the RTL
 
 - STATUS has an ERROR bit at [6] (as in FFTodile).  The spec had no error bit.
 - `TD_PREV` reads the `TD_ENERGY` of the previous run.  `CTRL.CLR_PREV` clears PREV_VALID, `TD_ENERGY` and `TD_PREV`.
-- The Hann window is `(32768 - cos) >> 1` from the 33-entry ROM, so no second table and no multiplier for it.
-- Butterfly outputs and `P[k]` saturate and set SAT.  `Xr` and `Xi` are 18-bit inside; the dump saturates to 16 bit.
-- Post-processing runs one bin per cycle with its own four multipliers and two squarers (the spec assumed two cycles
-  per bin).  Sharing multipliers with the butterfly is a later area step.
+- There is no dump: `DST_ADDR` is not implemented (reads 0).  The spectrum stays in the source buffer.
+- The source buffer is overwritten.  `SRC_ADDR` holds only the word index inside the SRAM.
+- FFT is radix-2 DIF in place, output in bit-reversed order (the first version was DIT with bit-reversed load).
+- The Hann window is `(32768 - cos) >> 1` from the 33-entry ROM.
+- Every clip sets SAT.  The post-processing power uses X clipped to 16 bit.
+- CONFIG VERSION is 2.  `CYCLES` is a 16-bit saturating counter.
+- A run takes about 29 000 cycles instead of 411.  The requirement of back-to-back blocks was dropped,
+  because the window comparator triggers the analysis.

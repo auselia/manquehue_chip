@@ -12,6 +12,5 @@ check() { # name, command...
   local line; line="$(echo "$out" | grep -E '^blocks:' | head -1)"
   if echo "$out" | grep -q '^PASS'; then echo "PASS  $name   $line"; else echo "FAIL  $name   $line"; echo "$out" | tail -15; fail=1; fi
 }
-for bp in 0 1; do check "core, dump back-pressure=$bp" ./run_core.sh $bp; done
 for lat in 1 2 3; do for rg in 0 1; do check "bus, response latency=$lat, random grant=$rg" ./run_bus.sh $lat $rg; done; done
 exit $fail

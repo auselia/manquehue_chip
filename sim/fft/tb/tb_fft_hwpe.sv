@@ -2,9 +2,10 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
-// Bus-level test of fft_hwpe: a behavioral 2 KB SRAM on the manager port, register accesses on the
-// subordinate port, interrupt, dump on and off, random grant delays, and an injected bus error.
-// The expected values come from the golden model (sim/fft/vectors).
+// Test of fft_hwpe on its bus interfaces: a behavioral 2 KB SRAM on the manager port, register accesses on the
+// subordinate port, interrupt, random grant delays, and an injected bus error.  Compares bit for bit with the
+// golden model (sim/fft/vectors): the windowed buffer after the first pass, the spectrum left in the buffer,
+// the power and the clipped X of every bin, and all result registers.
 
 module tb_fft_hwpe
   import croc_pkg::*;
@@ -18,14 +19,16 @@ module tb_fft_hwpe
   localparam logic [31:0] BASE     = 32'h2200_0000;
   localparam logic [31:0] SRAM_BASE = 32'h1000_0000;
   localparam int unsigned SRC_W = 0;     // buffer in the SRAM, in words
-  localparam int unsigned DST_W = 128;   // dump region, 65 words
 
   logic clk = 0, rst_n = 0;
   always #5 clk = ~clk;
 
   logic [31:0] in_mem  [NB*64];
   logic [31:0] cfg_mem [NB*4];
+  logic [31:0] exp_xw  [NB*128];
+  logic [31:0] exp_z   [NB*64];
   logic [31:0] exp_x   [NB*65];
+  logic [31:0] exp_p   [NB*65];
   logic [31:0] exp_f   [NB*8];
   string names [NB];
 
@@ -34,7 +37,10 @@ module tb_fft_hwpe
     string line;
     $readmemh({VDIR, "/in.hex"},    in_mem);
     $readmemh({VDIR, "/cfg.hex"},   cfg_mem);
+    $readmemh({VDIR, "/exp_xw.hex"}, exp_xw);
+    $readmemh({VDIR, "/exp_z.hex"}, exp_z);
     $readmemh({VDIR, "/exp_x.hex"}, exp_x);
+    $readmemh({VDIR, "/exp_p.hex"}, exp_p);
     $readmemh({VDIR, "/exp_f.hex"}, exp_f);
     fd = $fopen({VDIR, "/names.txt"}, "r");
     for (int i = 0; i < NB; i++) begin
@@ -143,6 +149,7 @@ module tb_fft_hwpe
   int errors = 0;
   int blk = 0;
   int min_cycles = 1 << 30, max_cycles = 0;
+  int n_bins = 0;
 
   task automatic expect_eq(input string what, input logic [31:0] got, input logic [31:0] exp);
     if (got !== exp) begin
@@ -150,6 +157,30 @@ module tb_fft_hwpe
       if (errors <= 25) $display("MISMATCH block %0d (%s) %s: got %08x expected %08x", blk, names[blk], what, got, exp);
     end
   endtask
+
+  function automatic logic [5:0] bitrev6(input logic [5:0] v);
+    for (int i = 0; i < 6; i++) bitrev6[i] = v[5-i];
+  endfunction
+
+  // the windowed buffer, seen when the first pass ends
+  always_ff @(posedge clk) begin
+    if (rst_n && dut.i_core.dbg_win_end) begin
+      for (int m = 0; m < 64; m++) begin
+        logic [31:0] e0, e1;
+        e0 = exp_xw[blk*128 + 2*m];
+        e1 = exp_xw[blk*128 + 2*m + 1];
+        expect_eq($sformatf("window[%0d]", m), sram[SRC_W + m], {e1[15:0], e0[15:0]});
+      end
+    end
+    // every bin: clipped X and power
+    if (rst_n && dut.i_core.dbg_bin_valid) begin
+      logic [31:0] ex;
+      ex = exp_x[blk*65 + dut.i_core.dbg_k];
+      expect_eq($sformatf("X[%0d]", dut.i_core.dbg_k), {dut.i_core.dbg_xr, dut.i_core.dbg_xi}, ex);
+      expect_eq($sformatf("P[%0d]", dut.i_core.dbg_k), dut.i_core.dbg_p, exp_p[blk*65 + dut.i_core.dbg_k]);
+      n_bins <= n_bins + 1;
+    end
+  end
 
   localparam logic [11:0] R_CTRL = 12'h00, R_STATUS = 12'h04, R_SRC = 12'h08, R_DST = 12'h0C, R_IRQ = 12'h10,
                           R_CONFIG = 12'h14, R_SETUP0 = 12'h18, R_SETUP1 = 12'h1C, R_THRESH = 12'h20,
@@ -166,22 +197,21 @@ module tb_fft_hwpe
     if (n >= timeout_cycles) timed_out = 1;
   endtask
 
-  task automatic run_block(input int b, input bit with_dump);
+  task automatic run_block(input int b);
     logic [31:0] r;
     bit to;
     blk = b;
+    n_bins = 0;
     for (int i = 0; i < 64; i++) sram[SRC_W + i] = in_mem[b*64 + i];
-    for (int i = 0; i < 65; i++) sram[DST_W + i] = 32'hDEAD_BEEF;
 
     reg_write(R_SETUP0, cfg_mem[b*4 + 0]);
     reg_write(R_SETUP1, cfg_mem[b*4 + 1]);
     reg_write(R_THRESH, cfg_mem[b*4 + 2]);
     reg_write(R_SRC, SRAM_BASE + 4 * SRC_W);
-    reg_write(R_DST, with_dump ? (SRAM_BASE + 4 * DST_W) : 32'h0);
     reg_write(R_IRQ, 32'h1);
     reg_write(R_STATUS, 32'h0000_0046);      // clear DONE, SAT, ERROR
     reg_write(R_CTRL, {30'h0, cfg_mem[b*4 + 3][1], 1'b1});
-    wait_done(2000, to);
+    wait_done(100000, to);
     if (to) begin
       errors++;
       $display("TIMEOUT block %0d (%s)", b, names[b]);
@@ -204,12 +234,13 @@ module tb_fft_hwpe
     reg_read(R_CYC, r);
     if (int'(r) < min_cycles) min_cycles = int'(r);
     if (int'(r) > max_cycles) max_cycles = int'(r);
-    for (int i = 0; i < 65; i++) begin
-      if (with_dump) expect_eq($sformatf("dump[%0d]", i), sram[DST_W + i], exp_x[b*65 + i]);
-      else           expect_eq($sformatf("no-dump[%0d]", i), sram[DST_W + i], 32'hDEAD_BEEF);
+    expect_eq("bin count", n_bins, 65);
+    // the spectrum Z[k] is left in the buffer at word SRC + bitrev6(k); word = {Im, Re}
+    for (int k = 0; k < 64; k++) begin
+      logic [31:0] ez;
+      ez = exp_z[b*64 + k];
+      expect_eq($sformatf("Z[%0d]", k), sram[SRC_W + bitrev6(k[5:0])], {ez[15:0], ez[31:16]});
     end
-    // the source buffer must be untouched
-    for (int i = 0; i < 64; i++) expect_eq($sformatf("src[%0d]", i), sram[SRC_W + i], in_mem[b*64 + i]);
     reg_write(R_STATUS, 32'h0000_0006);      // clear DONE and SAT
     @(posedge clk);
     @(negedge clk);
@@ -227,13 +258,13 @@ module tb_fft_hwpe
     repeat (3) @(posedge clk);
 
     // reset values and CONFIG
-    reg_read(R_CONFIG, r); expect_eq("CONFIG", r, 32'h0100_1007);
+    reg_read(R_CONFIG, r); expect_eq("CONFIG", r, 32'h0200_1007);
     reg_read(R_SETUP0, r); expect_eq("SETUP0 reset", r, 32'h0000_0403);
     reg_read(R_SETUP1, r); expect_eq("SETUP1 reset", r, 32'h0014_0803);
     reg_read(R_THRESH, r); expect_eq("THRESH reset", r, 32'h0000_C0B3);
     reg_read(R_STATUS, r); expect_eq("STATUS reset", r, 32'h0);
 
-    for (int b = 0; b < NB; b++) run_block(b, (b % 2) == 0);
+    for (int b = 0; b < NB; b++) run_block(b);
 
     // bus error during the fetch: ERROR set, DONE not set, the engine is usable again afterwards
     err_word = SRC_W + 10;
@@ -243,17 +274,16 @@ module tb_fft_hwpe
     reg_write(R_SETUP1, cfg_mem[1]);
     reg_write(R_THRESH, cfg_mem[2]);
     reg_write(R_SRC, SRAM_BASE + 4 * SRC_W);
-    reg_write(R_DST, 32'h0);
     reg_write(R_IRQ, 32'h0);
     reg_write(R_STATUS, 32'h0000_0046);
     reg_write(R_CTRL, 32'h1);
-    repeat (400) @(posedge clk);
+    repeat (3000) @(posedge clk);
     reg_read(R_STATUS, r);
     expect_eq("error STATUS.busy", r[0], 1'b0);
     expect_eq("error STATUS.done", r[1], 1'b0);
     expect_eq("error STATUS.error", r[6], 1'b1);
     err_word = -1;
-    run_block(1, 1'b1);                      // a good run afterwards
+    run_block(1);                            // a good run afterwards
 
     $display("blocks: %0d  mismatches: %0d  CYCLES register min..max: %0d..%0d  bus accesses: %0d",
              NB, errors, min_cycles, max_cycles, n_access);
@@ -263,7 +293,7 @@ module tb_fft_hwpe
   end
 
   initial begin
-    #(10 * 6000 * (NB + 4));
+    #(10 * 60000 * (NB + 4));
     $display("TIMEOUT (global)");
     $finish;
   end

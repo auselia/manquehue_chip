@@ -85,7 +85,8 @@ yosys clean -purge
 
 # ---- prepare for OpenROAD ----
 yosys write_verilog -norename -noexpr -attr2comment ${out_dir}/netlist_debug.v
-yosys splitnets -ports -format __v
+# ports stay buses (qspi_sd_o[3:0], gpio_*): the macro pins must keep the names of integration/croc_soc_blackbox.v
+yosys splitnets -format __v
 yosys setundef -zero
 yosys clean -purge
 yosys hilomap -singleton -hicell {*}$tech_cell_tiehi -locell {*}$tech_cell_tielo

@@ -8,12 +8,21 @@ models in the work directory; the repo is not touched. See the script header for
 
 - Program: `sim/sw/gls_mini/build.sh` builds a 272-byte program that prints `GLS OK` on the UART and fits the
   2 KB SRAM. It needs `riscv64-unknown-elf-gcc` (on Rocky: build it on the Mac and copy `bin/gls_mini.hex`).
-- RTL passes with this program. In the gate simulation the JTAG ID code, the SRAM load and the core wake-up
-  match the RTL timestamps.
-- After that the core diverges from the RTL (a taken jump right after a store is skipped). This is probably an
-  artefact of zero-delay simulation of the clock tree, not a netlist error, but it is not proven. Unit delay on
-  all gates runs Verilator out of memory, so it could not be checked that way. Formality is the better tool
-  for equivalence.
+- RTL passes with this program, and so does the gate-level netlist with the same timestamps (`GLS OK` at
+  914450 ns, finish at 934200 ns) when the flop output delay is 0.5 ns (`FLOPDELAY`, the default). With 0.1 ns the
+  core diverged after the wake-up: the vendor SRAM model samples address and data at CLK + 100 ps, the instant
+  a 0.1 ns flop delay changes them, so stores were corrupted. Keep `FLOPDELAY` above that window.
+- Unit delay on all gates runs Verilator out of memory. Formality is the tool for equivalence.
+
+## Scan shift
+
+`sim/scripts/run_gls_scan.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist
+(`rtl/test/tb_scan_shift.sv`, testmode_i = scan_se_i = 1, both clocks with the waveforms of the DFT spec) and checks
+that scan_so_o is the same stream delayed by exactly the number of scan cells (3964). The chain passes, also with
+jtag_trst_ni driven low. With rst_ni driven low the chain is disturbed: rst_ni is a DFT reset signal that the tester
+holds inactive during scan, and the 800 flops behind the reset generator (which passes rst_ni through in test mode)
+are not gated by testmode_i. This is the zero-delay shift test: it proves chain order, enables and reset gating, not
+hold timing (the scan-mode STA covers that).
 
 ## Gotchas
 

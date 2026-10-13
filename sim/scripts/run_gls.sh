@@ -11,6 +11,9 @@
 #        GLS_RUN     netlist run folder, default outputs/latest
 #        GLS_TIMEOUT run time limit in seconds, default 7200
 #        JOBS       compile parallelism, default 8
+#        FLOPDELAY  output delay of the sequential cell models, default 0.5ns. Keep it above the 100 ps clock
+#                   delay (Tdly) of the vendor SRAM model, which samples address and data at CLK + Tdly: with
+#                   0.1 ns the flop outputs change at the same instant and stores are corrupted.
 # Run it inside an environment that has verilator (the template's nix-shell on Rocky).
 #
 # What it patches, all in the work dir (nothing in the repo changes):
@@ -18,7 +21,7 @@
 #    scan ports off if the netlist has them, and prints a time marker every 100 us
 #  - the netlist loses its redundant VDD/VSS port declarations (the cell models declare supplies)
 #  - cell models: the weak bus keeper is unsupported by Verilator, and the 18 sequential UDPs get
-#    a 0.1 ns output delay, otherwise the zero-delay clock tree races and the JTAG TAP shifts one
+#    an output delay (FLOPDELAY, default 0.5 ns), otherwise the zero-delay clock tree races and the JTAG TAP shifts one
 #    cycle early
 #  - the vendor SRAM model starts with CEN deasserted (its own initial block sets cen_dly = 0)
 # Output must stay line-buffered (stdbuf -oL) or it is lost when the run is killed.
@@ -32,7 +35,7 @@ GXX=${GLS_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bi
 HEX=$(readlink -f "${1:?usage: run_gls.sh <program.hex> [work dir]}")
 W=${2:-/tmp/gls_full}
 mkdir -p "$W/tb"; cd "$W"
-export W RUN V DELAY=0.1ns
+export W RUN V DELAY=${FLOPDELAY:-0.5ns}
 
 cp "$REPO"/rtl/test/*.sv tb/
 python3 - <<'PY'

@@ -1,0 +1,4 @@
+croc_soc_atpg.v
+cells_atpg.v
+primitives_atpg.v
+*.log

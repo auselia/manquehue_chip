@@ -12,7 +12,7 @@ set_build -black_box gf180mcu_fd_ip_sram__sram512x8m8wm1
 run_build_model croc_soc
 
 # 2. rule check against the protocol written by Fusion Compiler (write_test_protocol)
-run_drc croc_soc.stil
+run_drc croc_soc_scan.stil
 
 # 3. faults and pattern generation: stuck-at first, full scan, all faults
 set_faults -model stuck

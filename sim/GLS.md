@@ -14,6 +14,33 @@ models in the work directory; the repo is not touched. See the script header for
   a 0.1 ns flop delay changes them, so stores were corrupted. Keep `FLOPDELAY` above that window.
 - Unit delay on all gates runs Verilator out of memory. Formality is the tool for equivalence.
 
+## Chip-level gate-level simulation (pads included)
+
+`gls_chip/run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]` simulates the placed chip netlist of the template
+(pad ring + `croc_soc` macro) in Icarus; run it inside the template's nix-shell. `gls_chip/tb_chip.v` is a plain
+Verilog test bench that drives only the pins a board drives: `ref_clk_i`, `rst_ni`, the four JTAG pins and the UART RX.
+It leaves `testmode_i`, `scan_si_i` and `scan_se_i` open, loads the 272-byte program through the debug module (JTAG,
+system bus access), wakes the core and waits for `GLS OK` on the `uart_tx_o` pad. `gls_chip/run_macro_gls.sh` and
+`gls_chip/tb_macro.v` are the same test with the macro alone (about 20 s per run).
+
+Result with the AUS-106 macro in the chip of 14 Oct (template run `RUN_2026-10-14_23-22-13`, `testmode_i` pad open):
+ID code 0x1c0c5db3 read through the pads, program loaded, `GLS OK` received on the pad at 912845 ns. The PD pin of the
+`testmode_i` pad is read from the netlist (it is 1: the template ties it high) and the test bench pulls the open pad
+down weakly when it is, because the vendor `in_c` model is a plain buffer that ignores PD and PU.
+
+Icarus pitfalls found on the way (each one stopped the program at the UART without any error message):
+
+- The cell library has no `timescale`, so Icarus uses 1 s units and rounds the 0.5 ns flop delay to 0. Both scripts
+  prepend `` `timescale 1ns/1ps `` to the patched cells and primitives. Without it the SRAM model samples the address
+  of the next cycle (the same race as with a too small flop delay in Verilator) and the core executes a wrong
+  instruction stream.
+- The primitives have no power-up value, so every unreset flop is `x` for ever. `INIT` (default 0) adds an
+  `initial Q` to every sequential primitive, like a two-state simulator.
+- The netlist headers hold one comment line of many thousand characters that the Icarus scanner cannot take; the
+  scripts strip the lines starting with `//`.
+- TDO must be sampled a few ns after the falling TCK edge (pad delay), and the chip netlist has no `DVDD`/`DVSS`
+  ports (the power pins are inout nets inside).
+
 ## Scan shift
 
 `sim/scripts/run_gls_scan.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist

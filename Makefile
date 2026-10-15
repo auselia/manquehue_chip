@@ -1206,3 +1206,5 @@ help:
 	@echo "  make fpga        – Non-project batch build -> work_fpga/croc_zedboard_top.bit"
 	@echo "  make clean-fpga  – Remove the FPGA build directory and Vivado logs"
 	@echo "================================================================"
+# verification targets (signoff, scan-sta, gls, dft, chip, check, report)
+-include verify/verify.mk

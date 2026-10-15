@@ -49,4 +49,4 @@ vivado*.str
 # root whenever it's invoked from there (scripts/fm/lec_rtl_vs_gate.tcl)
 FM_INFO/
 fm_checkpoint_sessions/
-formality_svf/
+formality_svf/verify/local.env

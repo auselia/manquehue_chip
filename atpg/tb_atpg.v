@@ -39,7 +39,7 @@ module tb_atpg;
     end
   endtask
 
-  integer errors = 0, compared = 0, pat, j;
+  integer errors = 0, compared = 0, pat, j, kb, nprint = 0, maxprint = 40;
   function integer ones(input [19:0] x);
     integer i;
     begin ones = 0; for (i = 0; i < 20; i = i + 1) ones = ones + x[i]; end
@@ -54,7 +54,12 @@ module tb_atpg;
       compared = compared + ones(m);
       if (diff !== 20'b0) begin  // x/z on a compared output counts as a mismatch
         errors = errors + 1;
-        if (errors <= 20) $display("%0t  MISMATCH %0s %0d: outputs %b expected %b mask %b", $time, what, idx, po, e, m);
+        for (kb = 0; kb < 20; kb = kb + 1)
+          if (diff[kb] !== 1'b0 && nprint < maxprint) begin
+            nprint = nprint + 1;
+            // parsed by diagnose.py: kind (shift|capture), pattern, shift position j, output bit (0 = scan_so_o), expected, read
+            $display("FAIL kind=%0s pat=%0d j=%0d bit=%0d exp=%b got=%b t=%0t", what, idx, j, kb, e[kb], po[kb], $time);
+          end
       end
       #10;
       if (p[16]) clk_i = 1;
@@ -82,6 +87,7 @@ module tb_atpg;
     $readmemb("po_exp.mem", po_exp);
     $readmemb("po_mask.mem", po_mask);
     npat = NPAT;  first = 0;
+    if ($value$plusargs("maxprint=%d", maxprint)) ;
     if ($value$plusargs("npat=%d", npat)) ;
     if ($value$plusargs("first=%d", first)) ;
     drive(17'b0);
@@ -96,7 +102,7 @@ module tb_atpg;
       for (j = 0; j < LEN; j = j + 1) begin
         v[1] = si[pat][j];
         p = 17'b0;  p[16] = 1;  p[12] = 1;
-        cycle(v, p, {19'b0, so_exp[pat][j]}, {19'b0, so_mask[pat][j] & (pat != first)}, "shift of pattern", pat);
+        cycle(v, p, {19'b0, so_exp[pat][j]}, {19'b0, so_mask[pat][j] & (pat != first)}, "shift", pat);
       end
       if (pat < first + npat) begin
         // capture: the _pi word of the pattern (rest levels, pulses by pi_pulse)

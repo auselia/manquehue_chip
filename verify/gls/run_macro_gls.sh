@@ -2,9 +2,9 @@
 # Chip-level gate-level simulation of chip_top (pads included) in Icarus, plain Verilog test bench.
 # usage: run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]       (run inside the template's nix-shell: iverilog)
 set -e
-CHIP_NL=none; MACRO_NL=$(readlink -f "$2"); W=${3:-/tmp/gls_chip}
-HEX=${PROG_HEX:-/tmp/gls_mini_new.hex}
-T=$HOME/Documents/waferspace_manquehue
+CHIP_NL=none; MACRO_NL=$(readlink -f "$2"); W=${3:?work dir}
+HEX=${PROG_HEX:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/prog/gls_mini.hex}
+T=${TEMPLATE_DIR:-$HOME/Documents/waferspace_manquehue}
 PDK=$HOME/.ciel/gf180mcuD/libs.ref
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p $W; cd $W

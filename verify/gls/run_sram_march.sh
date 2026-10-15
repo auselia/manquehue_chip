@@ -3,8 +3,9 @@
 # usage: run_sram_march.sh <croc_soc.v> [work dir]        (needs iverilog; about 2 min per run, runs in parallel)
 # Results: <work dir>/run_<case>.log, last lines "MARCH PASS" / "MARCH FAIL". Faults go into the behavioural SRAM model.
 set -e
-MACRO_NL=$(readlink -f "${1:?croc_soc.v}"); W=${2:-/tmp/sram_march}
-HERE=$(cd "$(dirname "$0")" && pwd)
+MACRO_NL=$(readlink -f "${1:?croc_soc.v}"); W=${2:?work dir}
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$HERE/../env.sh"
 PDK=$HOME/.ciel/gf180mcuD/libs.ref
 mkdir -p "$W"; cd "$W"
 export MACRO_NL PDK

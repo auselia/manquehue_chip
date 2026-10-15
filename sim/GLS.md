@@ -16,12 +16,12 @@ models in the work directory; the repo is not touched. See the script header for
 
 ## Chip-level gate-level simulation (pads included)
 
-`gls_chip/run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]` simulates the placed chip netlist of the template
-(pad ring + `croc_soc` macro) in Icarus; run it inside the template's nix-shell. `gls_chip/tb_chip.v` is a plain
+`verify/gls/run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]` simulates the placed chip netlist of the template
+(pad ring + `croc_soc` macro) in Icarus; run it inside the template's nix-shell. `verify/gls/tb_chip.v` is a plain
 Verilog test bench that drives only the pins a board drives: `ref_clk_i`, `rst_ni`, the four JTAG pins and the UART RX.
 It leaves `testmode_i`, `scan_si_i` and `scan_se_i` open, loads the 272-byte program through the debug module (JTAG,
-system bus access), wakes the core and waits for `GLS OK` on the `uart_tx_o` pad. `gls_chip/run_macro_gls.sh` and
-`gls_chip/tb_macro.v` are the same test with the macro alone (about 20 s per run).
+system bus access), wakes the core and waits for `GLS OK` on the `uart_tx_o` pad. `verify/gls/run_macro_gls.sh` and
+`verify/gls/tb_macro.v` are the same test with the macro alone (about 20 s per run).
 
 Result with the AUS-106 macro in the chip of 14 Oct (template run `RUN_2026-10-14_23-22-13`, `testmode_i` pad open):
 ID code 0x1c0c5db3 read through the pads, program loaded, `GLS OK` received on the pad at 912845 ns. The PD pin of the

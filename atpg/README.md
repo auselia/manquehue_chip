@@ -83,7 +83,7 @@ procedure for a tester: `TEST_PROCEDURE.md`. The vector files are not in git (7 
 ## Finding the defect on a failing die (demonstration, 15 Oct 2026)
 
 `make_faults.py` builds copies of `tb_atpg.v` with one stuck-at defect forced on a net; `diagnose.py` and TestMAX
-Diagnosis (`run_diagnosis`) locate it from the failing outputs. Ten patterns each, 8 min per run:
+Diagnosis (`run_diagnosis`) locate it from the failing outputs. Ten patterns each, about 14 min per run with three running in parallel:
 
 | Injected defect | Failing values | `diagnose.py` | TestMAX `run_diagnosis` |
 |---|---|---|---|

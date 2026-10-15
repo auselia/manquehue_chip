@@ -109,3 +109,38 @@ die. A chip with a stuck `scan_so_o` fails in the first shift cycles: this is th
 - Faults the tool lists as untestable: 4,888 in `faults_untested.txt` (4,859 ATPG-untestable and 29 undetectable:
   logic behind the constrained pins, behind the SRAM outputs and behind the 232 clock-gate latches).
 - Delay defects: stuck-at patterns do not check timing. There are no transition-delay patterns yet.
+
+## 8. When a die fails: where is the defect?
+
+The result of a test run is a list of mismatches, each with: pattern number, kind (`shift` = `scan_so_o` during the unload,
+`capture` = an output in the capture cycle), shift cycle j and the output. `tb_atpg.v` prints them as `FAIL kind=... pat=...
+j=... bit=... exp=... got=...`; a tester log with the same fields works the same way.
+
+Order of checks:
+
+1. **Is it the setup?** Run the pattern 0 chain test first (`si.mem` line 0 is a 0011 pattern). If `scan_so_o` is stuck or
+   never changes, check `testmode_i` = 1, `scan_se_i` = 1, `rst_ni` = 1, both clocks reaching the die and the supply. Repeat
+   at a slower cycle and on a known-good die. Only then suspect the chip.
+2. **Chain broken?** Failures in every load/unload, thousands of different cells, nearly all read as the same value (always 0
+   or always 1): the scan path is stuck. The failing cell names are not the defect, because the load was wrong as well.
+   `diagnose.py` recognises the signature and says so; to find the position, run TestMAX Diagnosis with `-chain_failure`
+   (step 5). Needs ten or more patterns.
+3. **Isolated cells?** A few cells fail in some patterns, with both values: the defect is in the logic that feeds those cells
+   (or in the cell itself). `diagnose.py` lists the cells by name, most frequent first; the common input cone of the top few
+   is the suspect region.
+4. **Output pins in capture?** `capture` failures name the output pin: the defect is in the logic of that output.
+5. **TestMAX Diagnosis.** `diagnose.py --tmax fail.log` writes the failure file in the pattern-based format that
+   `run_diagnosis` reads (`pattern_num output_port cell_position`):
+
+       read_image / run_build_model + run_drc as in atpg.tcl
+       set_patterns -external patterns_stuck.stil
+       run_diagnosis fail.log
+
+   It lists candidate faults with a match percentage and the cell or net; `run_diagnosis fail.log -chain_failure` for a
+   broken chain (position counted from `scan_so_o`, 0 = the cell next to the pin). In the demonstration runs of the
+   repository (10 patterns, injected defects) it found: the isolated D-input defect among 4 pins of the right cell, the
+   stuck scan path at the right cell (2 candidates), and a scan input stuck at 0 among 732 candidate positions that
+   include the right one. The defect type it prints (stuck-at-0 / stuck-at-1) was the opposite of the injected one in
+   both chain cases; the position was right. Use more failing patterns to narrow a long candidate list.
+
+`diagnose.py` and the fault-injection runs that prove it are in the repository (`make_faults.py`).

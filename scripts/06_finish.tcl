@@ -82,6 +82,20 @@ set RUN_NAME  "${TOP_MODULE}_${RUN_STAMP}"
 set RUN_DIR   [file join $OUTPUTS_DIR $RUN_NAME]
 file mkdir $RUN_DIR
 
+# Take the reports of steps 01 to 05 (staged in work/reports/<step>/ by reporting.tcl) into the run folder. Files above
+# 5 MB are compressed: the PG DRC report of the floorplan is about 190 MB.
+if {[file isdirectory reports]} {
+  file mkdir [file join $RUN_DIR reports]
+  foreach d [lsort [glob -nocomplain -directory reports -type d *]] {
+    set dst [file join $RUN_DIR reports [file tail $d]]
+    file delete -force $dst
+    file copy -force $d $dst
+    foreach f [glob -nocomplain -directory $dst *] {
+      if {[file isfile $f] && [file size $f] > 5000000} { exec gzip -f $f }
+    }
+  }
+}
+
 # Reroute nets that violate routing rules FC cannot see (checked with the wafer.space KLayout deck).
 source [file dirname [info script]]/common/drc_eco.tcl
 drc_eco_reroute $RUN_DIR

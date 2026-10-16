@@ -19,7 +19,6 @@ comma := ,
 TOP                := croc_soc
 WORK_DIR           := work
 LOGS_DIR           := logs
-REPORTS_DIR        := reports
 OUTPUTS_DIR        := outputs
 REPO_DIR           := $(shell pwd)
 
@@ -388,7 +387,7 @@ gui_$2: $(WORK_DIR)/design.dlib/$2
 	cd $(WORK_DIR) && fc_shell -gui -f ../scripts/common/setup.tcl -x "open_lib design.dlib; open_block $2"
 
 $(WORK_DIR)/design.dlib/$2: $3 $1
-	mkdir -p $(WORK_DIR) $(LOGS_DIR) $(REPORTS_DIR)/$(basename $(notdir $1)) && cd $(WORK_DIR) && set -o pipefail; \
+	mkdir -p $(WORK_DIR) $(LOGS_DIR) && cd $(WORK_DIR) && set -o pipefail; \
 	fc_shell -batch -f ../$1 | tee ../$(LOGS_DIR)/$2.log
 endef
 
@@ -1011,8 +1010,8 @@ rail:
 # ------------------------------------------------------------------------------
 .PHONY: clean distclean
 clean:
-	rm -rf $(WORK_DIR) $(LOGS_DIR) $(REPORTS_DIR)
-	@echo "Cleaned work, logs, and reports directories."
+	rm -rf $(WORK_DIR) $(LOGS_DIR)
+	@echo "Cleaned work and logs directories."
 
 # distclean also removes the exported GDS/netlists in outputs/. Use with care.
 distclean: clean
@@ -1106,7 +1105,7 @@ help:
 	@echo "  make sta-pt     – Synopsys PrimeTime signoff STA (MCMM: slow/typical/fast)"
 	@echo "  make power-pp   – Synopsys PrimePower power analysis"
 	@echo "  make rail       – RedHawk-SC in-design voltage/IR drop (static works; dynamic partial)"
-	@echo "  make clean      – Delete the 'work', 'logs', and 'reports' directories"
+	@echo "  make clean      – Delete the 'work' and 'logs' directories"
 	@echo "  make distclean  – clean + also delete 'outputs' (exported GDS/netlists/results)"
 	@echo ""
 	@echo "Individual Steps (dynamically generated from scripts/):"
@@ -1187,6 +1186,7 @@ help:
 	@echo "  outputs/<run>/fill_icv/              – IC Validator filled.gds + logs"
 	@echo "  outputs/<run>/$(TOP).sdc, .typ_*.spef – pt_export's SDC + per-corner parasitics"
 	@echo "  outputs/<run>/sta_pt/                – PrimeTime timing/constraint/QoR reports"
+	@echo "  outputs/<run>/reports/<step>/        – QoR, timing, DRC reports of every flow step (01..05 copied at 06_finish, 06 and 07 written there)"
 	@echo "  outputs/<run>/power_pp/               – PrimePower reports"
 	@echo "  outputs/latest/rail_rh/               – RedHawk-SC rail analysis report + log"
 	@echo "  outputs/.cache/                     – cached folded CDLs + SRAM liberty->db (rebuilt only if stale)"

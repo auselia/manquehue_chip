@@ -61,23 +61,26 @@ The ADC reader and the FFT both write the SRAM. `user_mgr_obi_req_o` is tied to 
 
 ### Pads
 
-Ten new signals. The 0p5x1 slot has 44 bidirectional pads and 19 are used, so there is room.
+Thirteen new signals. The 0p5x1 slot has 44 bidirectional pads and 19 are used, so there is room (32 of 44).
 
 | Pad (template `bidir[]`) | Signal | Direction | Note |
 |---|---|---|---|
 | 19 | `adc_sclk_o` | out | forwarded system clock, see section 6 |
 | 20 | `adc_csn_o` | out | |
 | 21 | `adc_sdo_i` | in | ADC data out |
-| 22 | `adc_trig_i` | in | window comparator of the AFE board, optional |
-| 23 | `rf_sclk_o` | out | |
-| 24 | `rf_mosi_o` | out | |
-| 25 | `rf_miso_i` | in | |
-| 26 | `rf_csn_o` | out | |
-| 27 | `rf_dio0_i` | in | radio done or RX interrupt, optional |
-| 28 | `rf_rstn_o` | out | radio reset |
+| 22 | `adc_wake_n_i` | in | WAKE_N of the AFE board: latched window comparator, active low (the trigger) |
+| 23 | `adc_big_n_i` | in | BIG_N of the AFE board: large event flag, optional |
+| 24 | `adc_wake_clr_o` | out | clears the WAKE_N latch |
+| 25 | `adc_cap_en_o` | out | CAP_EN of the AFE board: switches the capture chain supply, optional |
+| 26 | `rf_sclk_o` | out | |
+| 27 | `rf_mosi_o` | out | |
+| 28 | `rf_miso_i` | in | |
+| 29 | `rf_csn_o` | out | |
+| 30 | `rf_dio0_i` | in | radio done or RX interrupt, optional |
+| 31 | `rf_rstn_o` | out | radio reset |
 
 Template changes: `src/chip_core.sv` (mapping, `bidir_oe` for the outputs, spare pads pull-down), the two slot yaml files
-(pad lists), and a new chip-level pad table in `TEST_PROCEDURE.md`. The macro `croc_soc` gets ten new ports.
+(pad lists), and a new chip-level pad table in `TEST_PROCEDURE.md`. The macro `croc_soc` gets thirteen new ports.
 
 ## 4. Radio SPI master (`rf_spi`, offsets 0x000 to 0x0FF)
 
@@ -154,14 +157,15 @@ The FFT block wants at least 800 kS/s, the events need more than 550 kS/s (peaks
 
 | Offset | Name | Access | Fields |
 |---|---|---|---|
-| 0x100 | ADC_CTRL | RW | [0] EN, [1] RUN (1 = start, 0 = stop after the current frame), [2] TRIGGERED (capture one buffer after a trigger instead of free running), [3] SW_TRIG (write 1, self-clearing), [4] CAL (send a 64-clock frame, self-clearing), [5] SW_RST (self-clearing), [11:8] IDLE (clocks, min 2, default 3), [13:12] SAMPLE_DLY (0 to 2 extra clocks before SDO is sampled, default 1), [14] TRIG_ACTIVE_LOW (default 1: the AFE signal nWAKE is active low), [15] SCLK_HALF (1 = SCLK is clk/2, fallback) |
+| 0x100 | ADC_CTRL | RW | [0] EN, [1] RUN (1 = start, 0 = stop after the current frame), [2] TRIGGERED (capture one buffer after a trigger instead of free running), [3] SW_TRIG (write 1, self-clearing, same effect as WAKE_N going low), [4] CAL (send a 64-clock frame, self-clearing), [5] SW_RST (self-clearing), [11:8] IDLE (clocks, min 2, default 3), [13:12] SAMPLE_DLY (0 to 2 extra clocks before SDO is sampled, default 1), [14] TRIG_ACTIVE_LOW (default 1: the AFE signal nWAKE is active low), [15] SCLK_HALF (1 = SCLK is clk/2, fallback) |
 | 0x104 | ADC_STATUS | R/W1C | [0] RUNNING, [1] BUF0_FULL, [2] BUF1_FULL, [3] OVERRUN (a buffer was still full when it had to be written), [4] BUS_ERROR (an OBI write got an error response), [5] DONE (triggered capture finished), [8] ACTIVE_BUF (RO, buffer being written) |
 | 0x108 | ADC_BUF0 | RW | byte address of buffer 0 (word aligned, inside the SRAM) |
 | 0x10C | ADC_BUF1 | RW | byte address of buffer 1 |
 | 0x110 | ADC_NSAMP | RW | samples per buffer, even, 2 to 1024 (default 128) |
-| 0x114 | ADC_IRQ_EN | RW | [0] BUF_FULL, [1] OVERRUN, [2] DONE |
+| 0x114 | ADC_IRQ_EN | RW | [0] BUF_FULL, [1] OVERRUN, [2] DONE, [3] WAKE (WAKE_N went low) |
 | 0x118 | ADC_LAST | RO | most recent sample, sign-extended to 32 bit |
 | 0x11C | ADC_COUNT | RO | samples stored since RUN (saturating) |
+| 0x120 | ADC_PINS | RW | [0] WAKE_CLR output level (0 = latch cleared, set 1 to arm), [1] CAP_EN output level (reset 1), [8] WAKE_N input level (RO), [9] BIG_N input level (RO) |
 
 ### Data format
 
@@ -244,23 +248,28 @@ Resolved with the datasheet (SBAS821) and the test board repository (`GitHub/adc
    and the first falling edge are at least 7 ns apart (figures 2 and 37). The handoff called it "mode 1". A host with SCLK idle low should also
    work, because section 8.4.2 says the MSB is launched on the first rising edge after the first falling edge, but the figures show idle high and
    this was not tested, so the reader follows the figures. The earlier assumption of a configurable launch edge is removed from the register map and from the model.
-2. **Trigger signal.** On the test board `nWAKE` is two LM393 open-collector comparator outputs wired together and pulled up to 3.3 V.
-   It is **low while the signal is outside a window** (level, active low), adjustable with RV1. It is not a pulse. `adc_trig_i`
-   has the polarity bit TRIG_ACTIVE_LOW (default 1). A debounce is not needed for a window comparator, but the trigger arrives
-   asynchronously and is double-synchronised.
-3. **Board interface.** PMOD pins: CS 1, SDO 3, SCLK 4, nWAKE 10, 3V3 5/6/11/12, GND. No MOSI, no radio on this board.
-   The board is 3.3 V (ADC DVDD from the PMOD, VIH = 0.65 DVDD, VOH up to DVDD).
+2. **Trigger signal.** The latest board (v3, `doc/lowpower_plan.md`) has a window comparator that sets a latch: `WAKE_N` (open
+   drain, pulled up to 3.3 V) goes low within 1 us of the first threshold crossing and **stays low until the host clears the
+   latch** with `WAKE_CLR`. `BIG_N` flags a larger event. `CAP_EN` switches the supply of the capture chain (jumper selectable,
+   default always on). So the trigger is a latched level, active low, and the chip needs one output to clear it. The ADC block
+   gets `adc_wake_n_i`, `adc_big_n_i`, `adc_wake_clr_o`, `adc_cap_en_o` and a pins register. The first v2 board has a plain
+   wired-OR `nWAKE` without latch, the same input works for it (no clear needed).
+3. **Board interface.** PMOD pins v3: 1 CS, 3 SDO, 4 SCLK, 10 WAKE_N, 7 BIG_N, 8 WAKE_CLR, 2 CAP_EN, 9 spare, 3V3 on 6 and 12. 22 ohm
+   series resistors on the SPI lines, 100 ohm on WAKE_N and BIG_N. No MOSI, no radio on this board. The board is 3.3 V (ADC DVDD from the
+   PMOD, VIH = 0.65 DVDD, VOH up to DVDD). An AE burst lasts 26 to 83 us (real captures), shorter than a 128-sample buffer
+   (148 us at 866 kS/s), so one buffer holds a whole event.
 
 Still open:
 
 4. **Level shifting for the chip.** The chip pads and the core run at 5 V (4.5 to 5.5 V corners). The ADC board is 3.3 V and its inputs
-   take at most 3.6 V. A 3.3 to 5 V translator on CS, SCLK, SDO and nWAKE (4 lines, bidirectional not needed) is required for the
+   take at most 3.6 V. A 3.3 to 5 V translator on CS, SCLK, SDO, WAKE_N, BIG_N, WAKE_CLR and CAP_EN (7 lines, fixed direction) is required for the
    Croc bring-up. The delay of a translator (about 5 ns each way) eats into the SDO budget above, hence SAMPLE_DLY = 1.
 5. **Forwarded clock to a pad.** Not tried in this flow. Step 2 of section 8 settles it.
 6. **Pre-trigger length.** How much time before the trigger the FFT needs. My assumption is one buffer of 128 samples
    (about 150 us at 866 kS/s). The window comparator fires on the first excursion, so the event start is already in the sampled
    buffer if the reader is free running.
 7. **Radio pads (`rf_*`, DIO0, NRESET).** Not on the test board. Keep them in the spec, decide with the AFE board design.
+   `adc_cap_en_o` is a hook for the power-gating research (AUS-21): it gates the capture chain of the board, not the chip.
 8. **Anti-alias filter at 866 kS/s.** The low-pass on the test board is second order, f0 = 512 kHz, Q 0.71, made for 2.5 MS/s.
    Attenuation of the 2nd-order response, my calculation:
 

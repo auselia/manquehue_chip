@@ -2,7 +2,7 @@
 set SCRIPTS $::env(REPO)/scripts
 source $SCRIPTS/common/open_lib.tcl
 open_block finish
-source $::env(REPO)/verify/dft/dft_spec.tcl
+source $::env(REPO)/scripts/dft/dft_spec.tcl
 create_test_protocol
 dft_drc
 write_test_protocol -output $::env(OUT)

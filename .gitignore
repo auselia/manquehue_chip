@@ -48,13 +48,13 @@ vivado*.str
 # root whenever it's invoked from there (scripts/fm/lec_rtl_vs_gate.tcl)
 FM_INFO/
 fm_checkpoint_sessions/
-formality_svf/verify/local.env
+formality_svf/
 _temp/
 ._*
 sim/sw/*/bin/
 sim/sw/*/build/
-verify/local.env
 build/
 *_command.log
 formality.log
 lec_work_*/
+scripts/utils/local.env

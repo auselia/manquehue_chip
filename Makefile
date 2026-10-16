@@ -1208,5 +1208,34 @@ help:
 	@echo "  make fpga        – Non-project batch build -> work_fpga/croc_zedboard_top.bit"
 	@echo "  make clean-fpga  – Remove the FPGA build directory and Vivado logs"
 	@echo "================================================================"
-# verification targets (signoff, scan-sta, gls, dft, chip, check, report)
--include verify/verify.mk
+# ------------------------------------------------------------------------------
+# Checks of a finished run (scripts/pt, scripts/gls, scripts/dft, scripts/chip)
+# ------------------------------------------------------------------------------
+# Every check reads RUN (a folder name under outputs/ or an absolute path, default latest) and writes
+# outputs/<run>/checks/<step>/summary.txt. `make report` collects them into outputs/<run>/report.md.
+# Tool paths are in scripts/utils/env.sh (override in scripts/utils/local.env).
+#
+#   make signoff   KLayout DRC and LVS, functional STA at 3 corners, Formality   (needs a run made with `make all pt_export`)
+#   make scan-sta  scan-shift STA, 3 corners
+#   make gls       Verilator boot, scan shift, Icarus macro boot over JTAG
+#   make dft       scan chain trace, ATPG, pattern replay (NPAT=20 for a quick run), SRAM March test
+#   make chip      chip flow with the pad ring, precheck (COB=0: without --cob), chip-level GLS
+#   make check     scan-sta + gls + dft + chip, then the report
+RUN_DIR := $(if $(filter /%,$(RUN)),$(RUN),$(OUTPUTS_DIR)/$(RUN))
+
+.PHONY: signoff scan-sta gls dft chip check report
+signoff:
+	$(MAKE) drc lvs sta-pt
+	$(REPO_DIR)/scripts/fm/run_lec.sh $(RUN_DIR)
+	RUN=$(RUN_DIR) scripts/pt/signoff_summary.sh
+scan-sta:
+	RUN=$(RUN_DIR) scripts/pt/scan_sta.sh
+gls:
+	RUN=$(RUN_DIR) scripts/gls/run_gls_all.sh
+dft:
+	RUN=$(RUN_DIR) scripts/dft/run_dft.sh
+chip:
+	RUN=$(RUN_DIR) scripts/chip/run_chip_flow.sh
+report:
+	python3 scripts/utils/report.py $(RUN_DIR)
+check: scan-sta gls dft chip report

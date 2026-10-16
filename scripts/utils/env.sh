@@ -1,11 +1,11 @@
 # Shared settings of the verification scripts. Source it; every value can be overridden from the environment or
-# from verify/local.env (not in git). No script of this tree writes to /tmp: results go to <run>/verify/<step>/.
-REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-[ -f "$REPO/verify/local.env" ] && . "$REPO/verify/local.env"
+# from scripts/utils/local.env (not in git). No script writes to /tmp: results go to <run>/checks/<step>/.
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+[ -f "$REPO/scripts/utils/local.env" ] && . "$REPO/scripts/utils/local.env"
 
 # the Fusion Compiler run under test (outputs/<run>, outputs/latest is the newest)
 RUN=$(readlink -f "${RUN:-$REPO/outputs/latest}" 2>/dev/null || true)
-VERIFY_OUT=${VERIFY_OUT:-$RUN/verify}
+CHECKS_OUT=${CHECKS_OUT:-$RUN/checks}
 
 # tools and data
 PDK_ROOT=${PDK_ROOT:-$HOME/.ciel}
@@ -27,4 +27,4 @@ export SNPSLMD_LICENSE_FILE PDK_ROOT PATH
 
 # print "key: value" to the summary file of a step
 summary() { echo "$1: $2" >> "$SUMMARY"; }
-step_begin() { [ -d "$RUN" ] || { echo "RUN folder not found: '$RUN' (set RUN=outputs/<run> or an absolute path)" >&2; exit 1; }; STEP=$1; STEP_DIR=$VERIFY_OUT/$STEP; mkdir -p "$STEP_DIR"; SUMMARY=$STEP_DIR/summary.txt; : > "$SUMMARY"; summary run "$RUN"; summary date "$(date -Is)"; summary commit "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"; }
+step_begin() { [ -d "$RUN" ] || { echo "RUN folder not found: '$RUN' (set RUN=outputs/<run> or an absolute path)" >&2; exit 1; }; STEP=$1; STEP_DIR=$CHECKS_OUT/$STEP; mkdir -p "$STEP_DIR"; SUMMARY=$STEP_DIR/summary.txt; : > "$SUMMARY"; summary run "$RUN"; summary date "$(date -Is)"; summary commit "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"; }

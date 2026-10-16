@@ -12,7 +12,7 @@ IVERILOG=${IVERILOG:-$(ls -d /nix/store/*-iverilog-*/bin | head -1)}
 export PATH=$IVERILOG:$PATH
 cd "$D"
 python3 "$HERE/stil_to_vectors.py" patterns_stuck.stil .
-cp "$HERE/tb_atpg.v" .
+cp "$HERE/../../sim/tb/tb_atpg.v" .
 python3 - <<'PY'
 import re
 n = [0]

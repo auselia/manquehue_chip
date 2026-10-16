@@ -1,12 +1,12 @@
 #!/bin/bash
 # The macro of a run through the wafer.space chip flow (LibreLane, pad ring) and the platform precheck.
-# usage: verify/chip/run_chip_flow.sh      (env: RUN, SLOT, TEMPLATE_DIR, PRECHECK_DIR, COB=1 to run the precheck with --cob)
+# usage: scripts/chip/run_chip_flow.sh      (env: RUN, SLOT, TEMPLATE_DIR, PRECHECK_DIR, COB=1 to run the precheck with --cob)
 #
 # Needs the template with the testmode_i pull-down (src/chip_core.sv, input_pd_w). The template is not modified:
 # the macro paths are patched into a temporary copy of macros_5v.yaml that is deleted at the end.
 set -e
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-. "$HERE/../env.sh"
+. "$HERE/../utils/env.sh"
 step_begin chip
 O=$STEP_DIR
 T=$TEMPLATE_DIR
@@ -35,7 +35,7 @@ MG=$(grep -o "[0-9]* Magic DRC errors" "$O/precheck.log" | head -1)
 summary precheck "$(grep -o 'Precheck successfully completed' "$O/precheck.log" | head -1 || true) ${MG:+($MG)} ${OPT:+with $OPT}"
 # chip-level gate-level simulation through the pads (testmode_i pad left open: the pull-down must hold it low)
 if [ -s "$O/views/pnl/chip_top.pnl.v" ]; then
-  ( cd "$T" && nix-shell --run "$REPO/verify/gls/run_chip_gls.sh $O/views/pnl/chip_top.pnl.v $RUN/croc_soc.v $O/gls_chip" ) > "$O/gls_chip.log" 2>&1 || true
+  ( cd "$T" && nix-shell --run "$REPO/scripts/gls/run_chip_gls.sh $O/views/pnl/chip_top.pnl.v $RUN/croc_soc.v $O/gls_chip" ) > "$O/gls_chip.log" 2>&1 || true
   P=$(grep -h "PASS: GLS OK" "$O/gls_chip.log" | head -1)
   summary chip_gls "${P:-no PASS}"; [ -n "$P" ] || ST=FAIL
 fi

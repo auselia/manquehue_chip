@@ -2,8 +2,8 @@
 # Chip-level gate-level simulation of chip_top (pads included) in Icarus, plain Verilog test bench.
 # usage: run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]       (run inside the template's nix-shell: iverilog)
 set -e
-CHIP_NL=$(readlink -f "$1"); MACRO_NL=$(readlink -f "$2"); W=${3:?work dir}
-HEX=${PROG_HEX:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/prog/gls_mini.hex}
+CHIP_NL=none; MACRO_NL=$(readlink -f "$2"); W=${3:?work dir}
+HEX=${PROG_HEX:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/sim/sw/gls_mini/gls_mini.hex}
 T=${TEMPLATE_DIR:-$HOME/Documents/waferspace_manquehue}
 PDK=$HOME/.ciel/gf180mcuD/libs.ref
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -47,13 +47,11 @@ PY
 NW=$(wc -l < prog_words.hex)
 # the netlist headers hold one comment line of many thousand characters, which Icarus' scanner cannot take
 grep -v '^//' "$MACRO_NL" > macro_nl.v
-grep -v '^//' "$CHIP_NL" > chip_nl.v
-cp $HERE/tb_chip.v tb_chip.v
+cp $HERE/../../sim/tb/tb_macro.v tb_macro.v
 IP=$(ls $T/ip/gf180mcu_ws_ip__*/vh/*.v)
-iverilog -g2012 -o chip_gls.vvp -s tb_chip -P tb_chip.NWORDS=$NW \
+iverilog -g2012 -o macro_gls.vvp -s tb_macro -P tb_macro.NWORDS=$NW \
   -DFUNCTIONAL -DUSE_POWER_PINS -DSLOT_0P5X1 -DPAD_gf180mcu_fd_io -DSCL_gf180mcu_fd_sc_mcu7t5v0 -DSRAM_gf180mcu_fd_ip_sram \
   -I $T/src \
-  primitives_chip.v cells_chip.v sram_chip.v $PDK/gf180mcu_fd_io/verilog/gf180mcu_fd_io.v \
-  $IP macro_nl.v chip_nl.v tb_chip.v 2>&1 | grep -v "^$" | head -40
+  primitives_chip.v cells_chip.v sram_chip.v macro_nl.v tb_macro.v 2>&1 | grep -v "^$" | head -40
 echo "compiled $(date +%T)"
-( time vvp -n chip_gls.vvp $VVP_ARGS ) 2>&1 | tee run.log | grep -E "\[TB\]|\[JTAG\]|\[CORE\]|\[UART\]|real|FAIL|PASS" | head -60
+( time vvp -n macro_gls.vvp $VVP_ARGS ) 2>&1 | tee run.log | grep -E "\[TB\]|\[JTAG\]|\[CORE\]|\[UART\]|real|FAIL|PASS" | head -60

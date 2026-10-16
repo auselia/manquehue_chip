@@ -1,13 +1,13 @@
 #!/bin/bash
 # Gate-level simulation of a run: Verilator (full-SoC testbench, program prints GLS OK), scan shift, and the Icarus
 # macro-level JTAG boot test. The chip-level test (pad ring) is part of `make chip`, it needs the chip netlist.
-# usage: verify/gls/run_gls_all.sh      (env: RUN)
+# usage: scripts/gls/run_gls_all.sh      (env: RUN)
 set -e
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-. "$HERE/../env.sh"
+. "$HERE/../utils/env.sh"
 step_begin gls
 O=$STEP_DIR
-HEX=$HERE/prog/gls_mini.hex
+HEX=$REPO/sim/sw/gls_mini/gls_mini.hex
 nixrun() { ( cd "$TEMPLATE_DIR" && nix-shell --run "$*" ); }
 ST=PASS
 

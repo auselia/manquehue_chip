@@ -1,9 +1,9 @@
 #!/bin/bash
 # Inputs of an ATPG run from a Fusion Compiler run: netlist, cell models, SRAM black box. Nothing needs the ATPG tool.
-# usage: RUN=<run> OUT=<dir> verify/dft/prepare_inputs.sh
+# usage: RUN=<run> OUT=<dir> scripts/dft/prepare_inputs.sh
 set -e
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-. "$HERE/../env.sh"
+. "$HERE/../utils/env.sh"
 OUT=${OUT:?output dir}; mkdir -p "$OUT"
 V=$PDK_ROOT/gf180mcuD/libs.ref/gf180mcu_fd_sc_mcu7t5v0/verilog
 export RUN OUT V HERE

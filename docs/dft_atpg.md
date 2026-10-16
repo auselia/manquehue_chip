@@ -93,8 +93,8 @@ Diagnosis (`run_diagnosis`) locate it from the failing outputs. Ten patterns eac
 
 ## SRAM March test (15 Oct 2026)
 
-Scan does not reach the SRAM. `verify/gls/tb_sram_march.v` runs a March C- over the 512 x 32-bit words through the JTAG debug
-module (system bus access, no CPU), on the gate-level macro; `verify/gls/run_sram_march.sh` runs it fault-free and with
+Scan does not reach the SRAM. `scripts/gls/tb_sram_march.v` runs a March C- over the 512 x 32-bit words through the JTAG debug
+module (system bus access, no CPU), on the gate-level macro; `scripts/gls/run_sram_march.sh` runs it fault-free and with
 injected faults in the behavioural SRAM model of byte lane 0 (2 min each, in parallel):
 
 | Case | Result |

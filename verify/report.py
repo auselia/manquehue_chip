@@ -8,7 +8,7 @@ import sys
 
 repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 run = os.path.realpath(sys.argv[1] if len(sys.argv) > 1 else repo + "/outputs/latest")
-commit = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+commit = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"], stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
 order = ["signoff", "scan_sta", "gls", "dft", "chip"]
 rows, body = [], []
 for step in order:

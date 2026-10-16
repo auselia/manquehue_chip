@@ -1,6 +1,6 @@
-# SPI block for the ADC and the radio: specification v0.1 (AUS-16)
+# SPI block for the ADC and the radio: specification v0.2 (AUS-16)
 
-Status: draft for review, 15 Oct 2026. Nothing in this document is in RTL yet. Inputs: `Auselia_AFE_v1/doc/SPI_design_handoff.md`,
+Status: draft v0.2 for review, 15 Oct 2026 (v0.1 plus the datasheet and the test board data). Nothing in this document is in RTL yet. Inputs: `Auselia_AFE_v1/doc/SPI_design_handoff.md`,
 the branch `wip/obi-spi-ads7057-bringup`, the user domain of `rtl/user_domain.sv`.
 
 ## 1. Goal and decisions
@@ -113,18 +113,38 @@ SCLK = f_clk / (2 x (CLKDIV + 1)). At 18.18 MHz CLKDIV 24 gives 364 kHz (radio b
 
 Reads the ADS7057 with no CPU in the loop and writes the samples into two SRAM buffers.
 
-### Frame
+### Frame (datasheet SBAS821, section 8.4 and figures 1, 37, 38, 39)
 
-One sample is one CS-low frame of 18 SCLK clocks (the conversion needs 18 falling edges), then CS stays high for
-`CS_HIGH` clocks (at least 95 ns, tacq). The result of a frame is the sample taken at the previous CS fall. The reader therefore:
+SCLK idles **high**. A frame starts with CS falling and ends with CS rising. A leading 0 is on SDO from the CS falling edge. The
+MSB (D13) is launched on the first rising edge after the first falling edge, every following bit on the following rising edges, then zeros
+after D0. The host samples on the falling edges: falling edge 1 reads the leading 0, falling edges 2 to 15 read D13 to D0.
+The conversion needs 18 falling edges in the frame, then at least tACQ = 95 ns must pass before the next CS falling edge. With fewer
+than 18 falling edges the result of the next frame is invalid.
 
-- sends one calibration frame of 24 clocks at enable (datasheet: offset calibration after power-up), discarded,
-- discards the first result of every start,
-- stores the 14-bit two's complement code sign-extended to 16 bit.
+| Item | Datasheet value | Source |
+|---|---|---|
+| tCLK, SCLK high and low | 16.66 ns min (60 MHz), 45 to 55 % of the period | 6.6 |
+| CS falling to first SCLK falling edge | 7 ns min | 6.6 |
+| SCLK rising edge to CS rising edge | 8 ns min | 6.6 |
+| CS high time | 15 ns min | 6.6 |
+| tACQ (last conversion clock to next CS fall) | 95 ns min | 6.5 |
+| SDO valid after CS fall | 6.5 ns max | 6.7 |
+| SDO valid after SCLK rising edge | 10 ns max, holds 2.5 ns min | 6.7 |
+| Conversion | 18 clocks, 14 data bits | 8.4.2 |
 
-| CS_HIGH (clocks) | Clocks per sample | Rate at 18.18 MHz (55 ns) | Rate at 20 MHz |
+The result of a frame is the sample taken at the previous CS fall. The reader therefore:
+
+- sends one calibration frame of 24 clocks at enable (offset calibration, zeros on SDO), and one more frame whose result is
+  not valid (the sample of the calibration frame does not exist), so the first valid result is in the third frame,
+- sends a 64-clock frame on request (CAL bit) to recalibrate during operation, the first 18 bits are a normal result,
+- stores the 14-bit two's complement code sign-extended to 16 bit (full scale +-AVDD, 1 LSB = 0.4 mV at 3.3 V).
+
+The system clock period at the 18.18 MHz sign-off clock is 55 ns. A frame is 18 clocks, CS rises one clock after the 18th falling
+edge and the next CS fall is at least two clocks after it (110 ns, tACQ met with 15 ns to spare). At 20 MHz the margin is 5 ns.
+
+| IDLE (clocks between the 18th falling edge and the next CS fall) | Clocks per sample | Rate at 18.18 MHz (55 ns) | Rate at 20 MHz |
 |---|---|---|---|
-| 2 (110 ns at 18.18 MHz) | 20 | 909 kS/s | 1.00 MS/s |
+| 2 (minimum) | 20 | 909 kS/s | 1.00 MS/s |
 | 3 (default) | 21 | 866 kS/s | 952 kS/s |
 | 4 | 22 | 826 kS/s | 909 kS/s |
 
@@ -134,7 +154,7 @@ The FFT block wants at least 800 kS/s, the events need more than 550 kS/s (peaks
 
 | Offset | Name | Access | Fields |
 |---|---|---|---|
-| 0x100 | ADC_CTRL | RW | [0] EN, [1] RUN (1 = start, 0 = stop after the current frame), [2] TRIGGERED (capture one buffer after a trigger instead of free running), [3] SW_TRIG (write 1, self-clearing), [4] CAL (send a 24-clock calibration frame, self-clearing), [5] SW_RST (self-clearing), [11:8] CS_HIGH (clocks, min 2, default 3), [13:12] SAMPLE_DLY (0 to 2 extra clocks before MISO is sampled), [14] LAUNCH_FALLING (1 = ADC changes SDO on the falling edge), [15] SCLK_HALF (1 = SCLK is clk/2, fallback) |
+| 0x100 | ADC_CTRL | RW | [0] EN, [1] RUN (1 = start, 0 = stop after the current frame), [2] TRIGGERED (capture one buffer after a trigger instead of free running), [3] SW_TRIG (write 1, self-clearing), [4] CAL (send a 64-clock frame, self-clearing), [5] SW_RST (self-clearing), [11:8] IDLE (clocks, min 2, default 3), [13:12] SAMPLE_DLY (0 to 2 extra clocks before SDO is sampled, default 1), [14] TRIG_ACTIVE_LOW (default 1: the AFE signal nWAKE is active low), [15] SCLK_HALF (1 = SCLK is clk/2, fallback) |
 | 0x104 | ADC_STATUS | R/W1C | [0] RUNNING, [1] BUF0_FULL, [2] BUF1_FULL, [3] OVERRUN (a buffer was still full when it had to be written), [4] BUS_ERROR (an OBI write got an error response), [5] DONE (triggered capture finished), [8] ACTIVE_BUF (RO, buffer being written) |
 | 0x108 | ADC_BUF0 | RW | byte address of buffer 0 (word aligned, inside the SRAM) |
 | 0x10C | ADC_BUF1 | RW | byte address of buffer 1 |
@@ -158,24 +178,29 @@ Two samples per 32-bit word, first sample in bits [15:0], second in bits [31:16]
   the event. Exact pre-trigger length is one buffer at most (open item 3).
 - The reader writes one 32-bit word per two samples with an OBI write of byte enable 1111. It holds two words in a staging
   register, so a manager stall of up to about 80 clocks (two words at 866 kS/s) loses nothing. A longer stall sets OVERRUN.
-- The three ADC pad inputs and the trigger are double-synchronised. MISO is captured by a rising-edge flop of the
-  system clock. SAMPLE_DLY and LAUNCH_FALLING move the capture point so that pad and board delay can be absorbed.
+- The ADC inputs (`adc_sdo_i`, `adc_trig_i`) are double-synchronised where they are not sampled directly. SDO is captured by a
+  rising-edge flop of the system clock, which is exactly the SCLK falling edge. Launch (SCLK rising = clock falling) plus 10 ns
+  plus pad, level shifter and trace delay must fit in half a period (27.5 ns), which is tight. SAMPLE_DLY = 1 (default) samples one
+  clock later: the bit is stable for a whole period after the launch plus 2.5 ns, so 1.5 periods are available.
 
 ## 6. Clock, reset, test and flow
 
 ### SCLK of the ADC
 
-At 18 MHz the half-rate clock (`SCLK_HALF`) gives only about 480 kS/s (9.1 MHz SCLK, 19 clocks per sample), below the event requirement. So the default is the system
-clock forwarded to the pad through a latch-based clock gate (`tc_clk_gating`, the ICG cell the flow already uses), enabled by a
-flop on the opposite phase so that SCLK has no glitches. SCLK high time and low time are one half clock period (50 % duty).
+At 18 MHz the half-rate clock (`SCLK_HALF`) gives only about 480 kS/s (9.1 MHz SCLK, 19 clocks per sample), below the event
+requirement. So the default is the system clock forwarded to the pad through a latch-based clock gate (`tc_clk_gating`, the ICG cell
+the flow already uses) and an inverter, so that SCLK idles high as the datasheet requires and its falling edge is the rising edge of
+`clk_i`. The enable comes from a flop of the system clock. SCLK high time and low time are one half clock period (the datasheet
+allows 45 to 55 %, so the duty cycle of the clock at the port must stay within 5 %).
 
 Consequences, all to be checked in the first flow run (section 8, step 2):
 
 - The gate output feeds a pad, not flops. CTS treats the port as a clock sink. The SDC needs `create_generated_clock` on
-  `adc_sclk_o` and output delays for CS relative to it, and an input delay for `adc_sdo_i` relative to the same clock.
-- In scan mode the gate is forced open or closed by `testmode_i` so the pad is quiet and the chain is not affected.
+  `adc_sclk_o`, output delays for CS relative to it (CS must fall 7 ns before the first SCLK falling edge and rise 8 ns after the
+  last rising edge, both met by one clock of margin) and an input delay for `adc_sdo_i`.
+- In scan mode the gate is forced by `testmode_i` so the pad is quiet and the chain is not affected.
 - No negative-edge flops anywhere in the block. Scan, lock-up latches and the existing DFT flow stay as they are.
-- Fallback if forwarding does not close: `SCLK_HALF`, which drops the rate to about 480 kS/s at 18.18 MHz.
+- Fallback if forwarding does not close: `SCLK_HALF`, about 480 kS/s at 18.18 MHz.
 
 ### Reset, test, area
 
@@ -195,7 +220,7 @@ Behavioural models (simulation only) are in `verify/models/`: `ads7057_model.v`,
 | RegVersion read (0x42 returns 0x12), FIFO write 3 bytes and TX mode, DIO0 interrupt | bring-up sequence |
 | TX overflow, RX overrun, RX underflow flags, SW_RST during a transfer | error handling |
 | ADC reader against `ads7057_model`: first frame discarded, calibration frame, 128-sample buffers, ping-pong, sign extension, packing | data path |
-| ADC at CS_HIGH 2, 3, 4 and with SAMPLE_DLY 0 to 2, LAUNCH_FALLING 0 and 1 | capture point and rate |
+| ADC at IDLE 2, 3, 4 and with SAMPLE_DLY 0 to 2, TRIG_ACTIVE_LOW 0 and 1 | capture point, rate, trigger polarity |
 | OVERRUN: hold the manager grant for 200 clocks, check no corrupted buffer | staging register |
 | Triggered capture, SW_TRIG and pad | pre/post sample window |
 | Manager arbitration with the FFT port busy (stub) | bandwidth share |
@@ -211,16 +236,43 @@ Acceptance for AUS-17: all of the above pass in RTL simulation, `make dft` and `
    CTS and the SDC handle a forwarded clock to a port. The result decides `SCLK_HALF` or forwarded.
 3. RTL and testbenches (AUS-17, 6 Nov), integration and firmware (AUS-18, 13 Nov).
 
-## 9. Open items for you
+## 9. Open items
 
-1. **ADS7057 clock mode and launch edge.** The handoff says mode 1 (CPOL 0, CPHA 1), which means SDO changes on rising edges. TI SAR
-   converters usually change SDO on falling edges and are read on the next rising edge. The datasheet timing diagram decides. The models and
-   the reader support both, but the default value of `LAUNCH_FALLING` must be right. Please check SBAS821.
-2. **Forwarded clock to a pad.** Not tried in this flow. Step 2 above settles it.
-3. **Triggered capture.** What the AFE comparator signal looks like (level or pulse, polarity) and how much time before the trigger the
-   FFT needs. My assumption is one buffer of 128 samples (about 150 us at 866 kS/s).
-4. **Are DIO0, NRESET and the trigger wired on the board?** If not, pads 22, 27 and 28 are not needed.
-5. **Maximum SCLK through the GF180 pads and the board level shifters.** The AFE document gives about 25 MHz for the board. The pad
-   (`bi_24t`) must be checked at 18 MHz with the board load.
-6. **RF FIFO depth.** 8 bytes is enough with stalling. 16 bytes costs 128 more flops and removes most stalls. Default: 8.
-7. **Sample rate and the AFE anti-alias filter** (open item 3 of the FFT handoff): 866 kS/s is not the 2.5 MS/s the filter assumed.
+Resolved with the datasheet (SBAS821) and the test board repository (`GitHub/adc_test_board`):
+
+1. **ADS7057 clock mode.** SDO changes on SCLK rising edges, the host samples on falling edges, SCLK idles high, CS falling edge
+   and the first falling edge are at least 7 ns apart (figures 2 and 37). The handoff called it "mode 1". A host with SCLK idle low should also
+   work, because section 8.4.2 says the MSB is launched on the first rising edge after the first falling edge, but the figures show idle high and
+   this was not tested, so the reader follows the figures. The earlier assumption of a configurable launch edge is removed from the register map and from the model.
+2. **Trigger signal.** On the test board `nWAKE` is two LM393 open-collector comparator outputs wired together and pulled up to 3.3 V.
+   It is **low while the signal is outside a window** (level, active low), adjustable with RV1. It is not a pulse. `adc_trig_i`
+   has the polarity bit TRIG_ACTIVE_LOW (default 1). A debounce is not needed for a window comparator, but the trigger arrives
+   asynchronously and is double-synchronised.
+3. **Board interface.** PMOD pins: CS 1, SDO 3, SCLK 4, nWAKE 10, 3V3 5/6/11/12, GND. No MOSI, no radio on this board.
+   The board is 3.3 V (ADC DVDD from the PMOD, VIH = 0.65 DVDD, VOH up to DVDD).
+
+Still open:
+
+4. **Level shifting for the chip.** The chip pads and the core run at 5 V (4.5 to 5.5 V corners). The ADC board is 3.3 V and its inputs
+   take at most 3.6 V. A 3.3 to 5 V translator on CS, SCLK, SDO and nWAKE (4 lines, bidirectional not needed) is required for the
+   Croc bring-up. The delay of a translator (about 5 ns each way) eats into the SDO budget above, hence SAMPLE_DLY = 1.
+5. **Forwarded clock to a pad.** Not tried in this flow. Step 2 of section 8 settles it.
+6. **Pre-trigger length.** How much time before the trigger the FFT needs. My assumption is one buffer of 128 samples
+   (about 150 us at 866 kS/s). The window comparator fires on the first excursion, so the event start is already in the sampled
+   buffer if the reader is free running.
+7. **Radio pads (`rf_*`, DIO0, NRESET).** Not on the test board. Keep them in the spec, decide with the AFE board design.
+8. **Anti-alias filter at 866 kS/s.** The low-pass on the test board is second order, f0 = 512 kHz, Q 0.71, made for 2.5 MS/s.
+   Attenuation of the 2nd-order response, my calculation:
+
+   | Sample rate | LPF at Nyquist | Content at the first alias band (just above Nyquist to 1.25 x fs) folds onto | Attenuation there |
+   |---|---|---|---|
+   | 2.5 MS/s | 15.6 dB | 625 kHz to 1.1 MHz | 17 to 23 dB |
+   | 866 kS/s | 1.8 dB | 216 to 390 kHz (the event band) | 2.4 to 13 dB |
+
+   So at 866 kS/s anything between 476 kHz and 1.1 MHz arrives in the 216 to 390 kHz event band with only 2 to 13 dB of
+   attenuation. Whether this matters depends on the AE spectrum above 450 kHz. The real captures in the test board repository
+   (`sim/listener_first_look.py`) can answer it. If it matters: a lower corner (the events peak at 233 to 275 kHz, so about 350 kHz
+   costs about 1 dB there) or a higher sample rate (needs an SCLK above 18 MHz, not available from the 18 MHz core clock).
+9. **Maximum SCLK through the pad (`bi_24t`) and the board.** The datasheet allows 60 MHz, the board 20 to 25 MHz, the pad at
+   18 MHz with the board load has to be checked in the chip-level STA.
+10. **RF FIFO depth.** 8 bytes is enough with stalling. 16 bytes costs 128 more flops and removes most stalls. Default: 8.

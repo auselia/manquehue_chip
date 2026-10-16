@@ -1,17 +1,17 @@
 // Self-test of the two behavioural models with a plain bit-banging master (no DUT). Prints PASS or FAIL lines.
 `timescale 1ns/1ps
 module tb_models;
-  reg cs_n = 1, sclk = 0, mosi = 0;
+  reg cs_n = 1, sclk = 1, mosi = 0;
   reg [13:0] code = 14'd0;
   wire sdo;
   reg nss_n = 1, rsclk = 0, rmosi = 0;
   wire rmiso, dio0;
   integer errors = 0;
 
-  ads7057_model #(.LAUNCH_ON_FALLING(1)) adc (.cs_n(cs_n), .sclk(sclk), .sdo(sdo), .ain_code(code));
+  ads7057_model adc (.cs_n(cs_n), .sclk(sclk), .sdo(sdo), .ain_code(code));
   sx1276_model radio (.nss_n(nss_n), .sclk(rsclk), .mosi(rmosi), .miso(rmiso), .dio0(dio0));
 
-  // ---- ADC frame: nclk clocks, SDO sampled on the rising edge after the launching falling edge
+  // ---- ADC frame: SCLK idles high, the host samples SDO on each falling edge
   reg [31:0] frame;
   task adc_frame(input integer nclk);
     integer k;
@@ -19,11 +19,12 @@ module tb_models;
       frame = 0;
       cs_n = 0; #20;
       for (k = 0; k < nclk; k = k + 1) begin
-        #25 sclk = 1;                          // rising edge: host samples SDO (launched at the previous falling edge)
+        sclk = 0;                               // falling edge: host samples SDO
         frame = {frame[30:0], sdo};
-        #25 sclk = 0;                          // falling edge: ADC launches the next bit
+        #25 sclk = 1;                           // rising edge: ADC launches the next bit
+        #25;
       end
-      #20 cs_n = 1; #120;                      // CS high longer than tacq
+      #20 cs_n = 1; #120;                       // CS high, then more than tACQ before the next frame
     end
   endtask
 
@@ -51,20 +52,27 @@ module tb_models;
     #100;
     // ---- ADS7057: sample 1.000 V = code 2482 (0x09B2)
     code = 14'd2482;
-    adc_frame(24);                 // first frame: zeros, also the calibration frame
-    check("adc first frame", frame[23:0], 24'h000000);
-    adc_frame(24);                 // second frame returns the sample taken at the first CS fall
-    check("adc second frame", frame[23:0], 24'h136400);    // {0, 0x09B2 << 9}
+    adc_frame(24);                 // frame 1: offset calibration, zeros
+    check("adc calibration frame", frame[23:0], 24'h000000);
+    adc_frame(24);                 // frame 2: samples 2482, outputs nothing valid yet (no conversion before it)
+    check("adc frame after calibration", frame[23:0], 24'h000000);
     code = 14'h3F00;               // negative code
-    adc_frame(24);                 // returns 2482 again (sample taken at the second CS fall)
-    check("adc third frame", frame[23:0], 24'h136400);
-    adc_frame(24);                 // returns the negative code
+    adc_frame(24);                 // frame 3: result of the sample of frame 2
+    check("adc third frame", frame[23:0], 24'h136400);      // {0, 0x09B2, 9'b0}
+    adc_frame(24);                 // frame 4: the negative code
     check("adc fourth frame", frame[23:0], {1'b0, 14'h3F00, 9'd0});
     adc_frame(10);                 // short frame, the conversion does not finish
     adc_frame(24);
     check("adc after short frame", frame[23:0], 24'h000000);
     check("adc short frames", adc.short_frame_count, 1);
     check("adc tacq violations", adc.tacq_violations, 0);
+    check("adc tsu violations", adc.tsu_violations, 0);
+    check("adc tht violations", adc.tht_violations, 0);
+    check("adc calibration frame seen", adc.cal_done, 1);
+    // recalibration frame of 64 clocks keeps the normal result in the first 18 bits
+    code = 14'd100;
+    adc_frame(64);
+    check("adc recal count", adc.recal_count, 1);
 
     // ---- SX1276: RegVersion
     nss_n = 0; #20; rf_byte(8'h42); rf_byte(8'h00); nss_n = 1; #100;

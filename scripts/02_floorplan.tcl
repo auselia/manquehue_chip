@@ -10,9 +10,9 @@ open_block read_rtl
 set SITE_DEF unit
 
 set target_utilization 0.7
-set slot_width_limit 1050.0 
+set slot_width_limit 1150.0 
 set external_gap 15.0
-
+# actual amx width 1160 um
 set macro_width [expr {$slot_width_limit - (2 * $external_gap)}]
 
 # TODO: Probably a better way to do this

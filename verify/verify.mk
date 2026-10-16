@@ -1,7 +1,7 @@
 # Verification targets (included by the top Makefile). Every step reads RUN (default outputs/latest, the newest
 # Fusion Compiler run) and writes to <run>/verify/<step>/summary.txt. `make report` collects them into results/<commit>.md.
 #
-#   make signoff   LVS, DRC, functional STA (3 corners), Formality  (needs `make all` and `make pt_export` of this checkout)
+#   make signoff   LVS, DRC, functional STA (3 corners), Formality  (needs a run with `make all pt_export`; Formality reads the run's logs/ and svf/)
 #   make scan-sta  scan-shift STA, 3 corners
 #   make gls       Verilator boot, scan shift, Icarus macro boot
 #   make dft       scan chain trace, ATPG, pattern replay (NPAT=20 for a quick run), SRAM March test

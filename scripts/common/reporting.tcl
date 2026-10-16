@@ -8,23 +8,18 @@ puts "================================================================"
 # -----------------------------------------------------------------------------
 # Report location
 # -----------------------------------------------------------------------------
-# 01_read_rtl through 05_route run before any timestamped run folder exists
-# (outputs/<run>/ is only created by 06_finish.tcl at GDS/Verilog export), so
-# their reports stay in the flat, stage-organized ../reports/ tree -- these
-# describe the state of the LATEST build attempt and are expected to be
-# overwritten on every rebuild, same convention as ../logs/.
+# 01_read_rtl through 05_route run before the run folder outputs/<run>/ exists (06_finish.tcl creates it when it
+# exports the GDS and the netlist). Their reports go to a staging directory, work/reports/<step>/, and 06_finish.tcl
+# copies them into outputs/<run>/reports/<step>/. So every run folder carries the reports of the build it was exported
+# from, next to its drc/, lvs/, sta_pt/ and power_pp/. The staging directory belongs to work/ (make clean removes it)
+# and always holds the latest build attempt.
 #
-# 06_finish and 07_pt_export both run AFTER that run folder exists and both
-# already compute $RUN_DIR for their own GDS/Verilog/SDC/SPEF output before
-# sourcing this file -- route their reports into outputs/<run>/reports/
-# instead, so they live alongside that same run's drc_icv/, lvs_icv/,
-# sta_pt/, power_pp/ and survive future rebuilds. Without this, comparing a
-# past run's FC-native QoR/DRC/EM data against a new one meant re-running the
-# whole flow just to regenerate what used to be there.
+# 06_finish and 07_pt_export run after the run folder exists, they set $RUN_DIR before sourcing this file and write
+# into outputs/<run>/reports/<step>/ directly.
 if {[info exists RUN_DIR] && [file isdirectory $RUN_DIR]} {
     set REPORT_DIR [file join $RUN_DIR reports ${ACTIVE_STEP}]
 } else {
-    set REPORT_DIR "../reports/${ACTIVE_STEP}"
+    set REPORT_DIR "reports/${ACTIVE_STEP}"   ;# relative to work/, the working directory of every step
 }
 file mkdir $REPORT_DIR
 

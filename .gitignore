@@ -50,3 +50,12 @@ vivado*.str
 FM_INFO/
 fm_checkpoint_sessions/
 formality_svf/verify/local.env
+_temp/
+._*
+sim/sw/*/bin/
+sim/sw/*/build/
+verify/local.env
+build/
+*_command.log
+formality.log
+lec_work_*/

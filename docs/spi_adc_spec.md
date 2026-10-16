@@ -157,7 +157,7 @@ The FFT block wants at least 800 kS/s, the events need more than 550 kS/s (peaks
 
 | Offset | Name | Access | Fields |
 |---|---|---|---|
-| 0x100 | ADC_CTRL | RW | [0] EN, [1] RUN (1 = start, 0 = stop after the current frame), [2] TRIGGERED (capture one buffer after a trigger instead of free running), [3] SW_TRIG (write 1, self-clearing, same effect as WAKE_N going low), [4] CAL (send a 64-clock frame, self-clearing), [5] SW_RST (self-clearing), [11:8] IDLE (clocks, min 2, default 3), [13:12] SAMPLE_DLY (0 to 2 extra clocks before SDO is sampled, default 1), [14] TRIG_ACTIVE_LOW (default 1: the AFE signal nWAKE is active low), [15] SCLK_HALF (1 = SCLK is clk/2, fallback) |
+| 0x100 | ADC_CTRL | RW | [0] EN, [1] RUN (1 = start, 0 = stop after the current frame), [2] TRIGGERED (capture one buffer after a trigger instead of free running), [3] SW_TRIG (write 1, self-clearing, same effect as WAKE_N going low), [4] CAL (send a 64-clock frame, self-clearing), [5] SW_RST (self-clearing), [11:8] IDLE (clocks, min 2, default 3), [12] SDO_NEG (1 = sample SDO on the falling edge of `clk_i`, for a slow board, off by default), [14] TRIG_ACTIVE_LOW (default 1: the AFE signal nWAKE is active low), [15] SCLK_HALF (1 = SCLK is clk/2, fallback) |
 | 0x104 | ADC_STATUS | R/W1C | [0] RUNNING, [1] BUF0_FULL, [2] BUF1_FULL, [3] OVERRUN (a buffer was still full when it had to be written), [4] BUS_ERROR (an OBI write got an error response), [5] DONE (triggered capture finished), [8] ACTIVE_BUF (RO, buffer being written) |
 | 0x108 | ADC_BUF0 | RW | byte address of buffer 0 (word aligned, inside the SRAM) |
 | 0x10C | ADC_BUF1 | RW | byte address of buffer 1 |
@@ -182,10 +182,12 @@ Two samples per 32-bit word, first sample in bits [15:0], second in bits [31:16]
   the event. Exact pre-trigger length is one buffer at most (open item 3).
 - The reader writes one 32-bit word per two samples with an OBI write of byte enable 1111. It holds two words in a staging
   register, so a manager stall of up to about 80 clocks (two words at 866 kS/s) loses nothing. A longer stall sets OVERRUN.
-- The ADC inputs (`adc_sdo_i`, `adc_trig_i`) are double-synchronised where they are not sampled directly. SDO is captured by a
-  rising-edge flop of the system clock, which is exactly the SCLK falling edge. Launch (SCLK rising = clock falling) plus 10 ns
-  plus pad, level shifter and trace delay must fit in half a period (27.5 ns), which is tight. SAMPLE_DLY = 1 (default) samples one
-  clock later: the bit is stable for a whole period after the launch plus 2.5 ns, so 1.5 periods are available.
+- The ADC inputs (`adc_sdo_i`, `adc_wake_n_i`, `adc_big_n_i`) are double-synchronised where they are not sampled directly. SDO is
+  captured by a rising-edge flop of the system clock, which is exactly the SCLK falling edge, half a period after the launch. The path
+  from the port is the critical one: SCLK launch (clock falling edge) + 10 ns (ADC) + pad, translator and trace must fit in half a
+  period plus the clock latency difference. The flow experiment (`verify/experiments/fwd_clock`) gives +5.3 ns of slack in the
+  slow corner at 55 ns with 19 ns off-chip. A slower board is covered by SDO_NEG (capture on the falling edge, 27.5 ns more setup
+  margin, about 8 ns of hold margin).
 
 ## 6. Clock, reset, test and flow
 
@@ -197,7 +199,7 @@ the flow already uses) and an inverter, so that SCLK idles high as the datasheet
 `clk_i`. The enable comes from a flop of the system clock. SCLK high time and low time are one half clock period (the datasheet
 allows 45 to 55 %, so the duty cycle of the clock at the port must stay within 5 %).
 
-Consequences, all to be checked in the first flow run (section 8, step 2):
+Consequences (checked in the flow experiment of section 8, step 2, results in `verify/experiments/fwd_clock/README.md`):
 
 - The gate output feeds a pad, not flops. CTS treats the port as a clock sink. The SDC needs `create_generated_clock` on
   `adc_sclk_o`, output delays for CS relative to it (CS must fall 7 ns before the first SCLK falling edge and rise 8 ns after the
@@ -224,7 +226,7 @@ Behavioural models (simulation only) are in `verify/models/`: `ads7057_model.v`,
 | RegVersion read (0x42 returns 0x12), FIFO write 3 bytes and TX mode, DIO0 interrupt | bring-up sequence |
 | TX overflow, RX overrun, RX underflow flags, SW_RST during a transfer | error handling |
 | ADC reader against `ads7057_model`: first frame discarded, calibration frame, 128-sample buffers, ping-pong, sign extension, packing | data path |
-| ADC at IDLE 2, 3, 4 and with SAMPLE_DLY 0 to 2, TRIG_ACTIVE_LOW 0 and 1 | capture point, rate, trigger polarity |
+| ADC at IDLE 2, 3, 4 and with SDO_NEG 0 and 1, TRIG_ACTIVE_LOW 0 and 1 | capture point, rate, trigger polarity |
 | OVERRUN: hold the manager grant for 200 clocks, check no corrupted buffer | staging register |
 | Triggered capture, SW_TRIG and pad | pre/post sample window |
 | Manager arbitration with the FFT port busy (stub) | bandwidth share |
@@ -236,8 +238,9 @@ Acceptance for AUS-17: all of the above pass in RTL simulation, `make dft` and `
 ## 8. Plan inside the SPI window (26 Oct to 13 Nov)
 
 1. Review of this spec and the open items below (by 30 Oct).
-2. One-day flow experiment before the RTL is written: a toy design (counter, ICG, pad) through the Fusion Compiler flow to check that
-   CTS and the SDC handle a forwarded clock to a port. The result decides `SCLK_HALF` or forwarded.
+2. Flow experiment, **done 15 Oct**: a toy frame engine with the forwarded clock through synthesis, CTS and routing, same libraries and
+   corners. It works without special handling (SCLK latency at the port 2.3 ns slow, duty error 0.16 ns, SDO setup +5.3 ns slow,
+   RTL and routed-netlist simulation against the ADS7057 model pass). Forwarded clock is the default, `SCLK_HALF` stays as a register bit.
 3. RTL and testbenches (AUS-17, 6 Nov), integration and firmware (AUS-18, 13 Nov).
 
 ## 9. Open items
@@ -263,8 +266,9 @@ Still open:
 
 4. **Level shifting for the chip.** The chip pads and the core run at 5 V (4.5 to 5.5 V corners). The ADC board is 3.3 V and its inputs
    take at most 3.6 V. A 3.3 to 5 V translator on CS, SCLK, SDO, WAKE_N, BIG_N, WAKE_CLR and CAP_EN (7 lines, fixed direction) is required for the
-   Croc bring-up. The delay of a translator (about 5 ns each way) eats into the SDO budget above, hence SAMPLE_DLY = 1.
-5. **Forwarded clock to a pad.** Not tried in this flow. Step 2 of section 8 settles it.
+   Croc bring-up. The delay of a translator (about 5 ns each way) eats into the SDO setup budget, which has 5.3 ns of slack in the flow experiment, hence SDO_NEG.
+5. **Forwarded clock to a pad.** Works in this flow (section 8, step 2). Chip level (pad ring, OpenSTA with the extracted timing
+   model) is not tried: the generated clock has to be defined on the pad in the template SDC. Check at the first integration.
 6. **Pre-trigger length.** How much time before the trigger the FFT needs. My assumption is one buffer of 128 samples
    (about 150 us at 866 kS/s). The window comparator fires on the first excursion, so the event start is already in the sampled
    buffer if the reader is free running.

@@ -35,8 +35,9 @@ module ads7057_model #(
   integer    frames = 0, short_frame_count = 0, recal_count = 0;
   integer    tacq_violations = 0, tsu_violations = 0, tht_violations = 0, tph_violations = 0, duty_violations = 0;
   reg        cal_done = 1'b0;
-  realtime   t_cs_fall = 0.0, t_cs_rise = 0.0, t_last_fall = 0.0, t_last_rise = 0.0, t_conv_end = 0.0, t_prev_edge = 0.0;
+  realtime   t_cs_fall = 0.0, t_cs_rise = 0.0, t_last_fall = 0.0, t_last_rise = 0.0, t_conv_end = 0.0, t_prev_fall = 0.0;
   reg        sdo_r = 1'b0;
+  reg        frame_open = 1'b0;           // a frame was started by a CS falling edge
   assign #(TCO_NS) sdo = cs_n ? 1'bz : sdo_r;
 
   function bit_at(input integer idx);    // idx 0: leading zero, 1..14: D13..D0, above: zero
@@ -47,6 +48,7 @@ module ads7057_model #(
   endfunction
 
   always @(negedge cs_n) begin
+    frame_open = 1'b1;
     t_cs_fall = $realtime;
     if (frames > 0) begin
       if (($realtime - t_conv_end) < TACQ_NS) tacq_violations = tacq_violations + 1;
@@ -61,6 +63,7 @@ module ads7057_model #(
   always @(negedge sclk) if (!cs_n) begin
     fall = fall + 1;
     if (fall == 1 && ($realtime - t_cs_fall) < TSU_CSCK) tsu_violations = tsu_violations + 1;
+    t_prev_fall = t_last_fall;
     t_last_fall = $realtime;
     if (fall == 18) t_conv_end = $realtime;
   end
@@ -74,7 +77,8 @@ module ads7057_model #(
     end
   end
 
-  always @(posedge cs_n) begin
+  always @(posedge cs_n) if (frame_open) begin
+    frame_open = 1'b0;
     t_cs_rise = $realtime;
     if (fall >= 1 && ($realtime - t_last_rise) < THT_CKCS) tht_violations = tht_violations + 1;
     frames = frames + 1;
@@ -85,10 +89,9 @@ module ads7057_model #(
     if (fall < 18) t_conv_end = $realtime;
   end
 
-  // duty cycle of SCLK while CS is low: 45 to 55 % of the previous period
-  always @(posedge sclk) if (!cs_n && t_prev_edge != 0.0) begin
-    if (($realtime - t_last_fall) < 0.45 * ($realtime - t_prev_edge) || ($realtime - t_last_fall) > 0.55 * ($realtime - t_prev_edge))
+  // duty cycle of SCLK while CS is low: low and high time within 45 to 55 % of the period (falling to falling)
+  always @(posedge sclk) if (!cs_n && t_prev_fall != 0.0 && fall >= 2) begin
+    if (($realtime - t_last_fall) < 0.45 * (t_last_fall - t_prev_fall) || ($realtime - t_last_fall) > 0.55 * (t_last_fall - t_prev_fall))
       duty_violations = duty_violations + 1;
   end
-  always @(negedge sclk) t_prev_edge = $realtime;
 endmodule

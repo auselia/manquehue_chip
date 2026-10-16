@@ -51,3 +51,4 @@ FM_INFO/
 fm_checkpoint_sessions/
 formality_svf/verify/local.env
 build/
+verify/experiments/*/work/

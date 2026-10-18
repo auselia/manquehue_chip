@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // System test of the AE-FFT accelerator (fft_hwpe) in the user domain.
-// The program feeds a recorded AE event block from its own read-only data (so the accelerator reads
-// the samples straight out of the SRAM), then the same block halved (the second one must show DECAY), waits for the interrupt line in mip, and compares every
+// The program copies a recorded AE event block from its read-only data into an SRAM buffer (the accelerator works
+// in place in the SRAM; the read-only data can be in the QSPI flash), then the same block halved (the second one
+// must show DECAY), waits for the interrupt line in mip, and compares every
 // result register and a checksum of the 65-bin dump with the Python golden model.
 // Fits the 2 KB SRAM.  Build: ./build.sh   Run: scripts/sim/run_verilator.sh sim/sw/aefft_test/bin/aefft_test.hex
 
@@ -15,7 +16,7 @@
 #define REG(o)   (*(volatile uint32_t *)(FFT_BASE + (o)))
 #define IRQ_MIP  (1u << 22)          // user irq line 2 -> fast interrupt 4 + 2 -> mip bit 16 + 6
 
-static uint32_t work[64];     // copy of block 0, then the halved block 1
+static uint32_t work[64];     // SRAM buffer: block 0, then the halved block 1 (the FFT overwrites it)
 
 static void put(const char *s) {
     while (*s) uart_write(*s++);
@@ -46,16 +47,15 @@ int main() {
         REG(0x18) = cfg[b][0];
         REG(0x1C) = cfg[b][1];
         REG(0x20) = cfg[b][2];
-        if (b == 0) {                           // the run overwrites blk0: keep a copy for block 1
-            for (int i = 0; i < 64; i++) work[i] = blk0[i];
-        } else {                                // block 1: every sample of block 0 halved
-            for (int i = 0; i < 64; i++) {
-                uint32_t w = work[i];
+        for (int i = 0; i < 64; i++) {          // block 0, or block 1: every sample of block 0 halved
+            uint32_t w = blk0[i];
+            if (b != 0) {
                 int32_t lo = (int16_t)w >> 1, hi = (int16_t)(w >> 16) >> 1;
-                work[i] = (uint32_t)(lo & 0xFFFF) | ((uint32_t)hi << 16);
+                w = (uint32_t)(lo & 0xFFFF) | ((uint32_t)hi << 16);
             }
+            work[i] = w;
         }
-        REG(0x08) = (b == 0) ? (uint32_t)blk0 : (uint32_t)work;
+        REG(0x08) = (uint32_t)work;
         REG(0x10) = 1;                          // interrupt on done
         REG(0x04) = 0x46;                       // clear DONE, SAT, ERROR
         REG(0x00) = 1u | (cfg[b][3] & 2u);      // START (+ CLR_PREV on the first block)
@@ -80,7 +80,7 @@ int main() {
         check(12, (mip() & IRQ_MIP) != 0, 0);
         if (b == 0) {
             uint32_t sum = 0;
-            volatile uint32_t *z = (volatile uint32_t *)blk0;
+            volatile uint32_t *z = (volatile uint32_t *)work;
             for (int i = 0; i < 64; i++) sum += z[i];
             check(13, sum, Z_SUM);
         }

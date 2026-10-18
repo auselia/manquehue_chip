@@ -18,6 +18,10 @@ case "$HEX" in
   /*) ;;                  # already absolute
   *)  HEX="$PWD/$HEX" ;;  # relative -> absolute w.r.t. current shell
 esac
+case "${FLASH:-}" in
+  ""|/*) ;;
+  *)  FLASH="$PWD/$FLASH" ;;  # relative -> absolute before the script changes directory
+esac
 
 # Compile the Verilator model unless SKIP_BUILD=1
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
@@ -41,6 +45,14 @@ if [ ! -x "$SIM_BIN" ]; then
   echo "ERROR: sim binary not found at $SIM_BIN" >&2
   echo "       Run 'make verilate' (or 'make sim') first to compile it." >&2
   exit 1
+fi
+
+# FLASH=<hex>: program in the QSPI flash model (boot from flash, no JTAG load). The hex comes from
+# objcopy -O verilog with addresses relative to 0x2000_0000 (sim/sw/flash/build.sh).
+if [ -n "${FLASH:-}" ]; then
+  echo "=> Running Simulation from the QSPI flash: $FLASH"
+  cd "$ROOT/sim/build"
+  exec ./verilator/obj_dir/Vtb_croc_soc +flash="$FLASH"
 fi
 
 echo "=> Running Simulation with: $HEX"

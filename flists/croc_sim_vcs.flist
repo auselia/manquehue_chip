@@ -175,6 +175,11 @@
 // ---- obi_qspi & flash model ----
 ../rtl/obi_qspi/qqspi.v
 ../rtl/obi_qspi/obi_qspi.sv
+
+# ---- obi_spi (radio master, ADS7057 reader) ----
+../rtl/user_domain/spi/obi_spi_pkg.sv
+../rtl/user_domain/spi/obi_spi_regs.sv
+../rtl/user_domain/spi/obi_spi.sv
 ../rtl/obi_qspi/flash_model/W25Q128JWxxIM_V1.2_VCS.vp
 
 // ---- riscv-dbg (synthesizable RTL) ----

@@ -176,6 +176,11 @@
 ../rtl/obi_qspi/qqspi.v
 ../rtl/obi_qspi/obi_qspi.sv
 
+# ---- obi_spi (radio master, ADS7057 reader) ----
+../rtl/user_domain/spi/obi_spi_pkg.sv
+../rtl/user_domain/spi/obi_spi_regs.sv
+../rtl/user_domain/spi/obi_spi.sv
+
 # ---- riscv-dbg (synthesizable RTL) ----
 ../rtl/riscv-dbg/dm_pkg.sv
 ../rtl/riscv-dbg/debug_rom/debug_rom.sv

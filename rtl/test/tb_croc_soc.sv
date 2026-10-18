@@ -138,7 +138,7 @@ module tb_croc_soc #(
     .adc_sclk_o     ( adc_sclk    ),
     .adc_csn_o      ( adc_csn     ),
     .adc_sdo_i      ( adc_sdo_in  ),
-    .adc_wake_n_i   ( 1'b1        ),
+    .adc_wake_n_i   ( adc_wake_n  ),
     .adc_big_n_i    ( 1'b1        ),
     .adc_wake_clr_o (             ),
     .adc_cap_en_o   (             ),
@@ -154,6 +154,8 @@ module tb_croc_soc #(
   // (1237 * k + 5000) mod 16384, so two consecutive samples differ by 1237 mod 2^14 (sim/sw/spi_adc checks this).
   // +adc_tone=<b>: a tone at FFT bin b instead, round(3000 sin(2 pi b k / 128)) + ((1237 k) mod 61) - 30. The small
   // dither makes every block different, so sim/sw/flash/check_ae_node.py finds each block from its first two samples.
+  // +adc_file=<hex> +adc_len=<n>: a recorded code stream instead (14-bit codes, one per line, sample k at CS fall k + 1),
+  // and +adc_wake_frame=<n>: WAKE_N goes low at CS fall n for 20 frames (sim/sw/flash/ae_cav.c, check_ae_cav.py).
   wire         adc_sclk, adc_csn, adc_sdo;
   logic        adc_sdo_in;
   logic [13:0] adc_ain = 14'd5000;
@@ -167,6 +169,18 @@ module tb_croc_soc #(
   );
   always @(negedge adc_csn) adc_falls++;
   int  adc_tone = -1;
+  int  adc_nfile = 0, adc_wake_frame = 0;
+  logic [13:0] adc_stream [0:4095];
+  logic adc_wake_n = 1'b1;
+  string adc_file;
+  initial begin
+    void'($value$plusargs("adc_wake_frame=%d", adc_wake_frame));
+    void'($value$plusargs("adc_len=%d", adc_nfile));
+    if ($value$plusargs("adc_file=%s", adc_file) && adc_nfile > 0) begin
+      $readmemh(adc_file, adc_stream, 0, adc_nfile - 1);
+      $display("@%t | [ADC] code stream %s, %0d samples, WAKE_N at frame %0d", $time, adc_file, adc_nfile, adc_wake_frame);
+    end
+  end
   real adc_t1000 = 0.0;
   initial void'($value$plusargs("adc_tone=%d", adc_tone));
   function automatic logic [13:0] tone_code(int k);
@@ -175,7 +189,12 @@ module tb_croc_soc #(
     return 14'($rtoi(v >= 0.0 ? v + 0.5 : v - 0.5) + ((k * 1237) % 61) - 30);
   endfunction
   always @(posedge adc_csn) if (adc_falls > 0)
-    adc_ain = (adc_tone >= 0) ? tone_code(adc_falls) : 14'((adc_falls * 1237 + 5000) % 16384);
+    adc_ain = (adc_nfile > 0) ? adc_stream[adc_falls < adc_nfile ? adc_falls : adc_nfile - 1] :
+              (adc_tone >= 0) ? tone_code(adc_falls) : 14'((adc_falls * 1237 + 5000) % 16384);
+  always @(negedge adc_csn) if (adc_wake_frame > 0) begin
+    if (adc_falls + 1 == adc_wake_frame) adc_wake_n = 1'b0;
+    if (adc_falls + 1 == adc_wake_frame + 20) adc_wake_n = 1'b1;
+  end
   // sample rate on the pins: time of 1000 frames
   always @(negedge adc_csn) begin
     if (adc_falls == 1000) adc_t1000 = $realtime;

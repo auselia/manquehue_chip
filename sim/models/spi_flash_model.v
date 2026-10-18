@@ -1,23 +1,26 @@
-// Behavioural model of a serial NOR flash for simulation (Verilator, Icarus): command READ (0x03) in SPI
-// mode 0 with a 24-bit byte address, what qqspi (rtl/obi_qspi) sends in single-SPI mode. Other commands are
-// ignored and leave MISO undriven. The content comes from a byte-addressed hex file (objcopy -O verilog, with
-// the addresses made relative to the flash base). An erased flash reads 0xFF.
-// Not modelled: quad read (0xEB), program and erase, status register, timing checks.
+// Behavioural model of a serial NOR flash for simulation (Verilator, Icarus), for what qqspi (rtl/obi_qspi) sends:
+//   READ (0x03):       command, 24-bit byte address and data on single lines (MOSI = sio0, MISO = sio1)
+//   FAST READ QUAD (0xEB): command on sio0, 24-bit address on sio[3:0] (6 clocks), 6 clocks that are ignored
+//                       (mode byte and dummy cycles of a W25Q; qqspi drives nothing there), data on sio[3:0]
+// SPI mode 0: the host drives at the falling SCLK edge and samples at the rising edge. The content comes from a
+// byte-addressed hex file (objcopy -O verilog, addresses relative to the flash base). An erased flash reads 0xFF.
+// Not modelled: continuous-read mode, the QE bit (quad is always accepted), program and erase, timing checks.
 `timescale 1ns/1ps
 module spi_flash_model #(
   parameter int unsigned SizeBytes = 1 << 20,   // modelled part of the 16 MB flash
-  parameter real         TcoNs     = 6.0        // MISO valid after the SCLK falling edge
+  parameter real         TcoNs     = 6.0        // output valid after the SCLK falling edge
 ) (
-  input  wire csn,
-  input  wire sclk,
-  input  wire mosi,
-  output wire miso
+  input  wire       csn,
+  input  wire       sclk,
+  input  wire [3:0] sio_i,                      // lines driven by the host (sio0 = MOSI)
+  output wire [3:0] sio_o,                      // lines driven by the flash
+  output wire [3:0] sio_oe                      // which lines the flash drives
 );
   reg [7:0]  mem [SizeBytes];
   reg [7:0]  cmd;
   reg [23:0] addr;
-  integer    nbits;
-  reg        miso_q, drive;
+  integer    nclk;                              // rising SCLK edges since CS fell
+  reg [3:0]  out_q, oe_q;
   string     image;
 
   initial begin
@@ -26,33 +29,41 @@ module spi_flash_model #(
       $readmemh(image, mem);
       $display("[FLASH] loaded %s", image);
     end
-    miso_q = 1'b0;
-    drive  = 1'b0;
+    out_q = 4'h0;
+    oe_q  = 4'h0;
   end
 
-  assign #(TcoNs) miso = drive ? miso_q : 1'bz;
+  assign #(TcoNs) sio_o  = out_q;
+  assign #(TcoNs) sio_oe = oe_q;
 
-  // a new command at every CS fall
   always @(negedge csn) begin
-    nbits = 0;
-    cmd   = 8'h00;
-    addr  = 24'h0;
-    drive = 1'b0;
+    nclk = 0;
+    cmd  = 8'h00;
+    addr = 24'h0;
+    oe_q = 4'h0;
   end
-  always @(posedge csn) drive = 1'b0;
+  always @(posedge csn) oe_q = 4'h0;
 
-  // command and address are sampled at the rising SCLK edges
   always @(posedge sclk) if (!csn) begin
-    if (nbits < 8)       cmd  = {cmd[6:0], mosi};
-    else if (nbits < 32) addr = {addr[22:0], mosi};
-    nbits = nbits + 1;
+    if (nclk < 8)                                    cmd  = {cmd[6:0], sio_i[0]};
+    else if (cmd == 8'h03 && nclk < 32)              addr = {addr[22:0], sio_i[0]};
+    else if (cmd == 8'hEB && nclk < 14)              addr = {addr[19:0], sio_i[3:0]};
+    nclk = nclk + 1;
   end
 
-  // READ data: MSB first, shifted out at the falling SCLK edges after the last address bit
-  always @(negedge sclk) if (!csn && cmd == 8'h03 && nbits >= 32) begin
-    integer bitpos;
-    bitpos = nbits - 32;                        // number of data bits already sampled by the host
-    drive  = 1'b1;
-    miso_q = mem[(addr + bitpos / 8) % SizeBytes][7 - (bitpos % 8)];
+  always @(negedge sclk) if (!csn) begin
+    integer k;
+    reg [7:0] b;
+    if (cmd == 8'h03 && nclk >= 32) begin            // one bit per clock, MSB first, on MISO
+      k     = nclk - 32;
+      b     = mem[(addr + k / 8) % SizeBytes];
+      out_q = {2'b00, b[7 - (k % 8)], 1'b0};
+      oe_q  = 4'b0010;
+    end else if (cmd == 8'hEB && nclk >= 20) begin   // one nibble per clock, high nibble first
+      k     = nclk - 20;
+      b     = mem[(addr + k / 2) % SizeBytes];
+      out_q = (k % 2 == 0) ? b[7:4] : b[3:0];
+      oe_q  = 4'b1111;
+    end
   end
 endmodule

@@ -91,14 +91,16 @@ module tb_croc_soc #(
   wire [3:0] qspi_sd_o, qspi_sd_en_o;
   wire [2:0] qspi_csn_o;
   wire [3:0] qspi_sd_i;
-  wire       flash_miso;
+  wire [3:0] flash_sio_o, flash_sio_oe;
   spi_flash_model i_flash (
-    .csn  ( qspi_csn_o[0] ),
-    .sclk ( qspi_clk_o    ),
-    .mosi ( qspi_sd_o[0]  ),
-    .miso ( flash_miso    )
+    .csn    ( qspi_csn_o[0]              ),
+    .sclk   ( qspi_clk_o                 ),
+    .sio_i  ( qspi_sd_o & qspi_sd_en_o   ),
+    .sio_o  ( flash_sio_o                ),
+    .sio_oe ( flash_sio_oe               )
   );
-  assign qspi_sd_i = {2'b00, (flash_miso === 1'b1), 1'b0};
+  // each data line carries what the flash drives, else what the SoC drives (0 when nobody drives)
+  assign qspi_sd_i = (flash_sio_o & flash_sio_oe) | (qspi_sd_o & qspi_sd_en_o & ~flash_sio_oe);
 
   ////////////
   //  DUT   //

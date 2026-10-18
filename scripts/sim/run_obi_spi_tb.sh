@@ -16,7 +16,7 @@ PKGS="$REPO/rtl/common_cells/cf_math_pkg.sv $REPO/rtl/obi/obi_pkg.sv $REPO/rtl/c
 # library cells the block uses (generic clock cells: no TARGET_GF180 here)
 LIBS="$REPO/rtl/tech_cells_generic/tc_clk.sv $REPO/rtl/common_cells/sync.sv $REPO/rtl/common_cells/fifo_v3.sv"
 D=$REPO/rtl/user_domain/spi
-SPI="$D/obi_spi_pkg.sv $D/obi_spi_regs.sv $D/obi_spi_clk_gate.sv $D/adc_rdr.sv $D/obi_spi.sv"
+SPI="$D/obi_spi_pkg.sv $D/obi_spi_regs.sv $D/obi_spi_clk_gate.sv $D/adc_rdr.sv $D/rf_spi.sv $D/obi_spi.sv"
 
 # 1. lint of the block (all warnings on, only the SPI files are checked, the packages are context)
 verilator --lint-only -Wall $INC $PKGS $LIBS $SPI "$REPO/sim/tb/obi_spi_lint_top.sv" \

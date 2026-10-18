@@ -166,6 +166,8 @@ The FFT block wants at least 800 kS/s, the events need more than 550 kS/s (peaks
 | 0x118 | ADC_LAST | RO | most recent sample, sign-extended to 32 bit |
 | 0x11C | ADC_COUNT | RO | samples stored since RUN (saturating) |
 | 0x120 | ADC_PINS | RW | [0] WAKE_CLR output level (0 = latch cleared, set 1 to arm), [1] CAP_EN output level (reset 1), [8] WAKE_N input level (RO), [9] BIG_N input level (RO) |
+| 0x124 | ADC_TRIG | RW | [11:0] POST (samples stored after the trigger, even, 0 to 2048, clamped on write; 0 = complete the buffer being written), [16] START (no conversions before the trigger) |
+| 0x128 | ADC_TPOS | RO | [11:0] position of the first word stored after the trigger, as a sample index in the ring of buffer 0 (0 to NSAMP-1) and buffer 1 (NSAMP to 2 NSAMP-1), [16] VALID |
 
 ### Data format
 
@@ -180,6 +182,15 @@ Two samples per 32-bit word, first sample in bits [15:0], second in bits [31:16]
 - Triggered: the reader keeps running one buffer ahead and stops after the buffer that is being written when the
   trigger (pad `adc_trig_i` rising edge, or SW_TRIG) arrives completes, sets DONE. This gives samples from before and after
   the event. Exact pre-trigger length is one buffer at most (open item 3).
+- Triggered with POST > 0: the capture ends POST samples after the trigger, anywhere in a buffer. The two buffers
+  are one ring and ADC_TPOS gives the place of the trigger in it. The sample at ADC_TPOS was taken 2 to 3 samples
+  before the trigger (the ADC returns each sample one frame later, and the samples are stored in pairs). With
+  128-sample buffers and POST = 112, the 16 samples before ADC_TPOS and the 112 after it are the newest 128 samples of
+  the ring, wherever the trigger came in the buffer cycle. Both buffers that hold samples get their FULL flag.
+- Triggered with START: after the calibration frame the reader takes no samples (CS high, the ADC at its static
+  current) until the trigger. The first CS fall comes 3 clocks after the trigger reaches the synchroniser output
+  (165 ns at 18.18 MHz), its stale result is discarded, and the samples go from word 0 of buffer 0 on. POST sets
+  the length (256 for two blocks).
 - The reader writes one 32-bit word per two samples with an OBI write of byte enable 1111. It holds two words in a staging
   register, so a manager stall of up to about 80 clocks (two words at 866 kS/s) loses nothing. A longer stall sets OVERRUN.
 - The ADC inputs (`adc_sdo_i`, `adc_wake_n_i`, `adc_big_n_i`) are double-synchronised where they are not sampled directly. SDO is
@@ -272,6 +283,13 @@ Still open:
 6. **Pre-trigger length.** How much time before the trigger the FFT needs. My assumption is one buffer of 128 samples
    (about 150 us at 866 kS/s). The window comparator fires on the first excursion, so the event start is already in the sampled
    buffer if the reader is free running.
+   **Decided 18 Oct (ADC_TRIG, ADC_TPOS):** the trigger must be at a fixed place in the FFT block. With the buffer
+   that is being written at the trigger, the trigger lands anywhere in it, and a trigger in the last 15 to 25
+   samples cuts the burst off: 9 recorded AE bursts through the as-built AFE board were found in 77 to 89 % of the
+   trigger positions. With POST = 112 the trigger is 18 to 19 samples into the block and all 9 are found
+   (`sim/sw/flash/ae_cav.c`, RTL replay). With START (ADC idle until WAKE_N, the next block for DECAY, the halves
+   of the block swapped before the FFT) all 9 are found too. A capture chain that is off at the trigger cannot
+   see the burst (AFE `doc/lowpower_plan.md`, F1).
 7. **Radio pads (`rf_*`, DIO0, NRESET).** Not on the test board. Keep them in the spec, decide with the AFE board design.
    `adc_cap_en_o` is a hook for the power-gating research (AUS-21): it gates the capture chain of the board, not the chip.
 8. **Anti-alias filter at 866 kS/s.** The low-pass on the test board is second order, f0 = 512 kHz, Q 0.71, made for 2.5 MS/s.

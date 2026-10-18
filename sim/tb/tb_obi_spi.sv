@@ -25,7 +25,7 @@ module tb_obi_spi;
   // ADC register byte offsets in the window
   localparam logic [11:0] AdcCtrl = 12'h100, AdcStatus = 12'h104, AdcBuf0 = 12'h108, AdcBuf1 = 12'h10C,
                           AdcNsamp = 12'h110, AdcIrqEn = 12'h114, AdcLast = 12'h118, AdcCount = 12'h11C,
-                          AdcPins = 12'h120;
+                          AdcPins = 12'h120, AdcTrig = 12'h124, AdcTpos = 12'h128;
   // radio register byte offsets in the window
   localparam logic [11:0] RfCtrl = 12'h000, RfStatus = 12'h004, RfCmd = 12'h008, RfData = 12'h00C, RfIrqEn = 12'h010,
                           RfIrqSt = 12'h014, RfPins = 12'h018, RfErr = 12'h01C;
@@ -582,6 +582,86 @@ module tb_obi_spi;
     wr32(AdcCtrl, En | Run | Trig | TrigLow | SwTrig | idle_f(3));
     wait_status(StDone, StDone, 2000, "DONE after SW_TRIG");
     adc_reset();
+
+    // ---------------- 9b. triggered capture with POST (the two buffers as one ring, ADC_TPOS) and with START
+    expect32(AdcTrig, 32'hFFFF_FFFF, 32'h0, "ADC_TRIG reset value");
+    wr32(AdcTrig, 32'h0001_1FFF);
+    expect32(AdcTrig, 32'hFFFF_FFFF, 32'h0001_0800, "ADC_TRIG: POST clamped to 2048 samples, bit 0 ignored, START");
+    wr32(AdcNsamp, 32'd8);
+    begin
+      int r, kt, kr, ord_k;
+      logic [15:0] ring [], ord [];
+      int dmin, dmax;
+      dmin = 99; dmax = -99;
+      // POST 2, 6, 10 and 14 samples with 8-sample buffers, the trigger at 8 places in the buffer cycle
+      for (int post = 2; post <= 14; post += 4) begin
+        for (int lead = 0; lead < 8; lead++) begin
+          clear_sram();
+          wr32(AdcTrig, 32'(post));
+          wr32(AdcCtrl, En | Run | Trig | TrigLow | idle_f(3));
+          repeat (40 * 21 + lead * 21) @(posedge clk);     // more than two buffers before the trigger
+          kt = int'(n_cs_fall);
+          wake_n = 1'b0;
+          wait_status(StDone, StDone, 2000, $sformatf("POST %0d, lead %0d: DONE", post, lead));
+          expect32(AdcCtrl, Run, 32'h0, $sformatf("POST %0d, lead %0d: RUN cleared", post, lead));
+          wait_status(StRunning, 32'h0, 100, $sformatf("POST %0d, lead %0d: reader stopped", post, lead));
+          expect32(AdcStatus, StFull0 | StFull1, StFull0 | StFull1, $sformatf("POST %0d, lead %0d: both FULL", post, lead));
+          rd32(AdcTpos, data);
+          check(data[16] == 1'b1 && data[0] == 1'b0 && data[15:12] == '0,
+                $sformatf("POST %0d, lead %0d: ADC_TPOS 0x%08h valid and even", post, lead, data));
+          r = int'(data[11:0]);
+          read_buffer(Buf0, 8, s0);
+          read_buffer(Buf1, 8, s1);
+          ring = new[16];
+          foreach (s0[i]) begin ring[i] = s0[i]; ring[8 + i] = s1[i]; end
+          // the ring in time order starts POST samples after TPOS: 16 consecutive samples, the last one stored last
+          ord = new[16];
+          foreach (ord[i]) ord[i] = ring[(r + post + i) % 16];
+          check_run(ord, -1, $sformatf("POST %0d, lead %0d: ring in time order from TPOS + POST", post, lead), ord_k);
+          // the sample at TPOS was taken at the trigger, within the word packing and the ADC pipeline
+          kr = k_of(ring[r]);
+          if (kr - kt < dmin) dmin = kr - kt;
+          if (kr - kt > dmax) dmax = kr - kt;
+          check(kr >= kt - 3 && kr <= kt - 2,
+                $sformatf("POST %0d, lead %0d: sample at TPOS from CS fall %0d, trigger after fall %0d", post, lead, kr, kt));
+          wake_n = 1'b1;
+          adc_reset();
+        end
+      end
+      $display("  POST: the sample at TPOS is %0d to %0d CS falls from the trigger", dmin, dmax);
+
+      // START: no conversions before the trigger, then 16 samples from the first CS fall after it
+      clear_sram();
+      wr32(AdcTrig, 32'h0001_0000 | 32'd16);
+      wr32(AdcCtrl, En | Run | Trig | TrigLow | idle_f(2));
+      repeat (100) @(posedge clk);                        // calibration frame
+      kt = int'(n_cs_fall);
+      repeat (2000) @(posedge clk);
+      check(int'(n_cs_fall) == kt, $sformatf("START: %0d CS falls before the trigger", int'(n_cs_fall) - kt));
+      expect32(AdcCount, 32'hFFFF, 32'h0, "START: no sample before the trigger");
+      expect32(AdcStatus, StDone | StFull0 | StFull1, 32'h0, "START: no flags before the trigger");
+      begin
+        realtime tw;
+        @(posedge clk);
+        wake_n = 1'b0;
+        tw = $realtime;
+        wait (int'(n_cs_fall) == kt + 1);
+        check($realtime - tw < 8 * ClkPeriod, $sformatf("START: first CS fall %0.0f ns after WAKE_N", $realtime - tw));
+        $display("  START: first CS fall %0.0f ns after WAKE_N", $realtime - tw);
+      end
+      wait_status(StDone, StDone, 2000, "START: DONE");
+      expect32(AdcStatus, StFull0 | StFull1, StFull0 | StFull1, "START: both buffers FULL");
+      expect32(AdcTpos, 32'hFFFF_FFFF, 32'h0001_0000, "START: ADC_TPOS valid, 0");
+      read_buffer(Buf0, 8, s0);
+      read_buffer(Buf1, 8, s1);
+      ring = new[16];
+      foreach (s0[i]) begin ring[i] = s0[i]; ring[8 + i] = s1[i]; end
+      check_run(ring, kt, "START: buffers 0 and 1 hold the samples from the first CS fall after the trigger", ord_k);
+      check_model_timing("START");
+      wake_n = 1'b1;
+      adc_reset();
+      wr32(AdcTrig, 32'h0);
+    end
 
     // ---------------- 10. SW_RST during a capture, then a clean restart
     clear_sram();

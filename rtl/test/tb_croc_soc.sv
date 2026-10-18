@@ -156,6 +156,8 @@ module tb_croc_soc #(
   // dither makes every block different, so sim/sw/flash/check_ae_node.py finds each block from its first two samples.
   // +adc_file=<hex> +adc_len=<n>: a recorded code stream instead (14-bit codes, one per line, sample k at CS fall k + 1),
   // and +adc_wake_frame=<n>: WAKE_N goes low at CS fall n for 20 frames (sim/sw/flash/ae_cav.c, check_ae_cav.py).
+  // +adc_timebase=1: the stream runs in time instead, one sample per 20 clocks (a frame at IDLE 2) from the first CS
+  // fall, and WAKE_N goes low at stream sample n. For a reader that takes no samples before the trigger (ADC_TRIG.START).
   wire         adc_sclk, adc_csn, adc_sdo;
   logic        adc_sdo_in;
   logic [13:0] adc_ain = 14'd5000;
@@ -169,13 +171,14 @@ module tb_croc_soc #(
   );
   always @(negedge adc_csn) adc_falls++;
   int  adc_tone = -1;
-  int  adc_nfile = 0, adc_wake_frame = 0;
+  int  adc_nfile = 0, adc_wake_frame = 0, adc_timebase = 0, adc_cyc = -1;
   logic [13:0] adc_stream [0:4095];
   logic adc_wake_n = 1'b1;
   string adc_file;
   initial begin
     void'($value$plusargs("adc_wake_frame=%d", adc_wake_frame));
     void'($value$plusargs("adc_len=%d", adc_nfile));
+    void'($value$plusargs("adc_timebase=%d", adc_timebase));
     if ($value$plusargs("adc_file=%s", adc_file) && adc_nfile > 0) begin
       $readmemh(adc_file, adc_stream, 0, adc_nfile - 1);
       $display("@%t | [ADC] code stream %s, %0d samples, WAKE_N at frame %0d", $time, adc_file, adc_nfile, adc_wake_frame);
@@ -188,12 +191,19 @@ module tb_croc_soc #(
     v = 3000.0 * $sin(2.0 * 3.141592653589793 * real'(adc_tone) * real'(k) / 128.0);
     return 14'($rtoi(v >= 0.0 ? v + 0.5 : v - 0.5) + ((k * 1237) % 61) - 30);
   endfunction
-  always @(posedge adc_csn) if (adc_falls > 0)
+  always @(posedge adc_csn) if (adc_falls > 0 && adc_timebase == 0)
     adc_ain = (adc_nfile > 0) ? adc_stream[adc_falls < adc_nfile ? adc_falls : adc_nfile - 1] :
               (adc_tone >= 0) ? tone_code(adc_falls) : 14'((adc_falls * 1237 + 5000) % 16384);
-  always @(negedge adc_csn) if (adc_wake_frame > 0) begin
+  always @(negedge adc_csn) if (adc_wake_frame > 0 && adc_timebase == 0) begin
     if (adc_falls + 1 == adc_wake_frame) adc_wake_n = 1'b0;
     if (adc_falls + 1 == adc_wake_frame + 20) adc_wake_n = 1'b1;
+  end
+  always @(negedge adc_csn) if (adc_cyc < 0) adc_cyc = 0;
+  always @(posedge sys_clk) if (adc_timebase != 0 && adc_nfile > 0 && adc_cyc >= 0) begin
+    adc_cyc++;
+    adc_ain = adc_stream[adc_cyc / 20 < adc_nfile ? adc_cyc / 20 : adc_nfile - 1];
+    if (adc_wake_frame > 0 && adc_cyc / 20 == adc_wake_frame) adc_wake_n = 1'b0;
+    if (adc_wake_frame > 0 && adc_cyc / 20 == adc_wake_frame + 20) adc_wake_n = 1'b1;
   end
   // sample rate on the pins: time of 1000 frames
   always @(negedge adc_csn) begin

@@ -185,7 +185,7 @@ Two samples per 32-bit word, first sample in bits [15:0], second in bits [31:16]
 - The ADC inputs (`adc_sdo_i`, `adc_wake_n_i`, `adc_big_n_i`) are double-synchronised where they are not sampled directly. SDO is
   captured by a rising-edge flop of the system clock, which is exactly the SCLK falling edge, half a period after the launch. The path
   from the port is the critical one: SCLK launch (clock falling edge) + 10 ns (ADC) + pad, translator and trace must fit in half a
-  period plus the clock latency difference. The flow experiment (`verify/experiments/fwd_clock`) gives +5.3 ns of slack in the
+  period plus the clock latency difference. The flow experiment (`sim/experiments/fwd_clock`) gives +5.3 ns of slack in the
   slow corner at 55 ns with 19 ns off-chip. A slower board is covered by SDO_NEG (capture on the falling edge, 27.5 ns more setup
   margin, about 8 ns of hold margin).
 
@@ -199,7 +199,7 @@ the flow already uses) and an inverter, so that SCLK idles high as the datasheet
 `clk_i`. The enable comes from a flop of the system clock. SCLK high time and low time are one half clock period (the datasheet
 allows 45 to 55 %, so the duty cycle of the clock at the port must stay within 5 %).
 
-Consequences (checked in the flow experiment of section 8, step 2, results in `verify/experiments/fwd_clock/README.md`):
+Consequences (checked in the flow experiment of section 8, step 2, results in `sim/experiments/fwd_clock/README.md`):
 
 - The gate output feeds a pad, not flops. CTS treats the port as a clock sink. The SDC needs `create_generated_clock` on
   `adc_sclk_o`, output delays for CS relative to it (CS must fall 7 ns before the first SCLK falling edge and rise 8 ns after the
@@ -216,7 +216,7 @@ Consequences (checked in the flow experiment of section 8, step 2, results in `v
 
 ## 7. Verification plan (AUS-17)
 
-Behavioural models (simulation only) are in `verify/models/`: `ads7057_model.v`, `sx1276_model.v`, self-test `tb_models.v`
+Behavioural models (simulation only) are in `sim/models/`: `ads7057_model.v`, `sx1276_model.v`, self-test `tb_models.v`
 (passes). Bus testbench: OBI manager task from `croc_vip`, same style as `tb_fft_hwpe`.
 
 | Test | What it proves |

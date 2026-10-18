@@ -1,6 +1,6 @@
 # Gate-level simulation of croc_soc
 
-`sim/scripts/run_gls.sh <program.hex> [work dir]` simulates the final netlist (`outputs/latest/croc_soc.v`)
+`scripts/sim/run_gls.sh <program.hex> [work dir]` simulates the final netlist (`outputs/latest/croc_soc.v`)
 with Verilator, zero delay, using the repo testbench. It patches copies of the testbench, netlist and cell
 models in the work directory; the repo is not touched. See the script header for the patches and why.
 
@@ -16,12 +16,12 @@ models in the work directory; the repo is not touched. See the script header for
 
 ## Chip-level gate-level simulation (pads included)
 
-`verify/gls/run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]` simulates the placed chip netlist of the template
-(pad ring + `croc_soc` macro) in Icarus; run it inside the template's nix-shell. `verify/gls/tb_chip.v` is a plain
+`scripts/sim/run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]` simulates the placed chip netlist of the template
+(pad ring + `croc_soc` macro) in Icarus; run it inside the template's nix-shell. `sim/tb/tb_chip.v` is a plain
 Verilog test bench that drives only the pins a board drives: `ref_clk_i`, `rst_ni`, the four JTAG pins and the UART RX.
 It leaves `testmode_i`, `scan_si_i` and `scan_se_i` open, loads the 272-byte program through the debug module (JTAG,
-system bus access), wakes the core and waits for `GLS OK` on the `uart_tx_o` pad. `verify/gls/run_macro_gls.sh` and
-`verify/gls/tb_macro.v` are the same test with the macro alone (about 20 s per run).
+system bus access), wakes the core and waits for `GLS OK` on the `uart_tx_o` pad. `scripts/sim/run_macro_gls.sh` and
+`sim/tb/tb_macro.v` are the same test with the macro alone (about 20 s per run).
 
 Result with the AUS-106 macro in the chip of 14 Oct (template run `RUN_2026-10-14_23-22-13`, `testmode_i` pad open):
 ID code 0x1c0c5db3 read through the pads, program loaded, `GLS OK` received on the pad at 912845 ns. The PD pin of the
@@ -43,7 +43,7 @@ Icarus pitfalls found on the way (each one stopped the program at the UART witho
 
 ## Scan shift
 
-`sim/scripts/run_gls_scan.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist
+`scripts/sim/run_gls_scan.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist
 (`rtl/test/tb_scan_shift.sv`, testmode_i = scan_se_i = 1, both clocks with the waveforms of the DFT spec) and checks
 that scan_so_o is the same stream delayed by exactly the number of scan cells (3964). The chain passes, also with
 jtag_trst_ni driven low. With rst_ni driven low the chain is disturbed: rst_ni is a DFT reset signal that the tester

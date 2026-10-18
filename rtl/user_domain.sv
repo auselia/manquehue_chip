@@ -34,9 +34,10 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   input  obi_spi_pkg::spi_pads_in_t  spi_pads_i
 );
 
-  // [0] radio master, [1] ADC reader (SPI block), [2] FFT (later), [3] reserved
+  // [0] radio master, [1] ADC reader (SPI block), [2] AE-FFT accelerator done, [3] reserved
   logic [1:0] spi_irq;
-  assign interrupts_o = NumExternalIrqs'(spi_irq);
+  logic       fft_irq;
+  assign interrupts_o = NumExternalIrqs'({fft_irq, spi_irq});
 
 
   //////////////////////
@@ -45,9 +46,6 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
 
   mgr_obi_req_t [NumUserMgr-1:0] user_mgr_req;
   mgr_obi_rsp_t [NumUserMgr-1:0] user_mgr_rsp;
-
-  // FFT manager, idle until the FFT block is in
-  assign user_mgr_req[UserMgrFft] = '0;
 
   obi_mux #(
     .SbrPortObiCfg      ( MgrObiCfg        ),
@@ -93,6 +91,8 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   sbr_obi_rsp_t user_qspi_obi_rsp;
   sbr_obi_req_t user_spi_obi_req;
   sbr_obi_rsp_t user_spi_obi_rsp;
+  sbr_obi_req_t user_fft_obi_req;
+  sbr_obi_rsp_t user_fft_obi_rsp;
 
   // Fanout into more readable signals
   assign user_error_obi_req               = all_user_sbr_obi_req[UserError];
@@ -103,6 +103,8 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   assign all_user_sbr_obi_rsp[UserQSpi] = user_qspi_obi_rsp;
   assign user_spi_obi_req               = all_user_sbr_obi_req[UserSpi];
   assign all_user_sbr_obi_rsp[UserSpi]  = user_spi_obi_rsp;
+  assign user_fft_obi_req               = all_user_sbr_obi_req[UserFft];
+  assign all_user_sbr_obi_rsp[UserFft]  = user_fft_obi_rsp;
 
 
   //-----------------------------------------------------------------------------------------------
@@ -187,6 +189,17 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
     .irq_o         ( spi_irq                  ),
     .pads_o        ( spi_pads_o               ),
     .pads_i        ( spi_pads_i               )
+  );
+
+  // AE-FFT accelerator: registers on the subordinate port, SRAM access through the manager mux
+  fft_hwpe i_fft_hwpe (
+    .clk_i,
+    .rst_ni,
+    .obi_sbr_req_i ( user_fft_obi_req         ),
+    .obi_sbr_rsp_o ( user_fft_obi_rsp         ),
+    .obi_mgr_req_o ( user_mgr_req[UserMgrFft] ),
+    .obi_mgr_rsp_i ( user_mgr_rsp[UserMgrFft] ),
+    .irq_o         ( fft_irq                  )
   );
 
   // UserDesign placeholder.

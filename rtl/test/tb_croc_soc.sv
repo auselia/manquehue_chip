@@ -6,7 +6,8 @@
 // - Philippe Sauter <phsauter@iis.ee.ethz.ch>
 // - Enrico Zelioli <ezelioli@iis.ee.ethz.ch>
 
-`define TRACE_WAVE
+// Waveform dump: define TRACE_WAVE to get croc.fst (scripts/sim/run_verilator.sh does it with TRACE=1).
+// It is off by default: a full dump of a long firmware run reaches tens of GB.
 
 module tb_croc_soc #(
   parameter int unsigned GpioCount = 32

@@ -1,5 +1,5 @@
 ###############################################################################
-# scripts/pt/extract_model_corner.tcl -- PrimeTime timing model (ETM) for ONE corner
+# scripts/signoff/sta/extract_model_corner.tcl -- PrimeTime timing model (ETM) for ONE corner
 #
 # Same netlist, SDC, SPEF and liberty setup as sta_corner.tcl, then extract_model writes an
 # interface timing model of the block (setup/hold to the clocks, clock-to-output delays, pin

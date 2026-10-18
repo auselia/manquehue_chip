@@ -3,7 +3,7 @@
 # with Verilator, using the repo testbench. No waveform dump: the testbench hard-codes
 # `define TRACE_WAVE and a --trace build writes tens of GB.
 #
-# usage: sim/scripts/run_gls.sh <program.hex> [work dir]
+# usage: scripts/sim/run_gls.sh <program.hex> [work dir]
 #   program.hex  must fit the 2 KB SRAM, e.g. sim/sw/gls_mini/build.sh -> bin/gls_mini.hex
 #   work dir     default /tmp/gls_full
 # env:   PDK_ROOT   default ~/.ciel

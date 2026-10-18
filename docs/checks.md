@@ -18,16 +18,23 @@ Nothing writes to `/tmp`.
 
 ## Where things are
 
+Folders under `scripts/` are named after what they do, not after the tool.
+
 | What | Where |
 |---|---|
-| scan-shift STA, functional sign-off summary | `scripts/pt/` (next to the PrimeTime flow scripts) |
-| Formality | `scripts/fm/` |
-| ATPG, pattern replay, diagnosis, March test driver | `scripts/dft/` (documentation: `docs/dft_atpg.md`, tester procedure: `docs/TEST_PROCEDURE.md`) |
-| gate-level simulation drivers | `scripts/gls/` |
+| flow steps (Fusion Compiler) and their Tcl helpers | `scripts/01..07_*.tcl`, `scripts/common/` |
+| timing sign-off: PrimeTime STA, scan-shift STA, timing models (ETM), sign-off summary | `scripts/signoff/sta/` |
+| power analysis | `scripts/signoff/power/` |
+| equivalence check (Formality) | `scripts/signoff/lec/` |
+| physical verification: metal fill and DRC/LVS runsets (IC Validator) | `scripts/signoff/pv/` |
+| IR drop (RedHawk-SC) | `scripts/signoff/irdrop/` |
+| scan test: ATPG, pattern replay, diagnosis, March test driver | `scripts/dft/` (documentation: `docs/dft_atpg.md`, tester procedure: `docs/TEST_PROCEDURE.md`) |
+| simulation drivers: Verilator, VCS, gate-level, chip-level | `scripts/sim/` |
 | chip flow and precheck | `scripts/chip/` |
-| report card, archive of logs and reports, paths | `scripts/utils/` |
+| FPGA build | `scripts/fpga/` |
+| report card, archive of logs and reports, tool paths | `scripts/utils/` |
 | gate-level testbenches | `sim/tb/` |
-| 2 KB test program (prebuilt image, no toolchain needed on Rocky) | `sim/sw/gls_mini/gls_mini.hex` |
+| firmware, including the 2 KB test program (prebuilt image, no toolchain needed on Rocky) | `sim/sw/`, `sim/sw/gls_mini/gls_mini.hex` |
 | report card of the baseline run | `docs/baseline_report_20261015.md` |
 
 A step that cannot run (missing tool or input) is `FAIL` with the reason, never silently skipped.

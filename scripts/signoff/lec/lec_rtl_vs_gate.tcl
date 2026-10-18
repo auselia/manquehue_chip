@@ -1,12 +1,12 @@
 ###############################################################################
-# scripts/fm/lec_rtl_vs_gate.tcl -- Formality RTL-vs-gate equivalence check
+# scripts/signoff/lec/lec_rtl_vs_gate.tcl -- Formality RTL-vs-gate equivalence check
 #
 # Proves the final gate-level netlist (outputs/<run>/<TOP>.v, post-fill,
 # post-route, post change_names -- exactly what 06_finish.tcl exports to
 # GDS) is logically equivalent to the original RTL (croc.flist).
 #
 # STATUS (2026-10-07): passes (4095 compare points, all 3964 flops equivalent) when run through
-# scripts/fm/run_lec.sh. What it took, in order of impact:
+# scripts/signoff/lec/run_lec.sh. What it took, in order of impact:
 #   - SVF guidance from ALL six FC sessions (read_rtl .. finish), passed as one ordered list. The SVF
 #     carries the phase-inverted registers (set-type flops storing the complement) and the merged and
 #     removed registers; without it every flop that reads an inverted one fails (3.7k of 4.1k points).
@@ -53,7 +53,7 @@
 # build that predates
 # set_verification_checkpoints).
 #
-# Library setup mirrors scripts/pt/sta_corner.tcl (same 3 .db files: standard
+# Library setup mirrors scripts/signoff/sta/sta_corner.tcl (same 3 .db files: standard
 # cell, IO pad, SRAM macro -- PVT corner is irrelevant for logic equivalence,
 # "typical" was picked arbitrarily for a single consistent set), but here
 # they're read as TECHNOLOGY LIBRARIES into BOTH containers, not just the
@@ -101,7 +101,7 @@ file mkdir $REPORT_DIR
 
 # flists/croc.flist is written for FC's cwd (work/), so its paths start with ../rtl. Formality
 # runs from anywhere, so write a copy with absolute paths into the report directory.
-set REPO_ROOT [file normalize [file join [file dirname [info script]] .. ..]]
+set REPO_ROOT [file normalize [file join [file dirname [info script]] .. .. ..]]
 # LEC_REL_FLIST 1 keeps the flist as given (run from a directory one level below the repo, like FC's
 # work/), so the file names match what an SVF recorded.
 if { ![info exists LEC_REL_FLIST] || !$LEC_REL_FLIST } {

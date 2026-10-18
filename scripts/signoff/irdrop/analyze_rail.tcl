@@ -1,9 +1,9 @@
 ###############################################################################
-# scripts/rail/analyze_rail.tcl -- RedHawk-SC Fusion static/dynamic voltage
+# scripts/signoff/irdrop/analyze_rail.tcl -- RedHawk-SC Fusion static/dynamic voltage
 # drop (IR drop) signoff, run in-design against the FC 'finish' block.
 #
 # Unlike the numbered 0X_*.tcl steps, this is a read-only signoff pass (like
-# scripts/pt/sta_corner.tcl): it opens the already-built 'finish' block,
+# scripts/signoff/sta/sta_corner.tcl): it opens the already-built 'finish' block,
 # treats croc_soc's top-level VDD/VSS pins as ideal external voltage sources
 # (create_taps -top_pg), and asks RedHawk-SC to solve for voltage drop across
 # the block's real, routed PDN. Nothing about the block itself is modified or
@@ -21,7 +21,7 @@
 #   RAIL_TECH_FILE    -- ITF (Interconnect Technology Format), NOT the "ATF"
 #                         FC's own docs call it -- this RedHawk-SC build only
 #                         accepts itf/ircx/nrc (confirmed empirically). The
-#                         real one, scripts/rail/tech/gf180mcu.itf, was
+#                         real one, scripts/signoff/irdrop/tech/gf180mcu.itf, was
 #                         recovered directly from GlobalFoundries' own
 #                         officially-released field-solver binary
 #                         (~/pdk_synopsys/pex/*.nxtgrd) via StarRC's
@@ -37,7 +37,7 @@
 #   RAIL_VOLTAGE_DROP -- static | dynamic | dynamic_vectorless | dynamic_vcd
 ###############################################################################
 
-source [file dirname [info script]]/../common/open_lib.tcl
+source [file dirname [info script]]/../../common/open_lib.tcl
 open_block finish
 
 # A fresh, standalone fc_shell session opening "finish" cold (unlike the

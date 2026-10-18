@@ -13,6 +13,9 @@ set DESIGN_LIBRARY      "design.dlib"
 
 set CLOCK_PORT_NAME     "clk_i" 
 set CLOCK_PERIOD        50.0
+# CLOCK_PERIOD is what the optimizer implements. The design is signed off at SPEC_PERIOD (AUS-9): the optimizer
+# stops about 1.4 ns short of any period it is given, so a netlist implemented at 50 ns closes at 55 ns.
+set SPEC_PERIOD         55.0
 
 # Top-level power pins: {layer llx lly urx ury} in um, one list per net. They are the straight
 # sections of the PG rings: Metal5 along the bottom and top, Metal4 down both sides. The first

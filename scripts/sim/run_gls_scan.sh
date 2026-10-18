@@ -4,7 +4,7 @@
 # clocks, and checks it comes out of scan_so_o delayed by exactly the number of scan cells, also with
 # jtag_trst_ni driven low (rst_ni low is run for information, see the loop below). See rtl/test/tb_scan_shift.sv.
 #
-# usage: sim/scripts/run_gls_scan.sh [work dir]      (default /tmp/gls_scan)
+# usage: scripts/sim/run_gls_scan.sh [work dir]      (default /tmp/gls_scan)
 # env:   PDK_ROOT   default ~/.ciel
 #        GLS_CXX    g++ with -fcoroutines (Verilator --timing); system g++ 8.5 on Rocky has none
 #        GLS_RUN    netlist run folder, default outputs/latest
@@ -13,7 +13,7 @@
 #        JOBS       compile parallelism, default 8
 # Run it inside an environment that has verilator (the template's nix-shell on Rocky).
 #
-# Same netlist and cell-model patches as sim/scripts/run_gls.sh (see there for why), nothing in the repo
+# Same netlist and cell-model patches as scripts/sim/run_gls.sh (see there for why), nothing in the repo
 # changes. Zero delay on the combinational gates means the clock tree has no skew in this simulation:
 # it proves the chain order, the clock/enable/reset wiring and the reset gating, not hold timing (the
 # scan-mode STA covers that).

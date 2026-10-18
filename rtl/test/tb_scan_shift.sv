@@ -10,7 +10,7 @@
 // +rst_low drives rst_ni and jtag_trst_ni low during the shift: the asynchronous resets must stay
 // held inactive by the AutoFix gate (testmode_i), so the stream must come out unchanged.
 //
-// usage (run sim/scripts/run_gls_scan.sh): Vscan [+rst_low | +rstn_low | +trstn_low] [+expected_lag=N] [+nbits=N]
+// usage (run scripts/sim/run_gls_scan.sh): Vscan [+rst_low | +rstn_low | +trstn_low] [+expected_lag=N] [+nbits=N]
 // +rstn_low drives only rst_ni low, +trstn_low only jtag_trst_ni.
 `timescale 1ns/1ps
 

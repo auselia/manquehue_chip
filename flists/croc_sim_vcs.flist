@@ -228,4 +228,5 @@
 ../rtl/test/tb_croc_pkg.sv
 ../rtl/test/croc_vip.sv
 ../sim/models/ads7057_model.v
+../sim/models/spi_flash_model.v
 ../rtl/test/tb_croc_soc.sv

@@ -9,11 +9,14 @@
 # Located at 0x0200_0000
 #
 # Boot flow:
-# 1. Enable MSIE, WFI (wait until woken by JTAG via msip)
-# 2. Wake: clear msip, disable interrupts
-# 3. Clear registers x1, x3-x15 (x2/SP set by SRAM stub)
+# 1. Read the first word of the QSPI flash (0x2000_0000). If it is the image magic
+#    FLASH_MAGIC, the boot address is 0x2000_0004 (the program runs from the flash) and
+#    the core does not wait for a debugger.
+# 2. Otherwise (no flash, erased flash, other content): enable MSIE, WFI (wait until
+#    woken by JTAG via msip), clear msip, disable interrupts, boot address from soc_ctrl.
+# 3. Clear registers x3, x4, x6-x15 (x2/SP is set by the program's startup code)
 # 4. Set mtvec to bootrom trap handler
-# 5. Read boot address from soc_ctrl, jump there with jalr zero
+# 5. Jump to the boot address with jalr zero
 #    (ra is set to &_eoc so main() returning goes to _eoc)
 # 6. _eoc: pack return value, write CORESTATUS, WFI
 #
@@ -31,16 +34,29 @@
 # 0x300  _trap_exit             (restore regs, mret)
 
 # -----------------------------------------------------------------------------
-# WFI Trampoline (entry point after reset)
+# Entry point after reset: flash image or WFI trampoline
 # -----------------------------------------------------------------------------
+.equ FLASH_BASE,  0x20000000   # QSPI window, flash bank (user_pkg::UserQSpiAddrBase)
+.equ FLASH_MAGIC, 0x434F5243   # "CROC" in memory order, first word of a flash image
+
 .section .text
 .globl _start
 _start:
+  li      t0, FLASH_BASE
+  lw      t1, 0(t0)    # t1 = first flash word
+  li      t2, FLASH_MAGIC
+  bne     t1, t2, 1f   # no image: wait for the debugger
+  addi    t0, t0, 4    # t0 = boot address: the word after the magic
+  j       2f
+1:
   csrwi   mie, 8       # Enable M-mode software interrupt
   wfi                  # Sleep until interrupt
   lui     t0, 0x02040  # t0 = CLINT base (0x0204_0000)
   sw      zero, 0(t0)  # Clear msip
   csrwi   mie, 0       # Disable all interrupts
+  lui     t0, 0x03000  # t0 = SOC_CTRL base (0x0300_0000)
+  lw      t0, 0(t0)    # t0 = boot address (BOOTADDR register)
+2:
 
 # -----------------------------------------------------------------------------
 # Register Initialization
@@ -64,17 +80,15 @@ _start:
 
 # -----------------------------------------------------------------------------
 # CSR Initialization
-# Set mtvec to bootrom trap handler
+# Set mtvec to bootrom trap handler (t1 is cleared again afterwards)
 # -----------------------------------------------------------------------------
-  la      t0, _trap_handler_wrapper
-  csrw    mtvec, t0
+  la      t1, _trap_handler_wrapper
+  csrw    mtvec, t1
+  addi    t1, zero, 0
 
 # -----------------------------------------------------------------------------
-# Boot software
-# Read address from soc_ctrl register and jump
+# Boot software: jump to the boot address in t0
 # -----------------------------------------------------------------------------
-  lui     t0, 0x03000  # t0 = SOC_CTRL base (0x0300_0000)
-  lw      t0, 0(t0)    # t0 = boot address (BOOTADDR register)
   la      ra, _eoc     # ra = &_eoc (return address for main)
   jalr    zero, 0(t0)  # Jump to boot address (rd=zero, ra preserved)
 

@@ -85,6 +85,21 @@ module tb_croc_soc #(
     .gpio_in_o     ( gpio_in     )
   );
 
+  // QSPI flash (sim/models/spi_flash_model.v) on chip select 0. +flash=<hex> loads an image (objcopy -O verilog,
+  // addresses relative to 0x2000_0000). Without it the flash reads erased and the bootrom waits for JTAG.
+  wire       qspi_clk_o;
+  wire [3:0] qspi_sd_o, qspi_sd_en_o;
+  wire [2:0] qspi_csn_o;
+  wire [3:0] qspi_sd_i;
+  wire       flash_miso;
+  spi_flash_model i_flash (
+    .csn  ( qspi_csn_o[0] ),
+    .sclk ( qspi_clk_o    ),
+    .mosi ( qspi_sd_o[0]  ),
+    .miso ( flash_miso    )
+  );
+  assign qspi_sd_i = {2'b00, (flash_miso === 1'b1), 1'b0};
+
   ////////////
   //  DUT   //
   ////////////
@@ -164,21 +179,27 @@ module tb_croc_soc #(
     // init jtag
     i_vip.jtag_init();
 
-    // write test value to sram
-    i_vip.jtag_write_reg32(SramBaseAddr, 32'h1234_5678, 1'b1);
+    if ($test$plusargs("flash")) begin
+      // flash boot: the bootrom found the image magic and runs the program from the QSPI flash.
+      // No JTAG load: the program's data and stack are in the SRAM.
+      $display("@%t | [CORE] Program in the QSPI flash, no JTAG load", $time);
+    end else begin
+      // write test value to sram
+      i_vip.jtag_write_reg32(SramBaseAddr, 32'h1234_5678, 1'b1);
 
-    // load binary to sram
-    i_vip.jtag_load_hex(binary_path);
+      // load binary to sram
+      i_vip.jtag_load_hex(binary_path);
 
-    // wake core from WFI by writing to CLINT msip
-    $display("@%t | [CORE] Waking core via CLINT msip", $time);
-    i_vip.jtag_write_reg32(ClintBaseAddr, 32'h1);
+      // wake core from WFI by writing to CLINT msip
+      $display("@%t | [CORE] Waking core via CLINT msip", $time);
+      i_vip.jtag_write_reg32(ClintBaseAddr, 32'h1);
 
-    // halt core
-    i_vip.jtag_halt();
+      // halt core
+      i_vip.jtag_halt();
 
-    // resume core
-    i_vip.jtag_resume();
+      // resume core
+      i_vip.jtag_resume();
+    end
 
     // wait for non-zero return value (written into core status register)
     $display("@%t | [CORE] Wait for end of code...", $time);

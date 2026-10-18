@@ -39,7 +39,7 @@ proc pg_pins {W H} {
 set KLAYOUT_BIN         "/nix/store/dljmpck53kb6zxhvd73b688286b0kwkn-klayout-0.30.9/bin/klayout"
 set DRC_DECK            "$::env(HOME)/.ciel/gf180mcuD/libs.tech/klayout/tech/drc/gf180mcu.drc"
 set DRC_ECO_DECKS       "via,metal,contact"
-set DRC_ECO_MAX_PASSES  3
+set DRC_ECO_MAX_PASSES  4
 
 # Metal4 and Metal5 stay open this far in from the boundary (um) so a parent grid can reach the pins.
 set PG_PIN_BAND 25

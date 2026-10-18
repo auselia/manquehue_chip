@@ -4,17 +4,24 @@
 # rules (e.g. V1.3c, Via1 end-of-line overlap) can be violated by a routed net without FC
 # noticing. This runs the wafer.space KLayout deck on the routing rules, reroutes the signal
 # nets under any marker, and checks again. Sourced from 06_finish.tcl after detail routing.
+# A marker that is still there after its nets were rerouted (the router takes the same path again, for example
+# CO.6a at a cell pin, 18 Oct) moves the logic cell under it by two sites instead: the fillers next to it are
+# taken out, the cell is moved and legalized, the gap is filled again (decap fillers first) and route_eco
+# reconnects it.
 ###############################################################################
 
 set DRC_ECO_HELPER [file normalize [file join [file dirname [info script]] .. utils drc_markers.py]]
 
 proc drc_eco_reroute {run_dir} {
   global TOP_MODULE PDK_DIR ICC2GDS_LAYERMAP KLAYOUT_BIN DRC_DECK DRC_ECO_DECKS DRC_ECO_MAX_PASSES DRC_ECO_HELPER
+  global DCAP_CELLS FILL_CELLS
 
   set eco_dir [file join $run_dir drc_eco]
   file mkdir $eco_dir
   set helper $DRC_ECO_HELPER
   set gds_list [glob ${PDK_DIR}/gds/*.gds]
+  set site_w [get_attribute [index_collection [get_site_defs] 0] width]
+  set prev [list]
 
   for {set pass 1} {$pass <= $DRC_ECO_MAX_PASSES} {incr pass} {
     set gds   [file join $eco_dir pass${pass}.gds]
@@ -29,6 +36,42 @@ proc drc_eco_reroute {run_dir} {
       puts "INFO: DRC ECO pass $pass: no routing-rule violations"
       return
     }
+
+    # markers that survived a reroute: move the cell under them
+    set moved [list]
+    foreach m $markers {
+      if {$m ni $prev} { continue }
+      lassign $m x0 y0 x1 y1 rule
+      set d 0.1
+      set area [list [list [expr {$x0 - $d}] [expr {$y0 - $d}]] [list [expr {$x1 + $d}] [expr {$y1 + $d}]]]
+      set cells [get_cells -hierarchical -intersect $area -quiet \
+          -filter "is_hard_macro == false && ref_name !~ *fill* && ref_name !~ *endcap*"]
+      if {[sizeof_collection $cells] == 0} {
+        puts "WARNING: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats and has no logic cell under it"
+        continue
+      }
+      set c [index_collection [sort_collection $cells area] 0]
+      set name [get_object_name $c]
+      if {$name in $moved} { continue }
+      # free the row next to the cell: plain and decap fillers within 6 um (the taps stay)
+      set bb [get_attribute $c bbox]
+      set row [list [list [expr {[lindex $bb 0 0] - 6.0}] [expr {[lindex $bb 0 1] + 0.5}]] \
+                    [list [expr {[lindex $bb 1 0] + 6.0}] [expr {[lindex $bb 1 1] - 0.5}]]]
+      set fill [get_objects_by_location -classes cell -intersect $row -quiet]
+      if {[sizeof_collection $fill] > 0} {
+        set fill [filter_collection $fill "ref_name =~ *fill_* || ref_name =~ *fillcap*"]
+        if {[sizeof_collection $fill] > 0} { remove_cells $fill }
+      }
+      puts "INFO: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats after the reroute, moving $name ([get_attribute $c ref_name]) by 2 sites"
+      move_objects -delta [list [expr {2 * $site_w}] 0] $c
+      legalize_placement -cells $c
+      set row [list [list [expr {[lindex $bb 0 0] - 6.0}] [lindex $bb 0 1]] [list [expr {[lindex $bb 1 0] + 6.0}] [lindex $bb 1 1]]]
+      create_stdcell_fillers -lib_cells $DCAP_CELLS -bboxes $row -prefix eco_dcap
+      create_stdcell_fillers -lib_cells $FILL_CELLS -bboxes $row -prefix eco_fill
+      connect_pg_net -automatic
+      lappend moved $name
+    }
+    set prev $markers
 
     set nets [list]
     foreach m $markers {
@@ -54,12 +97,14 @@ proc drc_eco_reroute {run_dir} {
     foreach n $nets {
       if {[get_attribute [get_nets $n] net_type] eq "signal"} { lappend signal_nets $n }
     }
-    if {[llength $signal_nets] == 0} {
+    if {[llength $signal_nets] == 0 && [llength $moved] == 0} {
       puts "WARNING: DRC ECO pass $pass: [llength $markers] violation(s) but no signal net under them, stopping"
       return
     }
-    puts "INFO: DRC ECO pass $pass: rerouting [llength $signal_nets] net(s): $signal_nets"
-    remove_routes -nets [get_nets $signal_nets] -detail_route
+    if {[llength $signal_nets] > 0} {
+      puts "INFO: DRC ECO pass $pass: rerouting [llength $signal_nets] net(s): $signal_nets"
+      remove_routes -nets [get_nets $signal_nets] -detail_route
+    }
     route_eco
     check_routes -drc true -antenna false -open_net true
   }

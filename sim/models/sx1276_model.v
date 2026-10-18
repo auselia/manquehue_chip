@@ -9,6 +9,7 @@
 //     PayloadLength 0x22, DioMapping1 0x40 are plain read/write registers, 0x13 RxNbBytes is read only.
 //   - Writing RegOpMode with a TX mode (bits 2:0 = 3) sets IrqFlags.TxDone (bit 3) after TX_DELAY_NS, after taking
 //     the FIFO bytes TxBase.. as the payload (`last_tx_len`, `last_tx` for the testbench) and sets `dio0` high.
+//     +rf_airtime_ns=<n> replaces TX_DELAY_NS, for example with the LoRa time on air of the packet.
 `timescale 1ns/1ps
 module sx1276_model #(
   parameter real TX_DELAY_NS = 2000.0
@@ -24,6 +25,9 @@ module sx1276_model #(
   reg [7:0] last_tx [0:255];
   integer   last_tx_len = 0;
   integer   writes = 0, reads = 0, bad_burst_on_fifo = 0;
+  integer   airtime_ns = 0;
+  real      tx_delay_ns = TX_DELAY_NS;
+  initial if ($value$plusargs("rf_airtime_ns=%d", airtime_ns)) tx_delay_ns = airtime_ns;
 
   reg [7:0] addr;
   reg       is_write;
@@ -64,7 +68,7 @@ module sx1276_model #(
       if (a == 7'h01 && d[2:0] == 3'd3) begin       // TX mode: send the FIFO payload
         last_tx_len = regs[8'h22];
         for (k = 0; k < 256; k = k + 1) last_tx[k] = fifo[(regs[8'h0E] + k) & 8'hFF];
-        #(TX_DELAY_NS) regs[8'h12] = regs[8'h12] | 8'h08; dio0 = 1'b1;
+        #(tx_delay_ns) regs[8'h12] = regs[8'h12] | 8'h08; dio0 = 1'b1;
         regs[8'h01] = {d[7:3], 3'd1};              // back to standby
       end
     end

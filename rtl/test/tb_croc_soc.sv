@@ -152,6 +152,8 @@ module tb_croc_soc #(
 
   // ADS7057 model on the ADC pins (sim/models/ads7057_model.v). The sample taken at CS fall k is
   // (1237 * k + 5000) mod 16384, so two consecutive samples differ by 1237 mod 2^14 (sim/sw/spi_adc checks this).
+  // +adc_tone=<b>: a tone at FFT bin b instead, round(3000 sin(2 pi b k / 128)) + ((1237 k) mod 61) - 30. The small
+  // dither makes every block different, so sim/sw/flash/check_ae_node.py finds each block from its first two samples.
   wire         adc_sclk, adc_csn, adc_sdo;
   logic        adc_sdo_in;
   logic [13:0] adc_ain = 14'd5000;
@@ -164,7 +166,24 @@ module tb_croc_soc #(
     .ain_code ( adc_ain  )
   );
   always @(negedge adc_csn) adc_falls++;
-  always @(posedge adc_csn) if (adc_falls > 0) adc_ain = 14'((adc_falls * 1237 + 5000) % 16384);
+  int  adc_tone = -1;
+  real adc_t1000 = 0.0;
+  initial void'($value$plusargs("adc_tone=%d", adc_tone));
+  function automatic logic [13:0] tone_code(int k);
+    real v;
+    v = 3000.0 * $sin(2.0 * 3.141592653589793 * real'(adc_tone) * real'(k) / 128.0);
+    return 14'($rtoi(v >= 0.0 ? v + 0.5 : v - 0.5) + ((k * 1237) % 61) - 30);
+  endfunction
+  always @(posedge adc_csn) if (adc_falls > 0)
+    adc_ain = (adc_tone >= 0) ? tone_code(adc_falls) : 14'((adc_falls * 1237 + 5000) % 16384);
+  // sample rate on the pins: time of 1000 frames
+  always @(negedge adc_csn) begin
+    if (adc_falls == 1000) adc_t1000 = $realtime;
+    if (adc_falls == 2000)
+      $display("@%t | [ADC] 1000 frames in %0.1f ns: %0.1f kS/s, model timing violations tacq %0d tsu %0d tph %0d",
+               $time, $realtime - adc_t1000, 1.0e9 / ($realtime - adc_t1000),
+               i_adc_model.tacq_violations, i_adc_model.tsu_violations, i_adc_model.tph_violations);
+  end
 
   // SX1276 model on the radio pins (sim/models/sx1276_model.v, SPI mode 0). MISO is high impedance while NSS is
   // high and reads 0 then. The model has no reset input: rf_rstn is only printed.

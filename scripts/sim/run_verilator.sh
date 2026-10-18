@@ -25,7 +25,8 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
   echo "=> Compiling cycle-accurate hardware model..."
-  verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX" -j 0 -Wno-fatal --trace --trace-structs \
+  # TRACE=1 dumps the waveform (sim/build/croc.fst, tens of GB for a long program)
+  verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX" -j 0 -Wno-fatal --trace --trace-structs ${TRACE:+ +define+TRACE_WAVE} \
     -F "$ROOT/flists/croc_sim.flist" \
     --top-module tb_croc_soc
 fi

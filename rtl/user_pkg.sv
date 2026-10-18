@@ -14,7 +14,7 @@ package user_pkg;
   //////////////////
 
   // Two managers share the user manager port through an obi_mux: the ADC reader of the SPI block and the
-  // FFT block (tied idle until it is in).
+  // AE-FFT accelerator.
   typedef enum int unsigned {
     UserMgrSpi = 0,
     UserMgrFft = 1
@@ -38,8 +38,9 @@ package user_pkg;
   // SPI block (radio master and ADS7057 reader), docs/spi_adc_spec.md section 3
   localparam logic [31:0] UserSpiAddrBase  = 32'h2200_0000;
   localparam logic [31:0] UserSpiAddrEnd   = UserSpiAddrBase + 32'h0000_1000; // 4 KB
-  // 0x2200_1000..0x2200_2000 is kept for the FFT block. Until it is in, that window goes to the error subordinate.
+  // AE-FFT accelerator (fft_hwpe), rtl/user_domain/fft
   localparam logic [31:0] UserFftAddrBase  = 32'h2200_1000;
+  localparam logic [31:0] UserFftAddrEnd   = UserFftAddrBase + 32'h0000_1000; // 4 KB
   localparam logic [31:0] UserDesignAddrBase = 32'h2200_2000;
 
   /// Enum with user domain demultiplexer subordinate idxs
@@ -47,7 +48,8 @@ package user_pkg;
     UserError  = 0,
     UserDesign = 1,
     UserQSpi   = 2,
-    UserSpi    = 3
+    UserSpi    = 3,
+    UserFft    = 4
   } user_demux_outputs_e;
 
   /// Address rules given to user domain demultiplexer (see croc_pkg.sv for examples)
@@ -55,12 +57,13 @@ package user_pkg;
   // 0x2000_0000..0x3000_0000 and fully contained the QSPI window, so a QSPI access
   // could be routed to the (undriven) UserDesign subordinate and return X.
   // UserDesign starts after the SPI and FFT windows.
-  localparam croc_pkg::addr_map_rule_t [2:0] UserAddrMap = '{
+  localparam croc_pkg::addr_map_rule_t [3:0] UserAddrMap = '{
     '{
       idx:        UserDesign,
       start_addr: UserDesignAddrBase,                     // 0x2200_2000
       end_addr:   croc_pkg::UserBaseAddr + 32'h1000_0000  // 0x3000_0000
     },
+    '{ idx: UserFft,  start_addr: UserFftAddrBase,  end_addr: UserFftAddrEnd  },
     '{ idx: UserSpi,  start_addr: UserSpiAddrBase,  end_addr: UserSpiAddrEnd  },
     '{ idx: UserQSpi, start_addr: UserQSpiAddrBase, end_addr: UserQSpiAddrEnd }
   };

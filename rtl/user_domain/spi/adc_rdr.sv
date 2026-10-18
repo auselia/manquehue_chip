@@ -32,6 +32,10 @@
 //   6 ADC_LAST    RO    most recent sample, sign-extended to 32 bit
 //   7 ADC_COUNT   RO    samples taken since RUN was set, saturating at 65535
 //   8 ADC_PINS    RW    [0] WAKE_CLR output [1] CAP_EN output (reset 1) [8] WAKE_N input (RO) [9] BIG_N input (RO)
+//   9 ADC_TRIG    RW    [11:0] POST (samples stored after the trigger, even, 0..2048, clamped on write; 0 = complete
+//                       the buffer being written) [16] START (no conversions before the trigger)
+//  10 ADC_TPOS    RO    [11:0] position of the first word stored after the trigger, as a sample index in the ring
+//                       of buffer 0 (0 .. NSAMP-1) then buffer 1 (NSAMP .. 2 NSAMP-1) [16] VALID
 // Points that are not in spec v0.3 (to confirm in the review): STATUS[6] WAKE (the WAKE interrupt needs a flag to
 // clear), the 16-bit width of ADC_COUNT, SDO_NEG as one falling-edge flop, and the triggered-mode flags (see below).
 //
@@ -43,6 +47,15 @@
 //     level, or SW_TRIG). The buffer being written then is completed, gets its FULL flag, RUN is cleared and DONE is
 //     set when its last word is written. The other buffer also gets its FULL flag if it was completely written at
 //     least once, it holds the samples before the trigger.
+//   - triggered with POST > 0: the capture ends after POST samples from the trigger instead, anywhere in a buffer.
+//     The two buffers work as one ring and ADC_TPOS tells where the trigger is in it (the sample at ADC_TPOS was taken
+//     2 to 3 samples before the trigger: one frame of ADC latency and the pairing of samples). With POST = 112 and 128-sample
+//     buffers, the 16 samples before the trigger and the 112 after it are the last 128 samples of the ring, wherever
+//     the trigger came in the buffer cycle. Both buffers that hold samples get their FULL flag.
+//   - triggered with START: after the calibration frame the reader takes no samples (CS stays high, the ADC draws its
+//     static current only) until the trigger. The trigger starts the frames, the first result is discarded (it is the
+//     stale sample of the calibration frame), and the samples go from word 0 of buffer 0 on. The first stored sample
+//     is taken at the first CS fall, 3 clocks after the trigger reached the synchroniser output. POST sets the length.
 //   - two words wait in a staging FIFO for the manager port. A word that finds the FIFO full is dropped (OVERRUN).
 //   - SW_RST and EN = 0 stop the reader at once. Words already in the staging FIFO are still written.
 
@@ -78,7 +91,8 @@ module adc_rdr #(
 
   // ------------------------------------------------------------------------------------------------ registers
   localparam logic [5:0] RegCtrl = 6'd0, RegStatus = 6'd1, RegBuf0 = 6'd2, RegBuf1 = 6'd3, RegNsamp = 6'd4,
-                         RegIrqEn = 6'd5, RegLast = 6'd6, RegCount = 6'd7, RegPins = 6'd8;
+                         RegIrqEn = 6'd5, RegLast = 6'd6, RegCount = 6'd7, RegPins = 6'd8, RegTrig = 6'd9,
+                         RegTpos = 6'd10;
 
   logic        en_q, run_q, trig_mode_q, sdo_neg_q, trig_low_q, half_q;
   logic [3:0]  idle_q;
@@ -90,6 +104,10 @@ module adc_rdr #(
   logic [15:0] last_q, count_q;
   logic        wake_clr_q, cap_en_q;
   logic        active_buf_q, running;
+  logic [11:1] post_q;                // POST in words, 0..1024
+  logic        start_q;
+  logic [11:1] tpos_q;                // ADC_TPOS in words
+  logic        tpos_vld_q, trig_seen_q;
   logic        wake_s, big_s;         // synchronised pad inputs
 
   logic [31:0] wmask, wmerge;
@@ -109,6 +127,8 @@ module adc_rdr #(
       RegLast:   reg_rdata_o = {{16{last_q[15]}}, last_q};
       RegCount:  reg_rdata_o = {16'b0, count_q};
       RegPins:   reg_rdata_o = {22'b0, big_s, wake_s, 6'b0, cap_en_q, wake_clr_q};
+      RegTrig:   reg_rdata_o = {15'b0, start_q, 4'b0, post_q, 1'b0};
+      RegTpos:   reg_rdata_o = {15'b0, tpos_vld_q, 4'b0, tpos_q, 1'b0};
       default:   reg_rdata_o = '0;
     endcase
   end
@@ -165,7 +185,8 @@ module adc_rdr #(
   assign tick       = fr_active_q & (~fhalf_q | ph_q);
   assign c_end      = len_q + 7'(fidle_q) - 7'd1;
   assign period_end = tick & (c_q == c_end);
-  assign work       = cal_pend_q | recal_pend_q | run_q;
+  // START: no frames before the trigger of a triggered capture
+  assign work       = cal_pend_q | recal_pend_q | (run_q & ~(start_q & trig_mode_q & ~trig_seen_q));
   // a frame starts when the engine is idle, or at the end of a period, if there is work
   assign start_frame = en_q & work & (~fr_active_q | period_end);
   assign c_n        = start_frame ? 7'd0 : c_q + 7'd1;
@@ -262,8 +283,10 @@ module adc_rdr #(
   logic        half_have_q;
   logic [15:0] half_smp_q;
   logic [9:0]  widx_q;
-  logic        drop_buf_q, trig_seen_q, other_done_q;
-  logic        word_valid, word_last;
+  logic        drop_buf_q;
+  logic [1:0]  done_buf_q;            // buffer completely written at least once since RUN
+  logic [11:1] post_cnt_q;            // words stored since the trigger (POST > 0)
+  logic        word_valid, word_last, fin_now;
   stage_t      push_word;
   logic        st_full, st_empty, st_push, st_pop;
   logic        st_usage, if_usage;    // fill levels of the two FIFOs, not used (full and empty are)
@@ -273,10 +296,12 @@ module adc_rdr #(
 
   assign word_valid = smp_valid & half_have_q & run_q;
   assign word_last  = widx_q == (nsamp_q - 10'd1);
+  // last word of a triggered capture: the end of the trigger buffer, or POST samples after the trigger
+  assign fin_now    = trig_mode_q & trig_seen_q & ((post_q != '0) ? (post_cnt_q == post_q - 11'd1) : word_last);
   assign push_word  = '{
     last: word_last,
     sel:  active_buf_q,
-    fin:  word_last & trig_mode_q & trig_seen_q,
+    fin:  fin_now,
     addr: buf_q[active_buf_q] + 30'(widx_q),
     data: {smp, half_smp_q}
   };
@@ -286,15 +311,17 @@ module adc_rdr #(
   assign first_word = widx_q == '0;
   assign skip_word  = first_word ? (~trig_mode_q & full_q[active_buf_q]) : drop_buf_q;
   assign st_push    = word_valid & ~skip_word & ~st_full;
-  assign run_clear_hw = word_valid & word_last & trig_mode_q & trig_seen_q;
+  assign run_clear_hw = word_valid & fin_now;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       half_have_q <= 1'b0;  half_smp_q <= '0;  widx_q <= '0;  active_buf_q <= 1'b0;
-      drop_buf_q <= 1'b0;  trig_seen_q <= 1'b0;  other_done_q <= 1'b0;
+      drop_buf_q <= 1'b0;  trig_seen_q <= 1'b0;  done_buf_q <= '0;
+      post_cnt_q <= '0;  tpos_q <= '0;  tpos_vld_q <= 1'b0;
     end else if (sw_rst || run_start) begin
       half_have_q <= 1'b0;  widx_q <= '0;  active_buf_q <= 1'b0;
-      drop_buf_q <= 1'b0;  trig_seen_q <= 1'b0;  other_done_q <= 1'b0;
+      drop_buf_q <= 1'b0;  trig_seen_q <= 1'b0;  done_buf_q <= '0;
+      post_cnt_q <= '0;  tpos_vld_q <= 1'b0;
     end else begin
       if (smp_valid && run_q) begin
         half_have_q <= ~half_have_q;
@@ -304,10 +331,16 @@ module adc_rdr #(
       if (trig_mode_q && run_q && !trig_seen_q && (wake_evt || sw_trig)) trig_seen_q <= 1'b1;
       if (word_valid) begin
         if (first_word) drop_buf_q <= ~trig_mode_q & full_q[active_buf_q];
+        // the first word after the trigger: its place in the ring of the two buffers
+        if (trig_mode_q && trig_seen_q && !tpos_vld_q) begin
+          tpos_q     <= (active_buf_q ? 11'(nsamp_q) : 11'd0) + 11'(widx_q);
+          tpos_vld_q <= 1'b1;
+        end
+        if (trig_mode_q && trig_seen_q && post_cnt_q != '1) post_cnt_q <= post_cnt_q + 11'd1;
         if (word_last) begin
           widx_q       <= '0;
           active_buf_q <= ~active_buf_q;
-          if (trig_mode_q && !trig_seen_q) other_done_q <= 1'b1;
+          done_buf_q[active_buf_q] <= 1'b1;
         end else begin
           widx_q <= widx_q + 10'd1;
         end
@@ -380,7 +413,7 @@ module adc_rdr #(
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       en_q <= 1'b0;  run_q <= 1'b0;  trig_mode_q <= 1'b0;  idle_q <= 4'd3;  sdo_neg_q <= 1'b0;
-      trig_low_q <= 1'b1;  half_q <= 1'b0;
+      trig_low_q <= 1'b1;  half_q <= 1'b0;  post_q <= '0;  start_q <= 1'b0;
       full_q <= '0;  overrun_q <= 1'b0;  bus_err_q <= 1'b0;  done_q <= 1'b0;  wake_q <= 1'b0;
       buf_q[0] <= '0;  buf_q[1] <= '0;  nsamp_q <= 10'd64;  irq_en_q <= '0;
       last_q <= '0;  count_q <= '0;  wake_clr_q <= 1'b0;  cap_en_q <= 1'b1;  trig_lvl_q <= 1'b0;
@@ -413,7 +446,8 @@ module adc_rdr #(
       if (run_clear_hw && !st_push) done_q <= 1'b1;
       if (resp_fin) begin
         done_q <= 1'b1;
-        if (other_done_q) full_q[~resp_sel] <= 1'b1;
+        full_q[resp_sel] <= 1'b1;                    // also when POST ends the capture inside a buffer
+        if (done_buf_q[~resp_sel]) full_q[~resp_sel] <= 1'b1;
       end
       if (word_valid && ((first_word && ~trig_mode_q && full_q[active_buf_q]) || st_full)) overrun_q <= 1'b1;
       if (mgr_rsp_i.rvalid && mgr_rsp_i.r.err) bus_err_q <= 1'b1;
@@ -425,6 +459,10 @@ module adc_rdr #(
       if (reg_wr_i && reg_addr_i == RegNsamp)
         nsamp_q <= (nsamp_w < 16'd2) ? 10'd1 : ((nsamp_w > 16'd1024) ? 10'd512 : nsamp_w[10:1]);
       if (reg_wr_i && reg_addr_i == RegIrqEn) irq_en_q <= wmerge[3:0];
+      if (reg_wr_i && reg_addr_i == RegTrig) begin
+        post_q  <= (wmerge[11:1] > 11'd1024) ? 11'd1024 : wmerge[11:1];
+        start_q <= wmerge[16];
+      end
       if (reg_wr_i && reg_addr_i == RegPins) begin
         wake_clr_q <= wmerge[0];
         cap_en_q   <= wmerge[1];

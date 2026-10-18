@@ -49,13 +49,14 @@ fi
 
 # FLASH=<hex>: program in the QSPI flash model (boot from flash, no JTAG load). The hex comes from
 # objcopy -O verilog with addresses relative to 0x2000_0000 (sim/sw/flash/build.sh).
+# SIM_ARGS: more plusargs for the testbench, for example '+adc_tone=36 +rf_airtime_ns=61696000'.
 if [ -n "${FLASH:-}" ]; then
   echo "=> Running Simulation from the QSPI flash: $FLASH"
   cd "$ROOT/sim/build"
-  exec ./verilator/obj_dir/Vtb_croc_soc +flash="$FLASH"
+  exec ./verilator/obj_dir/Vtb_croc_soc +flash="$FLASH" ${SIM_ARGS:-}
 fi
 
 echo "=> Running Simulation with: $HEX"
 # Run from sim/build so the testbench's default '../sw/bin/...' path also resolves.
 cd "$ROOT/sim/build"
-./verilator/obj_dir/Vtb_croc_soc +binary="$HEX"
+./verilator/obj_dir/Vtb_croc_soc +binary="$HEX" ${SIM_ARGS:-}

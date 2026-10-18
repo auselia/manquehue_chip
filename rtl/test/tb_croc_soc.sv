@@ -142,12 +142,12 @@ module tb_croc_soc #(
     .adc_big_n_i    ( 1'b1        ),
     .adc_wake_clr_o (             ),
     .adc_cap_en_o   (             ),
-    .rf_sclk_o      (             ),
-    .rf_mosi_o      (             ),
-    .rf_miso_i      ( 1'b0        ),
-    .rf_csn_o       (             ),
-    .rf_dio0_i      ( 1'b0        ),
-    .rf_rstn_o      (             )
+    .rf_sclk_o      ( rf_sclk     ),
+    .rf_mosi_o      ( rf_mosi     ),
+    .rf_miso_i      ( rf_miso_in  ),
+    .rf_csn_o       ( rf_csn      ),
+    .rf_dio0_i      ( rf_dio0     ),
+    .rf_rstn_o      ( rf_rstn     )
   );
 
   // ADS7057 model on the ADC pins (sim/models/ads7057_model.v). The sample taken at CS fall k is
@@ -165,6 +165,25 @@ module tb_croc_soc #(
   );
   always @(negedge adc_csn) adc_falls++;
   always @(posedge adc_csn) if (adc_falls > 0) adc_ain = 14'((adc_falls * 1237 + 5000) % 16384);
+
+  // SX1276 model on the radio pins (sim/models/sx1276_model.v, SPI mode 0). MISO is high impedance while NSS is
+  // high and reads 0 then. The model has no reset input: rf_rstn is only printed.
+  wire  rf_sclk, rf_mosi, rf_miso, rf_csn, rf_dio0, rf_rstn;
+  logic rf_miso_in;
+  assign rf_miso_in = (rf_miso === 1'b1);
+  sx1276_model i_rf_model (
+    .nss_n ( rf_csn  ),
+    .sclk  ( rf_sclk ),
+    .mosi  ( rf_mosi ),
+    .miso  ( rf_miso ),
+    .dio0  ( rf_dio0 )
+  );
+  always @(posedge rf_rstn) $display("@%t | [RF] radio out of reset", $time);
+  always @(posedge rf_dio0) begin
+    $write("@%t | [RF] TX done, payload %0d bytes:", $time, i_rf_model.last_tx_len);
+    for (int k = 0; k < i_rf_model.last_tx_len && k < 32; k++) $write(" %02h", i_rf_model.last_tx[k]);
+    $display("");
+  end
 
   /////////////////
   //  Testbench  //

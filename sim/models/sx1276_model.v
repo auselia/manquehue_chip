@@ -3,7 +3,7 @@
 //
 //   - SPI mode 0 (CPOL 0, CPHA 0), MSB first. First byte = {W, address[6:0]}, W = 1 for write.
 //   - Following bytes are data. With NSS kept low the address increments (burst), except for address 0x00 (FIFO),
-//     which stays and moves the FIFO pointer instead.
+//     which stays and moves the FIFO pointer (RegFifoAddrPtr, 0x0D) by one per byte written or read instead.
 //   - RegVersion (0x42) reads 0x12. RegOpMode (0x01), frequency 0x06..0x08, PaConfig 0x09, FifoAddrPtr 0x0D,
 //     FifoTxBaseAddr 0x0E, FifoRxBaseAddr 0x0F, IrqFlags 0x12 (write 1 to clear), ModemConfig 0x1D/0x1E/0x26,
 //     PayloadLength 0x22, DioMapping1 0x40 are plain read/write registers, 0x13 RxNbBytes is read only.
@@ -86,6 +86,7 @@ module sx1276_model #(
       end else begin
         reads = reads + 1;
         if (addr[6:0] != 7'h00) addr = addr + 8'd1;
+        else regs[8'h0D] = regs[8'h0D] + 8'd1;      // FIFO read: the byte just sent moves FifoAddrPtr on
         tx_byte = reg_read(addr[6:0]);
       end
       bytecnt = bytecnt + 1;

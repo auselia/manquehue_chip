@@ -69,6 +69,8 @@ set ports_left {
     clk_i
     jtag_tdi_i
     gpio_i[0] gpio_o[0] gpio_out_en_o[0]
+    adc_sclk_o adc_csn_o adc_sdo_i adc_wake_n_i adc_big_n_i adc_wake_clr_o adc_cap_en_o
+    rf_sclk_o rf_mosi_o rf_miso_i rf_csn_o rf_dio0_i rf_rstn_o
 }
 
 create_pin_constraint -type individual -ports $ports_top -sides 2

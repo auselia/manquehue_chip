@@ -46,12 +46,20 @@ create_clock -name jtag_tck \
              -period $JTAG_TCK_PERIOD \
              [get_ports $JTAG_TCK_PORT]
 
+# SCLK of the ADS7057: the system clock through a clock gate and an inverter (adc_rdr, spec section 6) leaves
+# through adc_sclk_o. It idles high and falls at the rising edge of clk_i. The flow experiment
+# sim/experiments/fwd_clock showed that CTS handles a clock that ends at a port without special settings.
+create_generated_clock -name adc_sclk -source [get_ports $CLOCK_PORT_NAME] -divide_by 1 -invert \
+             [get_ports adc_sclk_o]
+
 ################################################################################
 # 3. Clock properties
 ################################################################################
 
 set_clock_uncertainty -mode func -setup $SETUP_UNCERT [get_clocks clock]
 set_clock_uncertainty -mode func -hold  $HOLD_UNCERT  [get_clocks clock]
+set_clock_uncertainty -mode func -setup $SETUP_UNCERT [get_clocks adc_sclk]
+set_clock_uncertainty -mode func -hold  $HOLD_UNCERT  [get_clocks adc_sclk]
 
 # TCK is slow and off-chip: loose, fixed margins.
 set_clock_uncertainty -mode func -setup 2.0 [get_clocks jtag_tck]
@@ -73,7 +81,8 @@ set_clock_transition $CLOCK_IDEAL_TRAN [get_clocks *]
 # reset controller in i_dmi_jtag/i_dmi_cdc).
 ################################################################################
 
-set GRP_SYS [get_clocks clock]
+# adc_sclk is derived from clk_i, so it is synchronous to it and in the same group.
+set GRP_SYS [get_clocks {clock adc_sclk}]
 
   set_clock_groups -asynchronous -name async_domains \
     -group $GRP_SYS \
@@ -140,15 +149,19 @@ set JTAG_OUT [get_ports {jtag_tdo_o}]
 #                                    from a 2-FF synchronizer, so constraining
 #                                    them costs nothing and keeps them visible.
 #   qspi_sd_i                     -> genuinely captured by a clk_i flop.
+# The ADS7057 interface is timed against adc_sclk (section 10), not clk_i.
+set ADC_IN  [get_ports {adc_sdo_i adc_wake_n_i adc_big_n_i}]
+set ADC_OUT [get_ports {adc_sclk_o adc_csn_o}]
+
 set FUNC_IN  [all_inputs]
-foreach coll [list $CLK_PORTS $ASYNC_PORTS $JTAG_IN] {
+foreach coll [list $CLK_PORTS $ASYNC_PORTS $JTAG_IN $ADC_IN] {
   if { [sizeof_collection $coll] > 0 } {
     set FUNC_IN [remove_from_collection $FUNC_IN $coll]
   }
 }
 
 set FUNC_OUT [all_outputs]
-foreach coll [list $JTAG_OUT] {
+foreach coll [list $JTAG_OUT $ADC_OUT] {
   if { [sizeof_collection $coll] > 0 } {
     set FUNC_OUT [remove_from_collection $FUNC_OUT $coll]
   }
@@ -162,6 +175,9 @@ foreach coll [list $JTAG_OUT] {
 set_false_path -from [get_ports rst_ni]
 set_false_path -from [get_ports jtag_trst_ni]
 set_false_path -from [get_ports fetch_en_i]
+
+# WAKE_N and BIG_N of the AFE board land in 2-FF synchronizers (adc_rdr).
+set_false_path -from [get_ports {adc_wake_n_i adc_big_n_i}]
 
 # This only cuts the PORT-to-first-flop asynchronous path. The recovery/removal
 # checks from i_rstgen's synchronizer output to every flop's async reset pin are
@@ -190,6 +206,26 @@ set_input_delay -mode func -clock jtag_tck $JTAG_IO_DELAY $JTAG_IN
 # against the rising edge -- which the old all_outputs sweep effectively did,
 # against the wrong clock entirely -- is simply wrong.
 set_output_delay -mode func -clock jtag_tck -clock_fall $JTAG_IO_DELAY $JTAG_OUT
+
+################################################################################
+# 10. ADS7057 interface -- constrained against adc_sclk
+#
+# Datasheet SBAS821 tables 6.5 to 6.7 and the off-chip budget of the flow
+# experiment (sim/experiments/fwd_clock/constraints.sdc): pad out 7 to 12 ns on
+# every output, so 5 ns of spread between the CS pad and the SCLK pad, pad in
+# 3 ns, level translator 5 ns, trace 1 ns.
+################################################################################
+
+set ADC_PAD_SPREAD 5.0
+# CS low at least 7 ns before the first SCLK falling edge (tsu_CSCK) and high at least 8 ns after the last
+# SCLK rising edge (tht_CKCS).
+set_output_delay -mode func -clock adc_sclk -clock_fall -max [expr {7.0 + $ADC_PAD_SPREAD}] [get_ports adc_csn_o]
+set_output_delay -mode func -clock adc_sclk             -min -8.0 -add_delay           [get_ports adc_csn_o]
+# SDO is launched by the SCLK rising edge: valid 10 ns max after it, held 2.5 ns min, plus pad, translator and
+# trace. It is captured by clk_i half a clock later (or a full clock later with SDO_NEG, which is not timed
+# here: the default capture is the critical one).
+set_input_delay  -mode func -clock adc_sclk -max [expr {10.0 + 3.0 + 5.0 + 1.0}]     [get_ports adc_sdo_i]
+set_input_delay  -mode func -clock adc_sclk -min [expr {2.5 + 1.0 + 3.0}] -add_delay [get_ports adc_sdo_i]
 
 
 ################################################################################

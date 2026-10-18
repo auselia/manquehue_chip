@@ -27,7 +27,11 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   output logic [3:0] qspi_sd_o,
   input  logic [3:0] qspi_sd_i,
   output logic [3:0] qspi_sd_en_o,
-  output logic [2:0] qspi_csn_o
+  output logic [2:0] qspi_csn_o,
+
+  // pads of the SPI block (ADS7057 ADC, SX1276 radio)
+  output obi_spi_pkg::spi_pads_out_t spi_pads_o,
+  input  obi_spi_pkg::spi_pads_in_t  spi_pads_i
 );
 
   // [0] radio master, [1] ADC reader (SPI block), [2] FFT (later), [3] reserved
@@ -165,12 +169,7 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
     .spi_csn_o    ( qspi_csn_o    )
   );
 
-  // SPI block. The pads are not yet ports of croc_soc (integration step, AUS-18): the inputs are tied to
-  // their inactive levels and the outputs are left open.
-  obi_spi_pkg::spi_pads_out_t spi_pads_out;
-  obi_spi_pkg::spi_pads_in_t  spi_pads_in;
-  assign spi_pads_in = obi_spi_pkg::PadsInIdle;
-
+  // SPI block
   obi_spi #(
     .SbrObiCfg ( SbrObiCfg     ),
     .sbr_req_t ( sbr_obi_req_t ),
@@ -186,8 +185,8 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
     .obi_mgr_req_o ( user_mgr_req[UserMgrSpi] ),
     .obi_mgr_rsp_i ( user_mgr_rsp[UserMgrSpi] ),
     .irq_o         ( spi_irq                  ),
-    .pads_o        ( spi_pads_out             ),
-    .pads_i        ( spi_pads_in              )
+    .pads_o        ( spi_pads_o               ),
+    .pads_i        ( spi_pads_i               )
   );
 
   // UserDesign placeholder.

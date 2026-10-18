@@ -175,7 +175,6 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
     .SbrObiCfg ( SbrObiCfg     ),
     .sbr_req_t ( sbr_obi_req_t ),
     .sbr_rsp_t ( sbr_obi_rsp_t ),
-    .MgrObiCfg ( MgrObiCfg     ),
     .mgr_req_t ( mgr_obi_req_t ),
     .mgr_rsp_t ( mgr_obi_rsp_t )
   ) i_obi_spi (

@@ -3,20 +3,15 @@
 //
 // OBI SPI block: radio SPI master (SX1276) at 0x000..0x0FF and ADS7057 reader at 0x100..0x1FF of a 4 KB window,
 // spec docs/spi_adc_spec.md.
-// Skeleton: the bus front end, the manager port, the interrupts and the pads are in place. The two sub-blocks
-// (rf_spi, adc_rdr) are not yet. Until then every register reads 0, writes have no effect, the pads stay at
-// obi_spi_pkg::PadsOutIdle and the manager port makes no request.
+// The ADC reader (adc_rdr) is in. The radio master (rf_spi) is not yet: its registers read 0, writes have no effect
+// and its pads stay at their obi_spi_pkg::PadsOutIdle levels.
 
 module obi_spi import obi_spi_pkg::*; #(
   /// OBI configuration of the subordinate port (SbrObiCfg)
   parameter obi_pkg::obi_cfg_t SbrObiCfg = obi_pkg::ObiDefaultConfig,
   parameter type               sbr_req_t = logic,
   parameter type               sbr_rsp_t = logic,
-  /// OBI configuration of the manager port (MgrObiCfg), the ADC reader writes the samples to SRAM through it.
-  /// Not used before the ADC reader is in (the waiver goes with it).
-  /* verilator lint_off UNUSEDPARAM */
-  parameter obi_pkg::obi_cfg_t MgrObiCfg = obi_pkg::ObiDefaultConfig,
-  /* verilator lint_on UNUSEDPARAM */
+  /// OBI types of the manager port (mgr_obi_req_t, mgr_obi_rsp_t), the ADC reader writes the samples to SRAM through it
   parameter type               mgr_req_t = logic,
   parameter type               mgr_rsp_t = logic
 ) (
@@ -64,17 +59,45 @@ module obi_spi import obi_spi_pkg::*; #(
   assign sel_rf  = addr[AddrBits-1:6] == RfBase[WindowBits-1:8];
   assign sel_adc = addr[AddrBits-1:6] == AdcBase[WindowBits-1:8];
 
-  // Placeholders for rf_spi and adc_rdr
   logic [SbrObiCfg.DataWidth-1:0] rf_rdata, adc_rdata;
-  assign rf_rdata  = '0;
-  assign adc_rdata = '0;
-  assign rdata     = sel_adc ? adc_rdata : (sel_rf ? rf_rdata : '0);
+  logic                           adc_irq;
+  assign rdata = sel_adc ? adc_rdata : (sel_rf ? rf_rdata : '0);
 
-  assign obi_mgr_req_o = '0;
-  assign irq_o         = '0;
-  assign pads_o        = PadsOutIdle;
+  // ---------------------------------------------------------------- ADC reader
+  adc_rdr #(
+    .mgr_req_t ( mgr_req_t ),
+    .mgr_rsp_t ( mgr_rsp_t )
+  ) i_adc_rdr (
+    .clk_i,
+    .rst_ni,
+    .testmode_i,
+    .reg_addr_i  ( addr[5:0]           ),
+    .reg_wr_i    ( wr_valid & sel_adc  ),
+    .reg_wdata_i ( wdata               ),
+    .reg_be_i    ( be                  ),
+    .reg_rdata_o ( adc_rdata           ),
+    .mgr_req_o   ( obi_mgr_req_o       ),
+    .mgr_rsp_i   ( obi_mgr_rsp_i       ),
+    .irq_o       ( adc_irq             ),
+    .sclk_o      ( pads_o.adc_sclk     ),
+    .csn_o       ( pads_o.adc_csn      ),
+    .sdo_i       ( pads_i.adc_sdo      ),
+    .wake_n_i    ( pads_i.adc_wake_n   ),
+    .big_n_i     ( pads_i.adc_big_n    ),
+    .wake_clr_o  ( pads_o.adc_wake_clr ),
+    .cap_en_o    ( pads_o.adc_cap_en   )
+  );
 
-  // Not used until the sub-blocks are in. Remove with the first sub-block.
+  // ---------------------------------------------------------------- radio master (placeholder)
+  assign rf_rdata       = '0;
+  assign pads_o.rf_sclk = PadsOutIdle.rf_sclk;
+  assign pads_o.rf_mosi = PadsOutIdle.rf_mosi;
+  assign pads_o.rf_csn  = PadsOutIdle.rf_csn;
+  assign pads_o.rf_rstn = PadsOutIdle.rf_rstn;
+
+  assign irq_o = {adc_irq, 1'b0};
+
+  // Not used until the radio master is in. Remove with it.
   logic unused;
-  assign unused = ^{testmode_i, wr_valid, rd_valid, wdata, be, addr[5:0], obi_mgr_rsp_i, pads_i};
+  assign unused = ^{rd_valid, pads_i.rf_miso, pads_i.rf_dio0};
 endmodule

@@ -10,6 +10,10 @@
 source [file dirname [info script]]/common/open_lib.tcl
 open_block route
 
+# Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.
+source [file dirname [info script]]/common/drc_eco.tcl
+drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
+
 ###################################
 # FILLER Cell Insertion
 ###################################
@@ -35,6 +39,30 @@ foreach_in_collection tap [get_cells -physical_context -filter "ref_name =~ *fil
 }
 puts "INFO: removing [llength $orphan_taps] taps with no device within $TAP_DEVICE_DISTANCE um"
 if {[llength $orphan_taps] > 0} { remove_cells [add_to_collection {} $orphan_taps] }
+
+# DF.13 / DF.14 at the row ends: the endcaps carry an N-well tap and a substrate tap, and they cannot be removed.
+# Where an endcap has no device within 15 um (empty rows, for example the channel between the SRAM banks), decap
+# fillers go around it at full utilization: their MOS devices are within reach of the endcap's taps.
+set ENDCAP_DCAP_REACH 10.0
+set lonely_endcaps 0
+foreach_in_collection ec [get_cells -physical_context -filter "ref_name =~ *endcap*"] {
+  # Same row only: the N-well and the substrate strip of a tap run along its row, and DF.13_5V / DF.14_5V look for
+  # a device of the same well. The 1 um inset skips the 0.86 um bbox overlap with the rows above and below.
+  set bbox [get_attribute $ec bbox]
+  set area [list [list [expr {[lindex $bbox 0 0] - $TAP_DEVICE_DISTANCE}] [expr {[lindex $bbox 0 1] + 1.0}]] \
+                 [list [expr {[lindex $bbox 1 0] + $TAP_DEVICE_DISTANCE}] [expr {[lindex $bbox 1 1] - 1.0}]]]
+  set nearby [get_objects_by_location -classes cell -intersect $area -quiet]
+  if {[sizeof_collection $nearby] > 0} {
+    set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_*"]
+  }
+  if {[sizeof_collection $nearby] > 0} { continue }
+  incr lonely_endcaps
+  set reach [list [list [expr {[lindex $bbox 0 0] - $ENDCAP_DCAP_REACH}] [lindex $bbox 0 1]] \
+                  [list [expr {[lindex $bbox 1 0] + $ENDCAP_DCAP_REACH}] [lindex $bbox 1 1]]]
+  create_stdcell_fillers -lib_cells $DCAP_CELLS -bboxes $reach -prefix endcap_dcap
+}
+puts "INFO: decap fillers next to $lonely_endcaps endcap(s) with no device within $TAP_DEVICE_DISTANCE um"
+connect_pg_net -automatic
 
 remove_stdcell_fillers_with_violation
 create_stdcell_fillers -lib_cells $FILL_CELLS

@@ -65,3 +65,66 @@ proc drc_eco_reroute {run_dir} {
   }
   puts "WARNING: DRC ECO: violations remain after $DRC_ECO_MAX_PASSES pass(es), see $eco_dir"
 }
+
+###############################################################################
+# Placement ECO for base-layer rules that come from two cells in neighbouring rows, for example DF.6_5V:
+# the poly of a gate in one row ends 0.395 um from the COMP of a cell in the row above, which the deck reads as a
+# COMP extension below 0.4 um. Neither cell is wrong alone, only the pair at that x offset. This runs the COMP deck
+# of the wafer.space KLayout rules, moves the smaller logic cell under each marker by two sites, legalizes and
+# repairs the routes, and checks again. Sourced from 06_finish.tcl before the fillers are inserted.
+###############################################################################
+
+proc drc_eco_move_cells {eco_dir rules} {
+  global TOP_MODULE PDK_DIR ICC2GDS_LAYERMAP KLAYOUT_BIN DRC_DECK DRC_ECO_MAX_PASSES DRC_ECO_HELPER
+
+  file mkdir $eco_dir
+  set gds_list [glob ${PDK_DIR}/gds/*.gds]
+  set site_w [get_attribute [index_collection [get_site_defs] 0] width]
+
+  for {set pass 1} {$pass <= $DRC_ECO_MAX_PASSES} {incr pass} {
+    set gds   [file join $eco_dir place_pass${pass}.gds]
+    set lyrdb [file join $eco_dir place_pass${pass}.lyrdb]
+    write_gds -units 1000 -merge_files $gds_list -merge_gds_top_cell $TOP_MODULE \
+        -layer_map ${ICC2GDS_LAYERMAP} -long_names $gds
+    catch {exec $KLAYOUT_BIN -b -r $DRC_DECK -rd input=$gds -rd report=$lyrdb -rd variant=D \
+        -rd run_mode=deep -rd decks=comp > [file join $eco_dir place_pass${pass}.log] 2>@1}
+    file delete $gds
+
+    set markers [list]
+    foreach m [split [string trim [exec python3 $DRC_ECO_HELPER $lyrdb $TOP_MODULE]] "\n"] {
+      if {$m eq ""} { continue }
+      set rule [lindex $m 4]
+      foreach r $rules { if {[string match $r $rule]} { lappend markers $m; break } }
+    }
+    if {[llength $markers] == 0} {
+      puts "INFO: placement DRC ECO pass $pass: no $rules violations"
+      return
+    }
+
+    set moved [list]
+    foreach m $markers {
+      lassign $m x0 y0 x1 y1 rule
+      set d 0.1
+      set area [list [list [expr {$x0 - $d}] [expr {$y0 - $d}]] [list [expr {$x1 + $d}] [expr {$y1 + $d}]]]
+      set cells [get_cells -hierarchical -intersect $area -quiet \
+          -filter "is_hard_macro == false && ref_name !~ *fill* && ref_name !~ *endcap*"]
+      if {[sizeof_collection $cells] == 0} {
+        puts "WARNING: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} has no logic cell under it"
+        continue
+      }
+      set c [index_collection [sort_collection $cells area] 0]
+      set name [get_object_name $c]
+      if {$name in $moved} { continue }
+      puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1}, moving $name ([get_attribute $c ref_name]) by 2 sites"
+      move_objects -delta [list [expr {2 * $site_w}] 0] $c
+      lappend moved $name
+    }
+    if {[llength $moved] == 0} {
+      puts "WARNING: placement DRC ECO pass $pass: [llength $markers] violation(s), no cell to move, stopping"
+      return
+    }
+    legalize_placement -cells [get_cells $moved]
+    route_eco
+  }
+  puts "WARNING: placement DRC ECO: violations remain after $DRC_ECO_MAX_PASSES pass(es), see $eco_dir"
+}

@@ -23,7 +23,7 @@ remove_modes -all
 # also makes the SRAM macro's characterization (gf180mcu_fd_ip_sram__
 # sram512x8m8wm1__tt_025C_5v00, the only voltage this PDK kit ships for it)
 # finally match the rest of the design instead of being the one 5V outlier
-# on an otherwise 3.3V rail -- see scripts/pt/sta_corner.tcl and the
+# on an otherwise 3.3V rail -- see scripts/signoff/sta/sta_corner.tcl and the
 # Makefile's PT_SRAM_LIB comment for that history.
 create_corner slow
 set_process_label ss

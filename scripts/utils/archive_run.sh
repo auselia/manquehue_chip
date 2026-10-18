@@ -3,7 +3,7 @@
 # files (SVF) of the build into the run folder outputs/latest/, so the run is self-contained.
 #   finish     -> outputs/latest/logs/<step>.log of the six netlist-changing steps + outputs/latest/svf/default-*.svf
 #   pt_export  -> outputs/latest/logs/pt_export.log only (the other logs stay those of the finish step)
-# The modification times are kept (cp -p): scripts/fm/run_lec.sh matches every SVF to its step log by that time.
+# The modification times are kept (cp -p): scripts/signoff/lec/run_lec.sh matches every SVF to its step log by that time.
 step=$1
 case "$step" in finish|pt_export) ;; *) exit 0 ;; esac
 latest=../outputs/latest

@@ -8,7 +8,7 @@
 # 2. inputs for TestMAX ATPG from the run netlist (prepare_inputs.sh, fix_inputs.py)
 # 3. ATPG (tmax -shell -tcl atpg.tcl): chain trace, coverage, patterns
 # 4. replay of NPAT patterns on the netlist (sim_patterns.sh, Icarus), 0 mismatches required
-# 5. March C- of the SRAM through JTAG (scripts/gls/run_sram_march.sh), fault-free case must pass
+# 5. March C- of the SRAM through JTAG (scripts/sim/run_sram_march.sh), fault-free case must pass
 set -e
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/../utils/env.sh"
@@ -49,7 +49,7 @@ if [ -n "$PAT" ]; then
 fi
 
 # 5. SRAM March test
-if "$REPO/scripts/gls/run_sram_march.sh" "$RUN/croc_soc.v" "$O/march" > "$O/march.log" 2>&1; then :; fi
+if "$REPO/scripts/sim/run_sram_march.sh" "$RUN/croc_soc.v" "$O/march" > "$O/march.log" 2>&1; then :; fi
 M=$(grep -h "MARCH PASS" "$O/march/run_good.log" 2>/dev/null | head -1)
 D=$(grep -l "MARCH FAIL" "$O"/march/run_saf0.log "$O"/march/run_saf1.log "$O"/march/run_cfin.log "$O"/march/run_af.log 2>/dev/null | wc -l)
 summary march_good "${M:-FAIL or not run}"; summary march_injected_faults_detected "$D of 4"

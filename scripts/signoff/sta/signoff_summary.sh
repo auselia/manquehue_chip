@@ -1,7 +1,7 @@
 #!/bin/bash
 # Summary of the functional signoff STA (make sta-pt) and of the Formality result of a run.
-# usage: scripts/pt/signoff_summary.sh      (env: RUN)
-. "$(dirname "${BASH_SOURCE[0]}")/../utils/env.sh"
+# usage: scripts/signoff/sta/signoff_summary.sh      (env: RUN)
+. "$(dirname "${BASH_SOURCE[0]}")/../../utils/env.sh"
 step_begin signoff
 q() { # file kind (max_delay/setup or min_delay/hold) -> slack of path group 'clock'
   grep -A6 "Timing Path Group 'clock' ($2)" "$1" 2>/dev/null | awk '/Critical Path Slack/{print $4; exit}'; }

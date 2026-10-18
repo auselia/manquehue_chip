@@ -12,7 +12,8 @@
 # (post stdcell-filler insertion, post final route_detail, post
 # change_names -- i.e. exactly what 06_finish.tcl exports to GDS/Verilog) and
 # writes the artifacts PT/PP need on top of that same GDS/Verilog:
-#   <run>/<TOP>.sdc              -- mode `func` constraints, propagated clocks
+#   <run>/<TOP>.sdc              -- mode `func` constraints, propagated clocks (implementation period)
+#   <run>/<TOP>_55ns.sdc         -- the same at the sign-off period SPEC_PERIOD (only the clock period differs)
 #   <run>/<TOP>.typ_125.spef     -- parasitics for the `slow`    scenario (125C)
 #   <run>/<TOP>.typ_25.spef      -- parasitics for the `typical` scenario ( 25C)
 #   <run>/<TOP>.typ_-40.spef     -- parasitics for the `fast`    scenario (-40C)
@@ -121,6 +122,25 @@ proc write_pt_sdc { sdc_out } {
 }
 
 write_pt_sdc $SDC_OUT
+
+# Sign-off constraints: the netlist is implemented at CLOCK_PERIOD and signed off at SPEC_PERIOD (setup.tcl, AUS-9).
+# Only the period and the 50 % waveform of `clock` change. The input and output delays keep the values they have
+# at the implementation period. PrimeTime setup (make sta-pt) and the timing models read this file.
+set SPEC_STR [format %g $SPEC_PERIOD]
+set SPEC_SDC [file join $RUN_DIR "${TOP_MODULE}_${SPEC_STR}ns.sdc"]
+set SDC_FH [open $SDC_OUT r]
+set SDC_TEXT [read $SDC_FH]
+close $SDC_FH
+set N_CLK [regsub {create_clock -name clock -period [0-9.]+ -waveform \{0 [0-9.]+\}} $SDC_TEXT \
+  "create_clock -name clock -period $SPEC_STR -waveform {0 [format %g [expr {$SPEC_PERIOD / 2.0}]]}" SDC_SPEC_TEXT]
+if { $N_CLK != 1 } {
+  puts "ERROR: expected one 'create_clock -name clock' line in $SDC_OUT, found $N_CLK."
+  exit 1
+}
+set SDC_FH [open $SPEC_SDC w]
+puts -nonewline $SDC_FH $SDC_SPEC_TEXT
+close $SDC_FH
+puts "INFO: sign-off SDC at $SPEC_STR ns -> $SPEC_SDC"
 
 # Scan-shift constraints (mode `scan`: scan_se_i = testmode_i = 1, shift waveforms), written the same
 # way for the scan-mode PrimeTime check. The functional sign-off keeps using ${TOP_MODULE}.sdc.

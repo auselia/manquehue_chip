@@ -1,8 +1,8 @@
 ###############################################################################
-# scripts/pt/power_corner.tcl -- PrimePower analysis for ONE MCMM corner
+# scripts/signoff/power/power_corner.tcl -- PrimePower analysis for ONE MCMM corner
 #
 # Same link/read_verilog/link_design/read_sdc/read_parasitics setup as
-# scripts/pt/sta_corner.tcl (see that file's header for why 3 separate
+# scripts/signoff/sta/sta_corner.tcl (see that file's header for why 3 separate
 # classic pwr_shell sessions instead of -multi_scenario), then adds
 # switching-activity setup and power reporting on top.
 #

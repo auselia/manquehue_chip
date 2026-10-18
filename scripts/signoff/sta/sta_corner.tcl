@@ -1,5 +1,5 @@
 ###############################################################################
-# scripts/pt/sta_corner.tcl -- PrimeTime signoff STA for ONE MCMM corner
+# scripts/signoff/sta/sta_corner.tcl -- PrimeTime signoff STA for ONE MCMM corner
 #
 # Runs a single, classic (non -multi_scenario) pt_shell session against one
 # PVT corner: read netlist, link the corner's own liberty views, read the

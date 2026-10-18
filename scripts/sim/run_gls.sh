@@ -98,6 +98,7 @@ $REPO/rtl/clint/clint_reg_pkg.sv
 $REPO/rtl/obi_timer/obi_timer_reg_pkg.sv
 $W/tb/tb_croc_pkg.sv
 $W/tb/croc_vip.sv
+$REPO/sim/models/ads7057_model.v
 $W/tb/tb_croc_soc.sv
 $V/primitives.v
 $W/cells.v

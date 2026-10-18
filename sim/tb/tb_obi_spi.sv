@@ -7,6 +7,8 @@
 //
 // The ADC model input changes at every CS rise: the sample taken at CS fall number k is code_of(k), a bijection of k,
 // so every sample found in the SRAM tells which CS fall it was taken at.
+// Radio: the SX1276 model speaks SPI mode 0. Modes 1 to 3 are checked at the pins: a monitor decodes MOSI at the
+// sampling edges of the mode, and with rf_loop MISO is MOSI, so a master that samples at the wrong edge reads wrong.
 // Run: scripts/sim/run_obi_spi_tb.sh
 
 `timescale 1ns/1ps
@@ -24,6 +26,13 @@ module tb_obi_spi;
   localparam logic [11:0] AdcCtrl = 12'h100, AdcStatus = 12'h104, AdcBuf0 = 12'h108, AdcBuf1 = 12'h10C,
                           AdcNsamp = 12'h110, AdcIrqEn = 12'h114, AdcLast = 12'h118, AdcCount = 12'h11C,
                           AdcPins = 12'h120;
+  // radio register byte offsets in the window
+  localparam logic [11:0] RfCtrl = 12'h000, RfStatus = 12'h004, RfCmd = 12'h008, RfData = 12'h00C, RfIrqEn = 12'h010,
+                          RfIrqSt = 12'h014, RfPins = 12'h018, RfErr = 12'h01C;
+  // RF_CTRL fields
+  function automatic logic [31:0] rf_ctrl(bit en, bit cpol, bit cpha, int clkdiv, int cs_setup);
+    return {12'b0, 4'(cs_setup), 8'(clkdiv), 4'b0, cpha, cpol, 1'b0, en};
+  endfunction
   // ADC_CTRL fields
   localparam logic [31:0] En = 32'h1, Run = 32'h2, Trig = 32'h4, SwTrig = 32'h8, Cal = 32'h10, SwRst = 32'h20,
                           SdoNeg = 32'h1000, TrigLow = 32'h4000, Half = 32'h8000;
@@ -93,12 +102,13 @@ module tb_obi_spi;
   );
 
   logic wake_n = 1'b1, big_n = 1'b1;
+  logic rf_loop = 1'b0;                              // MISO = MOSI instead of the radio model
   always_comb begin
     pads_in            = PadsInIdle;
     pads_in.adc_sdo    = use_slow ? (adc_sdo_slow === 1'b1) : (adc_sdo === 1'b1);
     pads_in.adc_wake_n = wake_n;
     pads_in.adc_big_n  = big_n;
-    pads_in.rf_miso    = (rf_miso === 1'b1);
+    pads_in.rf_miso    = rf_loop ? pads_out.rf_mosi : (rf_miso === 1'b1);
     pads_in.rf_dio0    = (rf_dio0 === 1'b1);
   end
 
@@ -117,6 +127,35 @@ module tb_obi_spi;
   always @(posedge pads_out.adc_csn) if (n_cs_fall > 0) begin
     ain_code    = code_of(n_cs_fall);
     cs_low_time = $realtime - t_cs_fall;
+  end
+
+  // ------------------------------------------------------------------ radio pin monitor
+  // SCLK edges while CS is low, MOSI decoded at the sampling edges of the mode under test, CS to SCLK times.
+  bit          mon_cpol = 1'b0, mon_cpha = 1'b0;
+  int unsigned rf_edges = 0, rf_bits = 0, rf_mosi_at_sample = 0;
+  logic [7:0]  rf_shift = '0;
+  logic [7:0]  rf_seen [$];
+  realtime     t_rf_csn_fall = 0, t_rf_first_edge = 0, t_rf_last_edge = 0, t_rf_csn_rise = 0, t_rf_mosi = 0;
+  realtime     t_rf_edge_prev = 0, rf_half_min = 1e9;
+  always @(pads_out.rf_mosi) t_rf_mosi = $realtime;
+  always @(negedge pads_out.rf_csn) begin
+    t_rf_csn_fall = $realtime; rf_edges = 0; rf_bits = 0;
+  end
+  always @(posedge pads_out.rf_csn) t_rf_csn_rise = $realtime;
+  always @(pads_out.rf_sclk) if (!pads_out.rf_csn) begin
+    bit leading;
+    leading = (pads_out.rf_sclk != mon_cpol);        // the first edge of a bit leaves the idle level
+    if (rf_edges == 0) t_rf_first_edge = $realtime;
+    if (rf_edges > 0 && $realtime - t_rf_edge_prev < rf_half_min) rf_half_min = $realtime - t_rf_edge_prev;
+    t_rf_edge_prev = $realtime;
+    t_rf_last_edge = $realtime;
+    rf_edges++;
+    if (leading == !mon_cpha) begin                  // sampling edge: MOSI must not change here
+      if (t_rf_mosi == $realtime) rf_mosi_at_sample++;
+      rf_shift = {rf_shift[6:0], pads_out.rf_mosi};
+      rf_bits++;
+      if (rf_bits % 8 == 0) rf_seen.push_back(rf_shift);
+    end
   end
 
   // ------------------------------------------------------------------ manager port: SRAM-like responder
@@ -274,6 +313,43 @@ module tb_obi_spi;
     check(i_adc.short_frame_count == 0, $sformatf("%s: short frames %0d", what, i_adc.short_frame_count));
   endtask
 
+  // One SPI transfer through RF_DATA and RF_CMD: the first 8 bytes are pushed before the start, the rest while the
+  // transfer runs (the master waits on an empty TX FIFO), the received bytes are popped as they come.
+  task automatic rf_xfer(input logic [7:0] tx [], output logic [7:0] rx [], input bit keep_cs);
+    int n, pushed, got, guard;
+    logic [31:0] st, d;
+    n = tx.size();
+    rx = new[n];
+    pushed = 0; got = 0; guard = 0;
+    while (pushed < n && pushed < 8) begin wr(RfData, 4'b0001, 32'(tx[pushed])); pushed++; end
+    wr32(RfCmd, 32'(n) | (keep_cs ? 32'h1000 : 32'h0));
+    while (got < n && guard < 100000) begin
+      rd32(RfStatus, st);
+      for (int k = int'(st[15:8]); k < 8 && pushed < n; k++) begin wr(RfData, 4'b0001, 32'(tx[pushed])); pushed++; end
+      for (int k = 0; k < int'(st[23:16]) && got < n; k++) begin rd32(RfData, d); rx[got] = d[7:0]; got++; end
+      guard++;
+    end
+    check(got == n, $sformatf("rf_xfer: %0d of %0d bytes received", got, n));
+    guard = 0;
+    do begin rd32(RfStatus, st); guard++; end while (st[0] && guard < 1000);
+    check(!st[0], "rf_xfer: still busy after the last byte");
+  endtask
+
+  // register access of the radio model: one read, or a burst write
+  task automatic sx_read(input logic [6:0] a, output logic [7:0] v);
+    logic [7:0] tx [], rx [];
+    tx = new[2]; tx[0] = {1'b0, a}; tx[1] = 8'h00;
+    rf_xfer(tx, rx, 1'b0);
+    v = rx[1];
+  endtask
+  task automatic sx_write(input logic [6:0] a, input logic [7:0] data []);
+    logic [7:0] tx [], rx [];
+    tx = new[data.size() + 1];
+    tx[0] = {1'b1, a};
+    foreach (data[i]) tx[i + 1] = data[i];
+    rf_xfer(tx, rx, 1'b0);
+  endtask
+
   // ------------------------------------------------------------------ test sequence
   localparam logic [3:0]  Bes      [7] = '{4'b0001, 4'b0010, 4'b0100, 4'b1000, 4'b0011, 4'b1100, 4'b1111};
   localparam logic [11:0] Unmapped [4] = '{12'h200, 12'h204, 12'h7FC, 12'hFFC};
@@ -292,9 +368,14 @@ module tb_obi_spi;
     // ---------------- 1. bus front end and reset values
     check(pads_out == PadsOutIdle, $sformatf("pads after reset %b, expected %b", pads_out, PadsOutIdle));
     check(irq == '0, "interrupts after reset");
-    for (int off = 0; off < 'h100; off += 4) begin
+    expect32(RfCtrl,   '1, rf_ctrl(0, 0, 0, 24, 1), "RF_CTRL reset (CLKDIV 24, CS_SETUP 1)");
+    expect32(RfStatus, '1, 32'h0000_000A, "RF_STATUS reset (TX_EMPTY, RX_EMPTY)");
+    expect32(RfIrqSt,  '1, 32'h0000_0002, "RF_IRQ_STATUS reset (TX_EMPTY level)");
+    expect32(RfPins,   '1, 32'h0, "RF_PINS reset (RSTN 0, DIO0 low)");
+    expect32(RfErr,    '1, 32'h0, "RF_ERR reset");
+    for (int off = 'h020; off < 'h100; off += 4) begin
       rd32(12'(off), data);
-      check(data == '0, $sformatf("radio block read 0x%03h: 0x%08h", off, data));
+      check(data == '0, $sformatf("radio block unused word 0x%03h: 0x%08h", off, data));
     end
     expect32(AdcCtrl,   '1, TrigLow | idle_f(3), "ADC_CTRL reset");
     expect32(AdcStatus, '1, 32'h0, "ADC_STATUS reset");
@@ -540,8 +621,162 @@ module tb_obi_spi;
     testmode = 1'b0;
     adc_reset();
 
-    // ---------------- 12. the radio pads did not move
+    // ---------------- 12. the radio pads did not move during the ADC tests
     check(pads_out.rf_csn == 1'b1 && pads_out.rf_sclk == 1'b0 && pads_out.rf_rstn == 1'b0, "radio pads idle");
+
+    // ---------------- 13. radio: reset pin, RegVersion at CLKDIV 24 and 0, CS timing, SCLK rate
+    wr32(RfPins, 32'h1);
+    check(pads_out.rf_rstn == 1'b1, "RF_PINS drives RSTN");
+    for (int div = 24; div >= 0; div -= 24) begin
+      logic [7:0] v;
+      wr32(RfCtrl, rf_ctrl(1, 0, 0, div, 1));
+      rf_seen.delete();
+      sx_read(7'h42, v);
+      check(v == 8'h12, $sformatf("RegVersion at CLKDIV %0d: 0x%02h", div, v));
+      check(rf_seen.size() == 2 && rf_seen[0] == 8'h42, $sformatf("MOSI at CLKDIV %0d: %0d bytes, first 0x%02h",
+            div, rf_seen.size(), rf_seen.size() ? rf_seen[0] : 8'h00));
+      check(rf_edges == 32, $sformatf("SCLK edges of a 2-byte transfer: %0d", rf_edges));
+      check(rf_half_min >= (div + 1) * ClkPeriod - 0.1, $sformatf("SCLK half period at CLKDIV %0d: %0t", div, rf_half_min));
+      check(t_rf_first_edge - t_rf_csn_fall >= ClkPeriod * (div + 1) - 0.1,
+            $sformatf("CS fall to the first SCLK edge at CLKDIV %0d: %0t", div, t_rf_first_edge - t_rf_csn_fall));
+      check(t_rf_csn_rise - t_rf_last_edge >= ClkPeriod * (div + 1) - 0.1,
+            $sformatf("last SCLK edge to CS rise at CLKDIV %0d: %0t", div, t_rf_csn_rise - t_rf_last_edge));
+      check(rf_mosi_at_sample == 0, "MOSI changed at a sampling edge");
+      rf_half_min = 1e9;
+    end
+    check(pads_out.rf_sclk == 1'b0 && pads_out.rf_csn == 1'b1, "radio pins idle after the transfers (mode 0)");
+
+    // ---------------- 14. radio: burst write and read back, FIFO writes of 9 and 300 bytes (stall and refill)
+    begin
+      logic [7:0] frq [], tx [], rx [];
+      frq = new[3]; frq[0] = 8'h6C; frq[1] = 8'h80; frq[2] = 8'h00;
+      sx_write(7'h06, frq);
+      tx = new[4]; tx[0] = 8'h06; tx[1] = 0; tx[2] = 0; tx[3] = 0;
+      rf_xfer(tx, rx, 1'b0);
+      check(rx[1] == 8'h6C && rx[2] == 8'h80 && rx[3] == 8'h00,
+            $sformatf("burst read of 0x06..0x08: %02h %02h %02h", rx[1], rx[2], rx[3]));
+      for (int t = 0; t < 2; t++) begin
+        int n;
+        logic [7:0] pay [], one [];
+        n = (t == 0) ? 9 : 255;                       // the radio FIFO pointer wraps at 256
+        one = new[1]; one[0] = 8'h80;
+        sx_write(7'h0D, one);                         // FifoAddrPtr = FifoTxBase
+        pay = new[n];
+        foreach (pay[i]) pay[i] = 8'((i * 37 + t * 11 + 5) & 8'hFF);
+        sx_write(7'h00, pay);
+        begin
+          int bad;
+          bad = 0;
+          for (int i = 0; i < n; i++) if (i_radio.fifo[(8'h80 + i) & 8'hFF] !== pay[i]) bad++;
+          check(bad == 0, $sformatf("radio FIFO write of %0d bytes: %0d wrong", n, bad));
+        end
+      end
+      // a 300-byte transfer with the pin decoder (more than the 256-byte radio FIFO, so only the SPI side is checked)
+      tx = new[300];
+      foreach (tx[i]) tx[i] = 8'((i * 53 + 7) & 8'hFF);
+      tx[0] = 8'h80;                                  // FIFO write, the model wraps
+      rf_seen.delete();
+      rf_xfer(tx, rx, 1'b0);
+      begin
+        int bad;
+        bad = 0;
+        foreach (tx[i]) if (i >= rf_seen.size() || rf_seen[i] !== tx[i]) bad++;
+        check(bad == 0 && rf_seen.size() == 300, $sformatf("300-byte transfer at the pins: %0d bytes, %0d wrong", rf_seen.size(), bad));
+      end
+      expect32(RfErr, '1, 32'h0, "no radio error after the refilled transfers");
+    end
+
+    // ---------------- 15. radio: payload and TX mode, DIO0 interrupt, DONE interrupt
+    begin
+      logic [7:0] one [], pay [];
+      one = new[1];
+      one[0] = 8'h80; sx_write(7'h0D, one);
+      pay = new[16];
+      foreach (pay[i]) pay[i] = 8'(8'hA0 + i);
+      sx_write(7'h00, pay);
+      one[0] = 8'd16; sx_write(7'h22, one);           // PayloadLength
+      wr32(RfIrqEn, 32'h10);                          // DIO0
+      wr32(RfIrqSt, 32'h1F);
+      one[0] = 8'h83; sx_write(7'h01, one);           // LoRa TX
+      repeat (200) @(posedge clk);                     // TX_DELAY_NS = 2000 in the model
+      expect32(RfPins, 32'h100, 32'h100, "DIO0 high after TX");
+      expect32(RfIrqSt, 32'h10, 32'h10, "DIO0 rising edge flag");
+      check(irq[0] == 1'b1, "radio interrupt on DIO0");
+      check(i_radio.last_tx_len == 16, $sformatf("TX payload length %0d", i_radio.last_tx_len));
+      begin
+        int bad;
+        bad = 0;
+        for (int i = 0; i < 16; i++) if (i_radio.last_tx[i] !== pay[i]) bad++;
+        check(bad == 0, $sformatf("TX payload: %0d bytes wrong", bad));
+      end
+      wr32(RfIrqSt, 32'h10);
+      expect32(RfIrqSt, 32'h10, 32'h0, "DIO0 flag cleared");
+      wr32(RfIrqEn, 32'h01);                          // DONE
+      wr32(RfIrqSt, 32'h01);
+      check(irq[0] == 1'b0, "radio interrupt cleared");
+      one[0] = 8'hFF; sx_write(7'h12, one);           // clear IrqFlags in the radio
+      expect32(RfIrqSt, 32'h01, 32'h01, "DONE after a transfer");
+      check(irq[0] == 1'b1, "radio interrupt on DONE");
+      wr32(RfIrqSt, 32'h01);
+      wr32(RfIrqEn, 32'h0);
+    end
+
+    // ---------------- 16. radio: modes 1 to 3 at the pins with MISO looped back to MOSI
+    rf_loop = 1'b1;
+    for (int m = 0; m < 4; m++) begin
+      logic [7:0] tx [], rx [];
+      bit cpol, cpha;
+      int bad;
+      cpol = m[1]; cpha = m[0];
+      wr32(RfCtrl, rf_ctrl(1, cpol, cpha, 2, 2));
+      mon_cpol = cpol; mon_cpha = cpha;
+      repeat (4) @(posedge clk);
+      check(pads_out.rf_sclk == cpol, $sformatf("mode %0d: SCLK idles at %0d", m, pads_out.rf_sclk));
+      tx = new[12];
+      foreach (tx[i]) tx[i] = 8'((i * 29 + m * 64 + 3) & 8'hFF);
+      rf_seen.delete();
+      rf_mosi_at_sample = 0;
+      rf_xfer(tx, rx, 1'b0);
+      bad = 0;
+      foreach (tx[i]) if (rx[i] !== tx[i] || i >= rf_seen.size() || rf_seen[i] !== tx[i]) bad++;
+      check(bad == 0, $sformatf("mode %0d: %0d of 12 bytes wrong (loopback and pin decoder)", m, bad));
+      check(rf_mosi_at_sample == 0, $sformatf("mode %0d: MOSI changed at a sampling edge", m));
+      check(pads_out.rf_sclk == cpol && pads_out.rf_csn == 1'b1, $sformatf("mode %0d: pins idle after the transfer", m));
+    end
+    mon_cpol = 1'b0; mon_cpha = 1'b0;
+
+    // ---------------- 17. radio: KEEP_CS, overflow, underflow, SW_RST during a transfer, EN = 0
+    begin
+      logic [7:0] tx [], rx [];
+      wr32(RfCtrl, rf_ctrl(1, 0, 0, 1, 1));
+      tx = new[2]; tx[0] = 8'h11; tx[1] = 8'h22;
+      rf_xfer(tx, rx, 1'b1);
+      repeat (20) @(posedge clk);
+      check(pads_out.rf_csn == 1'b0, "KEEP_CS: CS stays low after the transfer");
+      rf_xfer(tx, rx, 1'b0);
+      check(pads_out.rf_csn == 1'b1, "CS rises after a transfer without KEEP_CS");
+      for (int i = 0; i < 9; i++) wr(RfData, 4'b0100, 32'(i) << 16);   // lane 2, the 9th byte overflows
+      expect32(RfStatus, 32'h0000_FF04, 32'h0000_0804, "TX FIFO full with 8 bytes");
+      expect32(RfErr, 32'h1, 32'h1, "TX_OVERFLOW");
+      expect32(RfIrqSt, 32'h8, 32'h8, "ERROR in RF_IRQ_STATUS");
+      rd32(RfData, data);
+      expect32(RfErr, 32'h4, 32'h4, "RX_UNDERFLOW on a read of the empty RX FIFO");
+      check(data[7:0] == rx[1], $sformatf("underflow returns the last byte 0x%02h, got 0x%02h", rx[1], data[7:0]));
+      wr32(RfErr, 32'h7);
+      expect32(RfErr, '1, 32'h0, "RF_ERR cleared");
+      wr32(RfCtrl, rf_ctrl(1, 0, 0, 24, 1));
+      wr32(RfCmd, 32'd100);                           // 8 bytes in the FIFO, 100 to send: waits for more
+      repeat (600) @(posedge clk);
+      expect32(RfStatus, 32'h1, 32'h1, "busy during the long transfer");
+      wr32(RfCtrl, rf_ctrl(1, 0, 0, 24, 1) | 32'h2);  // SW_RST
+      repeat (2) @(posedge clk);
+      expect32(RfStatus, 32'h0000_FF1F, 32'h0000_000A, "SW_RST: idle, both FIFOs empty");
+      check(pads_out.rf_csn == 1'b1 && pads_out.rf_sclk == 1'b0, "SW_RST: pins idle");
+      wr32(RfCtrl, rf_ctrl(0, 1, 0, 24, 1));          // EN = 0 with CPOL 1: SCLK idles high
+      check(pads_out.rf_csn == 1'b1 && pads_out.rf_sclk == 1'b1 && pads_out.rf_mosi == 1'b0, "EN = 0: pins idle");
+      wr32(RfCtrl, rf_ctrl(0, 0, 0, 24, 1));
+    end
+    rf_loop = 1'b0;
 
     repeat (4) @(posedge clk);
     if (errors == 0) $display("PASS: tb_obi_spi, %0d checks, 0 failures", checks);

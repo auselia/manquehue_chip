@@ -3,8 +3,7 @@
 //
 // OBI SPI block: radio SPI master (SX1276) at 0x000..0x0FF and ADS7057 reader at 0x100..0x1FF of a 4 KB window,
 // spec docs/spi_adc_spec.md.
-// The ADC reader (adc_rdr) is in. The radio master (rf_spi) is not yet: its registers read 0, writes have no effect
-// and its pads stay at their obi_spi_pkg::PadsOutIdle levels.
+// Both sub-blocks are in: the radio master (rf_spi) on 0x000..0x0FF and the ADC reader (adc_rdr) on 0x100..0x1FF.
 
 module obi_spi import obi_spi_pkg::*; #(
   /// OBI configuration of the subordinate port (SbrObiCfg)
@@ -60,7 +59,7 @@ module obi_spi import obi_spi_pkg::*; #(
   assign sel_adc = addr[AddrBits-1:6] == AdcBase[WindowBits-1:8];
 
   logic [SbrObiCfg.DataWidth-1:0] rf_rdata, adc_rdata;
-  logic                           adc_irq;
+  logic                           adc_irq, rf_irq;
   assign rdata = sel_adc ? adc_rdata : (sel_rf ? rf_rdata : '0);
 
   // ---------------------------------------------------------------- ADC reader
@@ -88,16 +87,25 @@ module obi_spi import obi_spi_pkg::*; #(
     .cap_en_o    ( pads_o.adc_cap_en   )
   );
 
-  // ---------------------------------------------------------------- radio master (placeholder)
-  assign rf_rdata       = '0;
-  assign pads_o.rf_sclk = PadsOutIdle.rf_sclk;
-  assign pads_o.rf_mosi = PadsOutIdle.rf_mosi;
-  assign pads_o.rf_csn  = PadsOutIdle.rf_csn;
-  assign pads_o.rf_rstn = PadsOutIdle.rf_rstn;
+  // ---------------------------------------------------------------- radio master
+  rf_spi i_rf_spi (
+    .clk_i,
+    .rst_ni,
+    .testmode_i,
+    .reg_addr_i  ( addr[5:0]          ),
+    .reg_wr_i    ( wr_valid & sel_rf  ),
+    .reg_rd_i    ( rd_valid & sel_rf  ),
+    .reg_wdata_i ( wdata              ),
+    .reg_be_i    ( be                 ),
+    .reg_rdata_o ( rf_rdata           ),
+    .irq_o       ( rf_irq             ),
+    .sclk_o      ( pads_o.rf_sclk     ),
+    .mosi_o      ( pads_o.rf_mosi     ),
+    .miso_i      ( pads_i.rf_miso     ),
+    .csn_o       ( pads_o.rf_csn      ),
+    .dio0_i      ( pads_i.rf_dio0     ),
+    .rstn_o      ( pads_o.rf_rstn     )
+  );
 
-  assign irq_o = {adc_irq, 1'b0};
-
-  // Not used until the radio master is in. Remove with it.
-  logic unused;
-  assign unused = ^{rd_valid, pads_i.rf_miso, pads_i.rf_dio0};
+  assign irq_o = {adc_irq, rf_irq};
 endmodule

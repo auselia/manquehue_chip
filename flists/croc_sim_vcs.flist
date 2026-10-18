@@ -181,6 +181,7 @@
 ../rtl/user_domain/spi/obi_spi_regs.sv
 ../rtl/user_domain/spi/obi_spi_clk_gate.sv
 ../rtl/user_domain/spi/adc_rdr.sv
+../rtl/user_domain/spi/rf_spi.sv
 ../rtl/user_domain/spi/obi_spi.sv
 ../rtl/obi_qspi/flash_model/W25Q128JWxxIM_V1.2_VCS.vp
 

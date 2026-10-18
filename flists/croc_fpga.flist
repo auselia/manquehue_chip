@@ -200,6 +200,7 @@
 ../rtl/user_domain/spi/obi_spi_regs.sv
 ../rtl/user_domain/spi/obi_spi_clk_gate.sv
 ../rtl/user_domain/spi/adc_rdr.sv
+../rtl/user_domain/spi/rf_spi.sv
 ../rtl/user_domain/spi/obi_spi.sv
 
 # ---- riscv-dbg (synthesizable RTL) ----

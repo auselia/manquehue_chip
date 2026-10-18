@@ -37,7 +37,9 @@ package obi_spi_pkg;
     logic rf_dio0;      // radio done or RX interrupt
   } spi_pads_in_t;
 
-  /// Output levels while the blocks are disabled and after reset (spec sections 4 and 5)
+  /// Output levels while the blocks are disabled and after reset (spec sections 4 and 5). Used by the testbenches,
+  /// not by the block itself, hence the waiver for the lint of the block alone.
+  /* verilator lint_off UNUSEDPARAM */
   localparam spi_pads_out_t PadsOutIdle = '{
     adc_sclk:     1'b1,
     adc_csn:      1'b1,
@@ -48,6 +50,7 @@ package obi_spi_pkg;
     rf_csn:       1'b1,
     rf_rstn:      1'b0
   };
+  /* verilator lint_on UNUSEDPARAM */
 
   /// Inactive input levels, used by user_domain to tie the inputs while the pads are not connected.
   /// Unused in the block itself, hence the waiver for the lint of the block alone.

@@ -18,8 +18,8 @@ comma := ,
 # ------------------------------------------------------------------------------
 TOP                := croc_soc
 WORK_DIR           := work
-LOGS_DIR           := logs
-REPORTS_DIR        := reports
+# staging of the step logs, copied into outputs/<run>/logs/ by scripts/utils/archive_run.sh at the end of finish
+LOGS_DIR           := $(WORK_DIR)/logs
 OUTPUTS_DIR        := outputs
 REPO_DIR           := $(shell pwd)
 
@@ -39,8 +39,10 @@ REPO_DIR           := $(shell pwd)
 #   make drc RUN=croc_soc_20260804_101500 # a specific (older) run
 #   make drc GDS=/path/to/other.gds VLOG=/path/to/other.v  # fully explicit
 RUN  ?= latest
-GDS  ?= $(OUTPUTS_DIR)/$(RUN)/$(TOP).gds
-VLOG ?= $(OUTPUTS_DIR)/$(RUN)/$(TOP).v
+# RUN is a folder name under outputs/ or an absolute path.
+RUN_DIR := $(if $(filter /%,$(RUN)),$(RUN),$(OUTPUTS_DIR)/$(RUN))
+GDS  ?= $(RUN_DIR)/$(TOP).gds
+VLOG ?= $(RUN_DIR)/$(TOP).v
 
 # ------------------------------------------------------------------------------
 # Sign-off / DRC configuration (KLayout + GF180MCU)
@@ -193,7 +195,7 @@ ICV_HOST_INIT     ?= 4
 # (confirmed 2026-08-14: both DRC decks and the LVS deck run clean with this
 # fix in place). If Fusion Compiler's GDS export precision ever changes,
 # update ICV_LAYOUT_RESOLUTION AND the matching value inside the file itself.
-ICV_RUNSET_CONFIG     ?= scripts/icv/resolution_override.rs
+ICV_RUNSET_CONFIG     ?= scripts/signoff/pv/resolution_override.rs
 ICV_LAYOUT_RESOLUTION ?= 0.0001
 
 # DRC: pick either the foundry-original, full-coverage deck (DRC_ICV/,
@@ -233,7 +235,7 @@ ICV_LVS_EXTRA    ?=
 # cached alongside it; only rebuilt when the source CDL changes.
 FOLDED_SC_CDL_ICV := $(CACHE_DIR)/gf180mcu_fd_sc_mcu7t5v0.icv.folded.cdl
 
-# Metal fill (density signoff). scripts/icv/croc_metal_fill.rs is a
+# Metal fill (density signoff). scripts/signoff/pv/croc_metal_fill.rs is a
 # purpose-built Metal1-Metal5 dummy-fill runset (not a pdk_synopsys file --
 # it lives in this repo) derived from pdk_synopsys/DRC_ICV_MODIFIED/DRC/
 # ICV/gf180mcu_fill.rs; see that file's header comment for the full
@@ -246,7 +248,7 @@ FOLDED_SC_CDL_ICV := $(CACHE_DIR)/gf180mcu_fd_sc_mcu7t5v0.icv.folded.cdl
 # above the gf180mcu_density.drc 30% signoff threshold), and a full
 # (non-density-only) KLayout DRC re-check found zero new violations
 # versus the unfilled baseline.
-ICV_FILL_RUNSET       ?= scripts/icv/croc_metal_fill.rs
+ICV_FILL_RUNSET       ?= scripts/signoff/pv/croc_metal_fill.rs
 ICV_FILL_INCLUDE_DIR  ?= $(ICV_PDK_HOME)/DRC_ICV_MODIFIED/DRC/ICV
 # Extra icv command-line options, e.g. ICV_FILL_EXTRA="-vue"
 ICV_FILL_EXTRA        ?=
@@ -263,13 +265,16 @@ ICV_FILL_EXTRA        ?=
 # tell you to run `make pt_export` if not, rather than silently kicking off a
 # (potentially multi-hour) FC re-run as a side effect.
 PT_HOME_DIR ?= /usr/synopsys/prime/Y-2026.03-SP2
-SDC  ?= $(OUTPUTS_DIR)/$(RUN)/$(TOP).sdc
+SDC  ?= $(RUN_DIR)/$(TOP).sdc
+# Sign-off SDC: the same constraints at SPEC_PERIOD (scripts/common/setup.tcl), written by scripts/07_pt_export.tcl.
+# The name carries the period in ns (SPEC_PERIOD 55.0 -> _55ns).
+SPEC_SDC ?= $(RUN_DIR)/$(TOP)_55ns.sdc
 
 # PrimeTime has no notion of FC's in-design MCMM (create_corner/create_mode/
 # create_scenario is an FC/ICC2-specific API -- confirmed 2026-08-15 that
 # plain pt_shell doesn't even have those commands, and pt_shell -multi_scenario
 # only adds create_scenario, built for distributing scenarios across a host
-# farm via per-scenario common_data/specific_data scripts). scripts/pt/
+# farm via per-scenario common_data/specific_data scripts). scripts/signoff/sta/
 # sta_corner.tcl instead runs one classic pt_shell session per corner, so
 # each corner's liberty views are spelled out explicitly here. Voltage/
 # temperature match scripts/common/mcmm.tcl's 3 corners exactly (slow=SS/
@@ -326,7 +331,7 @@ PP_CORNERS ?= fast
 # ------------------------------------------------------------------------------
 # Unlike drc/lvs/sta-pt/power-pp, this does NOT read an exported outputs/<run>
 # artifact -- it reopens the live 'finish' block in work/design.dlib (see
-# scripts/rail/analyze_rail.tcl) and runs RedHawk-SC's analyze_rail directly
+# scripts/signoff/irdrop/analyze_rail.tcl) and runs RedHawk-SC's analyze_rail directly
 # against FC's own routed PDN, so it always reflects whatever 'make finish'
 # (or 'make all') last built, not a specific archived RUN. Nothing about the
 # block is modified/saved -- taps and the rail result exist only for the
@@ -347,7 +352,7 @@ RAIL_VOLTAGE_DROP ?= static
 # analyze_rail needs a tech file describing per-layer R/C (RAIL-300) -- FC's
 # own docs call this an "ATF" but this RedHawk-SC build only actually
 # accepts itf/ircx/nrc (confirmed empirically 2026-08-22, "unrecognized
-# type" on a hand-authored .atf). scripts/rail/tech/gf180mcu.itf is the
+# type" on a hand-authored .atf). scripts/signoff/irdrop/tech/gf180mcu.itf is the
 # real thing, not hand-authored: recovered directly from GlobalFoundries'
 # own field-solver binary (~/pdk_synopsys/pex/*.nxtgrd, the same officially
 # -released PEX kit as the TLUplus files) via StarRC's grdgenxo
@@ -358,7 +363,7 @@ RAIL_VOLTAGE_DROP ?= static
 # errors before the rename, ~0 after). See that file's own header for full
 # provenance, and grdgenxo needs the libnsl RPM installed first (`sudo dnf
 # install -y libnsl` on this Rocky 8.10 box) or it won't even launch.
-RAIL_TECH_FILE    ?= scripts/rail/tech/gf180mcu.itf
+RAIL_TECH_FILE    ?= scripts/signoff/irdrop/tech/gf180mcu.itf
 # KNOWN GAP (2026-08-22): static analysis (the default) works end to end,
 # real per-pin numbers, e.g. croc_soc's 6 VDD+6 VSS pins measured at
 # ~0.21% worst-case drop. RAIL_VOLTAGE_DROP=dynamic_vectorless also SOLVES
@@ -388,8 +393,8 @@ gui_$2: $(WORK_DIR)/design.dlib/$2
 	cd $(WORK_DIR) && fc_shell -gui -f ../scripts/common/setup.tcl -x "open_lib design.dlib; open_block $2"
 
 $(WORK_DIR)/design.dlib/$2: $3 $1
-	mkdir -p $(WORK_DIR) $(LOGS_DIR) $(REPORTS_DIR)/$(basename $(notdir $1)) && cd $(WORK_DIR) && set -o pipefail; \
-	fc_shell -batch -f ../$1 | tee ../$(LOGS_DIR)/$2.log
+	mkdir -p $(LOGS_DIR) && cd $(WORK_DIR) && set -o pipefail; \
+	fc_shell -batch -f ../$1 | tee logs/$2.log && ../scripts/utils/archive_run.sh $2
 endef
 
 TCL_FILES = $(sort $(wildcard scripts/0*_*.tcl))
@@ -728,7 +733,7 @@ lvs-icv:
 # ------------------------------------------------------------------------------
 # Metal Fill - Synopsys IC Validator (GF180MCU, density signoff)
 # ------------------------------------------------------------------------------
-# Runs scripts/icv/croc_metal_fill.rs against the run's GDS and writes a new,
+# Runs scripts/signoff/pv/croc_metal_fill.rs against the run's GDS and writes a new,
 # fill-merged GDS to <run>/fill_icv/filled.gds. See ICV_FILL_RUNSET above for
 # the validation history. This does NOT overwrite $(GDS) or touch outputs/
 # in place -- filled.gds is a distinct artifact; point drc/drc-icv/lvs/
@@ -786,7 +791,7 @@ fill-icv:
 # ------------------------------------------------------------------------------
 # Signoff STA - Synopsys PrimeTime (GF180MCU, MCMM: slow/typical/fast)
 # ------------------------------------------------------------------------------
-# Runs one classic pt_shell session per corner (see scripts/pt/sta_corner.tcl's
+# Runs one classic pt_shell session per corner (see scripts/signoff/sta/sta_corner.tcl's
 # header comment for why, instead of PT's own -multi_scenario distributed
 # mode) against the SDC + per-corner SPEF `make pt_export` wrote. Setup is
 # checked at slow+typical, hold at fast -- mirrors scripts/common/mcmm.tcl's
@@ -806,8 +811,8 @@ sta-pt:
 	  echo "[STA-PT] ERROR: pt_shell not found under PT_HOME_DIR=$(PT_HOME_DIR)"; \
 	  exit 1; \
 	fi
-	@if [ ! -e "$(SDC)" ]; then \
-	  echo "[STA-PT] ERROR: SDC not found: $(SDC)"; \
+	@if [ ! -e "$(SPEC_SDC)" ]; then \
+	  echo "[STA-PT] ERROR: sign-off SDC not found: $(SPEC_SDC)"; \
 	  echo "[STA-PT] Run 'make pt_export' first (writes SDC+SPEF alongside GDS/Verilog)."; \
 	  exit 1; \
 	fi
@@ -823,7 +828,7 @@ sta-pt:
 	  fi; \
 	fi
 	@vlog_real="$$(readlink -f "$(VLOG)")"; \
-	 sdc_real="$$(readlink -f "$(SDC)")"; \
+	 sdc_real="$$(readlink -f "$(SPEC_SDC)")"; \
 	 run_dir="$$(dirname "$$vlog_real")"; \
 	 out_dir="$$run_dir/sta_pt"; \
 	 mkdir -p "$$out_dir"; \
@@ -852,7 +857,7 @@ sta-pt:
 	     set IO_DB $$io_db; \
 	     set SRAM_DB $(PT_SRAM_DB); \
 	     set REPORT_DIR $$out_dir; \
-	     source $(REPO_DIR)/scripts/pt/sta_corner.tcl; \
+	     source $(REPO_DIR)/scripts/signoff/sta/sta_corner.tcl; \
 	     exit" \
 	   2>&1 | tee "$$out_dir/sta_pt.$$corner.log"; \
 	 done; \
@@ -869,7 +874,7 @@ sta-pt:
 # Power analysis - Synopsys PrimePower (GF180MCU)
 # ------------------------------------------------------------------------------
 # Reuses the exact same netlist/SDC/SPEF/liberty setup as sta-pt (see
-# scripts/pt/power_corner.tcl -- power commands live directly in pt_shell,
+# scripts/signoff/power/power_corner.tcl -- power commands live directly in pt_shell,
 # not a separate pwr_shell session; that launcher disables read_verilog and
 # expects to attach to an already-built session instead), then applies
 # vectorless (default toggle_rate/static_probability) switching activity and
@@ -939,7 +944,7 @@ power-pp:
 	     set PP_TOGGLE_RATE $(PP_DEFAULT_TOGGLE_RATE); \
 	     set PP_STATIC_PROB $(PP_DEFAULT_STATIC_PROB); \
 	     set PP_SAIF {$(PP_SAIF)}; \
-	     source $(REPO_DIR)/scripts/pt/power_corner.tcl; \
+	     source $(REPO_DIR)/scripts/signoff/power/power_corner.tcl; \
 	     exit" \
 	   2>&1 | tee "$$out_dir/power_pp.$$corner.log"; \
 	 done; \
@@ -953,7 +958,7 @@ power-pp:
 # ------------------------------------------------------------------------------
 # Sign-off Rail Analysis - RedHawk-SC Fusion (in-design voltage drop / IR drop)
 # ------------------------------------------------------------------------------
-# Runs scripts/rail/analyze_rail.tcl against work/design.dlib's 'finish'
+# Runs scripts/signoff/irdrop/analyze_rail.tcl against work/design.dlib's 'finish'
 # block (always the current build, not a specific RUN -- see the RAIL_*
 # variables above). Reports land in outputs/latest/rail_rh/.
 #
@@ -979,7 +984,7 @@ rail:
 	fi
 	@if [ -z "$(RAIL_TECH_FILE)" ] || [ ! -e "$(RAIL_TECH_FILE)" ]; then \
 	  echo "[RAIL] ERROR: RAIL_TECH_FILE not set or not found: '$(RAIL_TECH_FILE)'"; \
-	  echo "[RAIL] Default is scripts/rail/tech/gf180mcu.itf (checked into this repo --"; \
+	  echo "[RAIL] Default is scripts/signoff/irdrop/tech/gf180mcu.itf (checked into this repo --"; \
 	  echo "[RAIL] see its header for provenance). If it's missing, restore it or set"; \
 	  echo "[RAIL] RAIL_TECH_FILE to another real ITF/IRCX/NRC tech file."; \
 	  exit 1; \
@@ -1001,7 +1006,7 @@ rail:
 	   set RAIL_REDHAWK_PATH $(RAIL_REDHAWK_PATH); \
 	   set RAIL_TECH_FILE $$tech_file_real; \
 	   set RAIL_VOLTAGE_DROP $(RAIL_VOLTAGE_DROP); \
-	   source ../scripts/rail/analyze_rail.tcl; \
+	   source ../scripts/signoff/irdrop/analyze_rail.tcl; \
 	   exit" \
 	 2>&1 | tee "$$out_dir_real/rail.$(RAIL_VOLTAGE_DROP).log"; \
 	 echo "[RAIL] Full report: $$out_dir/voltage_drop.$(RAIL_VOLTAGE_DROP).rpt"
@@ -1011,8 +1016,8 @@ rail:
 # ------------------------------------------------------------------------------
 .PHONY: clean distclean
 clean:
-	rm -rf $(WORK_DIR) $(LOGS_DIR) $(REPORTS_DIR)
-	@echo "Cleaned work, logs, and reports directories."
+	rm -rf $(WORK_DIR)
+	@echo "Cleaned the work directory (staging of logs and reports included)."
 
 # distclean also removes the exported GDS/netlists in outputs/. Use with care.
 distclean: clean
@@ -1039,33 +1044,33 @@ clean-sw:
 # Compile the Verilator hardware model only (re-run after any RTL change).
 verilate:
 	@echo "[SIM] Compiling Verilator hardware model..."
-	@cd sim && BUILD_ONLY=1 bash scripts/run_verilator.sh
+	@cd sim && BUILD_ONLY=1 bash ../scripts/sim/run_verilator.sh
 
 # Run a binary on the already-compiled model -- no recompile, near-instant.
 run: sw
 	@echo "[SIM] Running $(BIN) ..."
-	@cd sim && BIN=$(abspath $(BIN)) SKIP_BUILD=1 bash scripts/run_verilator.sh
+	@cd sim && BIN=$(abspath $(BIN)) SKIP_BUILD=1 bash ../scripts/sim/run_verilator.sh
 
 # Compile + run in one shot (original behavior; defaults to helloworld).
 sim:
 	@echo "[SIM] Launching Verilator simulation flow..."
-	@cd sim && BIN=$(abspath $(BIN)) bash scripts/run_verilator.sh
+	@cd sim && BIN=$(abspath $(BIN)) bash ../scripts/sim/run_verilator.sh
 
 # Compile the VCS hardware model (elaboration phase).
 vcs-compile:
 	@echo "[SIM] Compiling VCS hardware model..."
-	@cd sim && BUILD_ONLY=1 bash scripts/run_vcs.sh
+	@cd sim && BUILD_ONLY=1 bash ../scripts/sim/run_vcs.sh
 
 # Run a binary on the already-compiled VCS model.
 # Assumes the simulation binary (e.g., simv) exists from a previous vcs-compile.
 run-vcs: sw
 	@echo "[SIM] Running $(BIN) on VCS..."
-	@cd sim && BIN=$(abspath $(BIN)) SKIP_BUILD=1 bash scripts/run_vcs.sh
+	@cd sim && BIN=$(abspath $(BIN)) SKIP_BUILD=1 bash ../scripts/sim/run_vcs.sh
 
 # Compile + run VCS in one shot.
 sim-vcs: sw
 	@echo "[SIM] Launching full VCS simulation flow..."
-	@cd sim && BIN=$(abspath $(BIN)) bash scripts/run_vcs.sh
+	@cd sim && BIN=$(abspath $(BIN)) bash ../scripts/sim/run_vcs.sh
 
 clean-sim:
 	@echo "[SIM] Cleaning simulation builds..."
@@ -1106,7 +1111,7 @@ help:
 	@echo "  make sta-pt     – Synopsys PrimeTime signoff STA (MCMM: slow/typical/fast)"
 	@echo "  make power-pp   – Synopsys PrimePower power analysis"
 	@echo "  make rail       – RedHawk-SC in-design voltage/IR drop (static works; dynamic partial)"
-	@echo "  make clean      – Delete the 'work', 'logs', and 'reports' directories"
+	@echo "  make clean      – Delete the 'work' directory (library, staged logs and reports)"
 	@echo "  make distclean  – clean + also delete 'outputs' (exported GDS/netlists/results)"
 	@echo ""
 	@echo "Individual Steps (dynamically generated from scripts/):"
@@ -1162,7 +1167,7 @@ help:
 	@echo "  Setup is checked at slow+typical, hold at fast (mirrors scripts/common/mcmm.tcl's"
 	@echo "  own set_scenario_status split). SRAM macro uses the same tt/25C/5.0V liberty view"
 	@echo "  at all 3 corners -- this PDK kit ships no ss/ff SRAM characterization (see"
-	@echo "  scripts/pt/sta_corner.tcl header comment); everything else is corner-accurate."
+	@echo "  scripts/signoff/sta/sta_corner.tcl header comment); everything else is corner-accurate."
 	@echo ""
 	@echo "  make power-pp                        – PrimePower analysis, same SDC/SPEF/libs as sta-pt"
 	@echo "  Vectorless (default switching activity) power estimate -- no gate-level VCD/SAIF from a"
@@ -1174,7 +1179,7 @@ help:
 	@echo "                                                       extraction not working yet, see Makefile)"
 	@echo "  Treats croc_soc's 6 VDD + 6 VSS top-level pins as the ideal supply (create_taps -top_pg)"
 	@echo "  and solves for voltage drop across the real, routed PDN -- this is the direct answer to"
-	@echo "  whether those 6 pins are enough. Uses scripts/rail/tech/gf180mcu.itf by default (real"
+	@echo "  whether those 6 pins are enough. Uses scripts/signoff/irdrop/tech/gf180mcu.itf by default (real"
 	@echo "  GF180MCU parasitics recovered from the PDK's own field-solver binary, see its header)."
 	@echo ""
 	@echo "Outputs (one self-contained folder per Fusion Compiler run):"
@@ -1187,6 +1192,8 @@ help:
 	@echo "  outputs/<run>/fill_icv/              – IC Validator filled.gds + logs"
 	@echo "  outputs/<run>/$(TOP).sdc, .typ_*.spef – pt_export's SDC + per-corner parasitics"
 	@echo "  outputs/<run>/sta_pt/                – PrimeTime timing/constraint/QoR reports"
+	@echo "  outputs/<run>/reports/<step>/        – QoR, timing, DRC reports of every flow step (01..05 copied at 06_finish, 06 and 07 written there)"
+	@echo "  outputs/<run>/logs/, svf/            – step logs and Formality guidance files of that build (copied at finish)"
 	@echo "  outputs/<run>/power_pp/               – PrimePower reports"
 	@echo "  outputs/latest/rail_rh/               – RedHawk-SC rail analysis report + log"
 	@echo "  outputs/.cache/                     – cached folded CDLs + SRAM liberty->db (rebuilt only if stale)"
@@ -1206,5 +1213,32 @@ help:
 	@echo "  make fpga        – Non-project batch build -> work_fpga/croc_zedboard_top.bit"
 	@echo "  make clean-fpga  – Remove the FPGA build directory and Vivado logs"
 	@echo "================================================================"
-# verification targets (signoff, scan-sta, gls, dft, chip, check, report)
--include verify/verify.mk
+# ------------------------------------------------------------------------------
+# Checks of a finished run (scripts/pt, scripts/gls, scripts/dft, scripts/chip)
+# ------------------------------------------------------------------------------
+# Every check reads RUN (a folder name under outputs/ or an absolute path, default latest) and writes
+# outputs/<run>/checks/<step>/summary.txt. `make report` collects them into outputs/<run>/report.md.
+# Tool paths are in scripts/utils/env.sh (override in scripts/utils/local.env).
+#
+#   make signoff   KLayout DRC and LVS, functional STA at 3 corners, Formality   (needs a run made with `make all pt_export`)
+#   make scan-sta  scan-shift STA, 3 corners
+#   make gls       Verilator boot, scan shift, Icarus macro boot over JTAG
+#   make dft       scan chain trace, ATPG, pattern replay (NPAT=20 for a quick run), SRAM March test
+#   make chip      chip flow with the pad ring, precheck (COB=0: without --cob), chip-level GLS
+#   make check     scan-sta + gls + dft + chip, then the report
+.PHONY: signoff scan-sta gls dft chip check report
+signoff:
+	$(MAKE) drc lvs sta-pt
+	$(REPO_DIR)/scripts/signoff/lec/run_lec.sh $(RUN_DIR)
+	RUN=$(RUN_DIR) scripts/signoff/sta/signoff_summary.sh
+scan-sta:
+	RUN=$(RUN_DIR) scripts/signoff/sta/scan_sta.sh
+gls:
+	RUN=$(RUN_DIR) scripts/sim/run_gls_all.sh
+dft:
+	RUN=$(RUN_DIR) scripts/dft/run_dft.sh
+chip:
+	RUN=$(RUN_DIR) scripts/chip/run_chip_flow.sh
+report:
+	python3 scripts/utils/report.py $(RUN_DIR)
+check: scan-sta gls dft chip report

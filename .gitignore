@@ -33,7 +33,6 @@ sim/build/
 sim/waves/
 sim/logs/
 
-reports/
 outputs/
 
 # Vivado (FPGA) outputs
@@ -46,9 +45,17 @@ vivado*.str
 *.dcp
 
 # Synopsys Formality (fm_shell) working directories -- created in the repo
-# root whenever it's invoked from there (scripts/fm/lec_rtl_vs_gate.tcl)
+# root whenever it's invoked from there (scripts/signoff/lec/lec_rtl_vs_gate.tcl)
 FM_INFO/
 fm_checkpoint_sessions/
-formality_svf/verify/local.env
+formality_svf/
+_temp/
+._*
+sim/sw/*/bin/
+sim/sw/*/build/
 build/
-verify/experiments/*/work/
+*_command.log
+formality.log
+lec_work_*/
+scripts/utils/local.env
+sim/experiments/*/work/

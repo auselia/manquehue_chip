@@ -125,9 +125,12 @@ set_case_analysis 0 [get_ports scan_se_i]
 #   in : clk_i rst_ni ref_clk_i testmode_i fetch_en_i
 #        jtag_tck_i jtag_tdi_i jtag_tms_i jtag_trst_ni
 #        uart_rx_i qspi_sd_i[3:0] gpio_i[15:0]
+#        adc_sdo_i adc_wake_n_i adc_big_n_i rf_miso_i rf_dio0_i
 #   out: status_o jtag_tdo_o uart_tx_o
 #        qspi_clk_o qspi_sd_o[3:0] qspi_sd_en_o[3:0] qspi_csn_o[2:0]
 #        gpio_o[15:0] gpio_out_en_o[15:0]
+#        adc_sclk_o adc_csn_o adc_wake_clr_o adc_cap_en_o
+#        rf_sclk_o rf_mosi_o rf_csn_o rf_rstn_o
 ################################################################################
 
 set CLK_PORTS [get_ports [list $CLOCK_PORT_NAME $JTAG_TCK_PORT]]
@@ -149,6 +152,10 @@ set JTAG_OUT [get_ports {jtag_tdo_o}]
 #                                    from a 2-FF synchronizer, so constraining
 #                                    them costs nothing and keeps them visible.
 #   qspi_sd_i                     -> genuinely captured by a clk_i flop.
+#   rf_* (radio master rf_spi)    -> SCLK, MOSI, CS and RSTN come from clk_i flops, MISO is captured by clk_i
+#                                    flops, DIO0 lands in a 2-FF synchronizer. MISO is sampled at least one
+#                                    clk_i period after the SCLK edge that launched it (CLKDIV 0, SCLK = clk/2),
+#                                    so the clk_i budget below (out + in per period) is the worst case.
 # The ADS7057 interface is timed against adc_sclk (section 10), not clk_i.
 set ADC_IN  [get_ports {adc_sdo_i adc_wake_n_i adc_big_n_i}]
 set ADC_OUT [get_ports {adc_sclk_o adc_csn_o}]

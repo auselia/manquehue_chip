@@ -17,13 +17,22 @@ set CLOCK_PERIOD        50.0
 # stops about 1.4 ns short of any period it is given, so a netlist implemented at 50 ns closes at 55 ns.
 set SPEC_PERIOD         55.0
 
-# Top-level power pins: {layer llx lly urx ury} in um, one list per net. They are the straight
-# sections of the PG rings: Metal5 along the bottom and top, Metal4 down both sides. The first
-# 30 um at each end is left out because the rings' own corner via arrays sit there.
-# Each rectangle must lie on a shape of that net.
-set PG_PINS {
-  VDD {{Metal5 43 13 976.92 23} {Metal5 43 1767.48 976.92 1777.48} {Metal4 13 43 23 1747.48} {Metal4 996.92 43 1006.92 1747.48}}
-  VSS {{Metal5 31 1 988.92 11} {Metal5 31 1779.48 988.92 1789.48} {Metal4 1 31 11 1759.48} {Metal4 1008.92 31 1018.92 1759.48}}
+# Top-level power pins: {layer llx lly urx ury} in um, one list per net, for a block outline W x H.
+# They are the straight sections of the PG rings (power_grid.tcl: VDD 13 to 23 um and VSS 1 to 11 um
+# inside the outline): Metal5 along the bottom and top, Metal4 down both sides. The first 30 um at each
+# end is left out because the rings' own corner via arrays sit there. The macro height follows the cell
+# area (02_floorplan.tcl), so the pins are computed from the outline, not fixed numbers.
+# 06_finish.tcl checks that each rectangle lies on a shape of its net.
+proc pg_pins {W H} {
+  return [list \
+    VDD [list [list Metal5 43 13 [expr {$W - 43}] 23] \
+              [list Metal5 43 [expr {$H - 23}] [expr {$W - 43}] [expr {$H - 13}]] \
+              [list Metal4 13 43 23 [expr {$H - 43}]] \
+              [list Metal4 [expr {$W - 23}] 43 [expr {$W - 13}] [expr {$H - 43}]]] \
+    VSS [list [list Metal5 31 1 [expr {$W - 31}] 11] \
+              [list Metal5 31 [expr {$H - 11}] [expr {$W - 31}] [expr {$H - 1}]] \
+              [list Metal4 1 31 11 [expr {$H - 31}]] \
+              [list Metal4 [expr {$W - 11}] 31 [expr {$W - 1}] [expr {$H - 31}]]]]
 }
 # Signoff-driven DRC ECO (drc_eco.tcl): the wafer.space KLayout deck, restricted to the routing
 # rules FC cannot see, finds violations and the nets under them are rerouted.

@@ -48,7 +48,8 @@ change_names -rules verilog
 # Top-level power pins
 ###################################
 # write_gds writes pin text for terminals, and LVS needs it to name the VDD and VSS ports.
-foreach {net pins} $PG_PINS {
+set outline [get_attribute [current_block] boundary_bbox]
+foreach {net pins} [pg_pins [lindex $outline 1 0] [lindex $outline 1 1]] {
   foreach pin $pins {
     lassign $pin layer x0 y0 x1 y1
     set area [list [list $x0 $y0] [list $x1 $y1]]

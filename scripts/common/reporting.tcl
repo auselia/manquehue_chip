@@ -14,8 +14,8 @@ puts "================================================================"
 # from, next to its drc/, lvs/, sta_pt/ and power_pp/. The staging directory belongs to work/ (make clean removes it)
 # and always holds the latest build attempt.
 #
-# 06_finish and 07_pt_export run after the run folder exists, they set $RUN_DIR before sourcing this file and write
-# into outputs/<run>/reports/<step>/ directly.
+# 06_finish runs after the run folder exists, it sets $RUN_DIR before sourcing this file and writes into
+# outputs/<run>/reports/<step>/ directly. The parasitics report is in reports/export_signoff/ (common/export_signoff.tcl).
 if {[info exists RUN_DIR] && [file isdirectory $RUN_DIR]} {
     set REPORT_DIR [file join $RUN_DIR reports ${ACTIVE_STEP}]
 } else {
@@ -180,10 +180,6 @@ switch $ACTIVE_STEP {
         catch { redirect -file ${REPORT_DIR}/report_signal_em.rpt { report_signal_em } }
         set_scenario_status -setup false {fast}
         if {$_orig_scenario ne ""} { catch { current_scenario $_orig_scenario } }
-    }
-
-    "07_pt_export" {
-        redirect -file ${REPORT_DIR}/report_parasitics.rpt { report_parasitics }
     }
 
     default {

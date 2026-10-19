@@ -195,3 +195,7 @@ set ACTIVE_STEP "06_finish"
 source [file dirname [info script]]/common/reporting.tcl
 
 save_block -as finish
+
+# Sign-off inputs for PrimeTime and PrimePower (SDC, sign-off SDC, scan SDC, SPEF per corner), next to the GDS. After
+# save_block: the sign-off hold uncertainty it sets does not go into the saved finish block.
+source [file dirname [info script]]/common/export_signoff.tcl

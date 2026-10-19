@@ -1,6 +1,6 @@
 #!/bin/bash
 # Scan-shift STA of a run: scan_se_i = 1, testmode_i = 1, both shift clocks timed against each other.
-# Same netlist, libraries and parasitics as the signoff STA, SDC = <run>/croc_soc_scan.sdc (written by 07_pt_export).
+# Same netlist, libraries and parasitics as the signoff STA, SDC = <run>/croc_soc_scan.sdc (written by 06_finish, common/export_signoff.tcl).
 # usage: scripts/signoff/sta/scan_sta.sh      (env: RUN)
 set -e
 . "$(dirname "${BASH_SOURCE[0]}")/../../utils/env.sh"

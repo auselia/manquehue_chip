@@ -18,6 +18,10 @@ case "$HEX" in
   /*) ;;                  # already absolute
   *)  HEX="$PWD/$HEX" ;;  # relative -> absolute w.r.t. current shell
 esac
+case "${FLASH:-}" in
+  ""|/*) ;;
+  *)  FLASH="$PWD/$FLASH" ;;  # relative -> absolute before the script changes directory
+esac
 
 # Compile the Verilator model unless SKIP_BUILD=1
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
@@ -25,7 +29,8 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   mkdir -p "$BUILD_DIR"
   cd "$BUILD_DIR"
   echo "=> Compiling cycle-accurate hardware model..."
-  verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX" -j 0 -Wno-fatal --trace --trace-structs \
+  # TRACE=1 dumps the waveform (sim/build/croc.fst, tens of GB for a long program)
+  verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX" -j 0 -Wno-fatal --trace --trace-structs ${TRACE:+ +define+TRACE_WAVE} \
     -F "$ROOT/flists/croc_sim.flist" \
     --top-module tb_croc_soc
 fi
@@ -42,7 +47,16 @@ if [ ! -x "$SIM_BIN" ]; then
   exit 1
 fi
 
+# FLASH=<hex>: program in the QSPI flash model (boot from flash, no JTAG load). The hex comes from
+# objcopy -O verilog with addresses relative to 0x2000_0000 (sim/sw/flash/build.sh).
+# SIM_ARGS: more plusargs for the testbench, for example '+adc_tone=36 +rf_airtime_ns=61696000'.
+if [ -n "${FLASH:-}" ]; then
+  echo "=> Running Simulation from the QSPI flash: $FLASH"
+  cd "$ROOT/sim/build"
+  exec ./verilator/obj_dir/Vtb_croc_soc +flash="$FLASH" ${SIM_ARGS:-}
+fi
+
 echo "=> Running Simulation with: $HEX"
 # Run from sim/build so the testbench's default '../sw/bin/...' path also resolves.
 cd "$ROOT/sim/build"
-./verilator/obj_dir/Vtb_croc_soc +binary="$HEX"
+./verilator/obj_dir/Vtb_croc_soc +binary="$HEX" ${SIM_ARGS:-}

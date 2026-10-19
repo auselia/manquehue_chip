@@ -33,6 +33,22 @@ addresses are stable regardless of code changes in other sections:
 
 ## Boot Flow
 
+### Boot from the QSPI flash
+
+Right after reset the bootrom reads the first word of the QSPI flash (`0x2000_0000`). When it is the image
+magic `0x434F5243` ("CROC" in memory order), the program runs from the flash: the bootrom clears the registers,
+sets `mtvec` and jumps to `0x2000_0004` with `ra = _eoc`. No debugger is needed. Any other value (no flash,
+erased flash) leads to the JTAG flow below, unchanged.
+
+Programs for the flash are built with `sim/sw/flash/build.sh` (`link_flash.ld`, `crt0_flash.S`): code and
+read-only data in the flash, data, buffers and stack in the SRAM. `crt0_flash.S` writes the trap handler pointers
+to `0x1000_0004` and `0x1000_0008`, copies `.data` and clears `.bss`. In simulation the flash model is loaded with
+`FLASH=<prog>.flash.hex scripts/sim/run_verilator.sh`.
+
+The ROM tables of `bootrom.sv` are generated from `bootrom.S`: `rtl/bootrom/gen_bootrom.py`.
+
+### JTAG flow
+
 ```mermaid
 flowchart TD
    Reset([Reset])

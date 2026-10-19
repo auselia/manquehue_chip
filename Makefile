@@ -141,17 +141,17 @@ ICV_FILL_EXTRA        ?=
 # ------------------------------------------------------------------------------
 # Sign-off STA / power - Synopsys PrimeTime + PrimePower (GF180MCU, MCMM)
 # ------------------------------------------------------------------------------
-# Reads the SDC + per-corner SPEF that the FC flow's own scripts/07_pt_export.tcl
-# step writes into outputs/<run>/ (same folder as GDS/Verilog -- see that
+# Reads the SDC + per-corner SPEF that 06_finish.tcl (scripts/common/export_signoff.tcl)
+# writes into outputs/<run>/ (same folder as GDS/Verilog -- see that
 # script's header comment for why one write_parasitics call produces 3 SPEF
 # files, one per MCMM corner temperature). `make sta-pt`/`make power-pp`
-# don't depend on `pt_export` the way FC's own numbered steps chain off each
-# other -- like drc/lvs/drc-icv above, they just check the SDC/SPEF exist and
-# tell you to run `make pt_export` if not, rather than silently kicking off a
-# (potentially multi-hour) FC re-run as a side effect.
+# don't depend on the FC steps -- like drc/lvs/drc-icv above, they just check
+# the SDC/SPEF exist and tell you to run `make finish` (or `make pt_export` to
+# write them again from the saved finish block) if not, rather than silently
+# kicking off a (potentially multi-hour) FC re-run as a side effect.
 PT_HOME_DIR ?= /usr/synopsys/prime/Y-2026.03-SP2
 SDC  ?= $(RUN_DIR)/$(TOP).sdc
-# Sign-off SDC: the same constraints at SPEC_PERIOD (scripts/common/setup.tcl), written by scripts/07_pt_export.tcl.
+# Sign-off SDC: the same constraints at SPEC_PERIOD (scripts/common/setup.tcl), written by scripts/common/export_signoff.tcl.
 # The name carries the period in ns (SPEC_PERIOD 55.0 -> _55ns).
 SPEC_SDC ?= $(RUN_DIR)/$(TOP)_55ns.sdc
 
@@ -225,6 +225,13 @@ $(foreach file,$(TCL_FILES),\
   $(eval $(call MAKE_FC_RULE,$(file),$(base),$(DEPENDENCY)))\
   $(eval DEPENDENCY := $(WORK_DIR)/design.dlib/$(base))\
 )
+
+# Re-export of the PrimeTime inputs (06_finish.tcl writes them already): SDC, sign-off SDC, scan SDC and SPEF from
+# the saved finish block into outputs/latest, without running finish again.
+.PHONY: pt_export
+pt_export:
+	mkdir -p $(LOGS_DIR) && cd $(WORK_DIR) && set -o pipefail; \
+	fc_shell -batch -f ../scripts/utils/pt_export.tcl | tee logs/pt_export.log && ../scripts/utils/archive_run.sh pt_export
 
 # ------------------------------------------------------------------------------
 # Full Flow
@@ -587,7 +594,7 @@ fill-icv:
 # ------------------------------------------------------------------------------
 # Runs one classic pt_shell session per corner (see scripts/signoff/sta/sta_corner.tcl's
 # header comment for why, instead of PT's own -multi_scenario distributed
-# mode) against the SDC + per-corner SPEF `make pt_export` wrote. Setup is
+# mode) against the SDC + per-corner SPEF that `make finish` wrote. Setup is
 # checked at slow+typical, hold at fast -- mirrors scripts/common/mcmm.tcl's
 # own set_scenario_status split exactly (the existing, already-validated FC
 # in-design convention: setup is worst at the slowest corner, hold is worst
@@ -596,7 +603,7 @@ fill-icv:
 # report_timing_hold / report_constraint_hold / report_qor for fast, plus a
 # combined summary printed at the end of the run.
 #
-# Typical use (after `make finish pt_export`):
+# Typical use (after `make finish`):
 #   make sta-pt                                # all 3 corners, outputs/latest
 #   make sta-pt RUN=croc_soc_20260804_101500   # re-check an older run
 .PHONY: sta-pt
@@ -607,7 +614,7 @@ sta-pt:
 	fi
 	@if [ ! -e "$(SPEC_SDC)" ]; then \
 	  echo "[STA-PT] ERROR: sign-off SDC not found: $(SPEC_SDC)"; \
-	  echo "[STA-PT] Run 'make pt_export' first (writes SDC+SPEF alongside GDS/Verilog)."; \
+	  echo "[STA-PT] Run 'make finish' first, or 'make pt_export' to write SDC+SPEF again from the finish block."; \
 	  exit 1; \
 	fi
 	@mkdir -p "$(CACHE_DIR)"
@@ -637,7 +644,7 @@ sta-pt:
 	   spef="$$run_dir/$(TOP).$${spef_suffix}.spef"; \
 	   if [ ! -e "$$spef" ]; then \
 	     echo "[STA-PT] ERROR: SPEF not found for corner $$corner: $$spef"; \
-	     echo "[STA-PT] Run 'make pt_export' first."; \
+	     echo "[STA-PT] Run 'make finish' or 'make pt_export' first."; \
 	     exit 1; \
 	   fi; \
 	   echo "[STA-PT] --- corner: $$corner ---"; \
@@ -675,7 +682,7 @@ sta-pt:
 # reports power. Set PP_SAIF=<path/to.saif> to use real simulated activity
 # instead once one exists; empty (the default) uses the vectorless estimate.
 #
-# Typical use (after `make finish pt_export`):
+# Typical use (after `make finish`):
 #   make power-pp                                # fast corner only (default)
 #   make power-pp PP_CORNERS="slow typical fast"  # all 3, for comparison
 #   make power-pp PP_SAIF=sim/build/croc.saif     # real activity once available
@@ -687,7 +694,7 @@ power-pp:
 	fi
 	@if [ ! -e "$(SDC)" ]; then \
 	  echo "[POWER-PP] ERROR: SDC not found: $(SDC)"; \
-	  echo "[POWER-PP] Run 'make pt_export' first (writes SDC+SPEF alongside GDS/Verilog)."; \
+	  echo "[POWER-PP] Run 'make finish' first, or 'make pt_export' to write SDC+SPEF again from the finish block."; \
 	  exit 1; \
 	fi
 	@mkdir -p "$(CACHE_DIR)"
@@ -721,7 +728,7 @@ power-pp:
 	   spef="$$run_dir/$(TOP).$${spef_suffix}.spef"; \
 	   if [ ! -e "$$spef" ]; then \
 	     echo "[POWER-PP] ERROR: SPEF not found for corner $$corner: $$spef"; \
-	     echo "[POWER-PP] Run 'make pt_export' first."; \
+	     echo "[POWER-PP] Run 'make finish' or 'make pt_export' first."; \
 	     exit 1; \
 	   fi; \
 	   echo "[POWER-PP] --- corner: $$corner ---"; \
@@ -909,7 +916,7 @@ help:
 	@echo "  make cts"
 	@echo "  make route"
 	@echo "  make finish"
-	@echo "  make pt_export  (writes SDC + per-corner SPEF for sta-pt/power-pp)"
+	@echo "  (make finish also writes the SDC + per-corner SPEF for sta-pt/power-pp)"
 	@echo ""
 	@echo "Run selection (shared by drc and lvs):"
 	@echo "  make drc                           – sign off outputs/latest (default)"
@@ -948,10 +955,10 @@ help:
 	@echo "  make finish fill-icv                – build finish, then fill"
 	@echo ""
 	@echo "Signoff STA / power (Synopsys PrimeTime / PrimePower):"
-	@echo "  make pt_export                       – FC step: write SDC + per-corner SPEF to outputs/<run>/"
+	@echo "  make pt_export                       – write SDC + per-corner SPEF again from the finish block (make finish writes them)"
 	@echo "  make sta-pt                          – PrimeTime STA, all 3 MCMM corners (slow/typical/fast)"
 	@echo "  make sta-pt RUN=$(TOP)_20260804_101500 – re-check an older run"
-	@echo "  make finish pt_export sta-pt          – build, export SDC/SPEF, then run signoff STA"
+	@echo "  make finish sta-pt                   – build (writes SDC/SPEF), then run signoff STA"
 	@echo "  Setup is checked at slow+typical, hold at fast (mirrors scripts/common/mcmm.tcl's"
 	@echo "  own set_scenario_status split). SRAM macro uses the same tt/25C/5.0V liberty view"
 	@echo "  at all 3 corners -- this PDK kit ships no ss/ff SRAM characterization (see"
@@ -978,9 +985,9 @@ help:
 	@echo "  outputs/<run>/drc_icv/               – IC Validator DRC .RESULTS/.vue + logs"
 	@echo "  outputs/<run>/lvs_icv/               – IC Validator LVS .sp/.RESULTS/.vue + logs"
 	@echo "  outputs/<run>/fill_icv/              – IC Validator filled.gds + logs"
-	@echo "  outputs/<run>/$(TOP).sdc, .typ_*.spef – pt_export's SDC + per-corner parasitics"
+	@echo "  outputs/<run>/$(TOP).sdc, .typ_*.spef – SDC + per-corner parasitics (written at finish)"
 	@echo "  outputs/<run>/sta_pt/                – PrimeTime timing/constraint/QoR reports"
-	@echo "  outputs/<run>/reports/<step>/        – QoR, timing, DRC reports of every flow step (01..05 copied at 06_finish, 06 and 07 written there)"
+	@echo "  outputs/<run>/reports/<step>/        – QoR, timing, DRC reports of every flow step (01..05 copied at 06_finish, 06 and export_signoff written there)"
 	@echo "  outputs/<run>/logs/, svf/            – step logs and Formality guidance files of that build (copied at finish)"
 	@echo "  outputs/<run>/power_pp/               – PrimePower reports"
 	@echo "  outputs/latest/rail_rh/               – RedHawk-SC rail analysis report + log"
@@ -1008,7 +1015,7 @@ help:
 # outputs/<run>/checks/<step>/summary.txt. `make report` collects them into outputs/<run>/report.md.
 # Tool paths are in scripts/utils/env.sh (override in scripts/utils/local.env).
 #
-#   make signoff   KLayout DRC and LVS, functional STA at 3 corners, Formality   (needs a run made with `make all pt_export`)
+#   make signoff   KLayout DRC and LVS, functional STA at 3 corners, Formality   (needs a run made with `make all`)
 #   make scan-sta  scan-shift STA, 3 corners
 #   make gls       Verilator boot, scan shift, Icarus macro boot over JTAG
 #   make dft       scan chain trace, ATPG, pattern replay (NPAT=20 for a quick run), SRAM March test

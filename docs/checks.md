@@ -6,7 +6,7 @@ Nothing writes to `/tmp`.
 
 | Target | What it runs | Time (Rocky, 9 cores) | Needs |
 |---|---|---|---|
-| `make signoff` | KLayout DRC and LVS, PrimeTime functional STA at 3 corners, Formality (RTL against gates with the SVF chain) | about 1 h | a run made with `make all pt_export` (Formality reads the run's `logs/` and `svf/`) |
+| `make signoff` | KLayout DRC and LVS, PrimeTime functional STA at 3 corners, Formality (RTL against gates with the SVF chain) | about 1 h | a run made with `make all` (Formality reads the run's `logs/` and `svf/`) |
 | `make scan-sta` | scan-shift STA (`scan_se_i` = 1, `testmode_i` = 1), 3 corners, hold and setup on the 3,821 scan inputs | 5 min | `croc_soc_scan.sdc` and the SPEF of the run |
 | `make gls` | Verilator boot of the netlist (`GLS OK`), scan shift, Icarus macro boot over JTAG | 15 min | the template's nix-shell (verilator, iverilog) |
 | `make dft` | scan chain trace, ATPG, replay of the patterns on the netlist, SRAM March test with injected faults | 10 min with `NPAT=20`, 3 h for all patterns | TestMAX ATPG (`txs`), iverilog |
@@ -22,7 +22,7 @@ Folders under `scripts/` are named after what they do, not after the tool.
 
 | What | Where |
 |---|---|
-| flow steps (Fusion Compiler) and their Tcl helpers | `scripts/01..07_*.tcl`, `scripts/common/` |
+| flow steps (Fusion Compiler) and their Tcl helpers | `scripts/01..06_*.tcl`, `scripts/common/` (sign-off SDC and SPEF: `common/export_signoff.tcl`, called by 06) |
 | timing sign-off: PrimeTime STA, scan-shift STA, timing models (ETM), sign-off summary | `scripts/signoff/sta/` |
 | power analysis | `scripts/signoff/power/` |
 | equivalence check (Formality) | `scripts/signoff/lec/` |
@@ -38,6 +38,16 @@ Folders under `scripts/` are named after what they do, not after the tool.
 | report card of the baseline run | `docs/baseline_report_20261015.md` |
 
 A step that cannot run (missing tool or input) is `FAIL` with the reason, never silently skipped.
+
+## Accepted DRC results
+
+The sign-off DRC (`make drc`, deck `gf180_drc_lvs`, metal stack C) has one accepted rule. All other rules must be clean.
+
+| Rule | Where | Why it is accepted | Evidence |
+|---|---|---|---|
+| NW.2b_5V | 3 markers inside each of the 4 `gf180mcu_fd_ip_sram__sram512x8m8wm1` macros, at the same place in each | It is in the foundry SRAM layout itself. The flow does not change the macro. The deck of the wafer.space precheck (`.ciel` gf180mcuD) has no violation there | The bare SRAM GDS from `~/.ciel/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/gds` alone gives NW.2b_5V and nothing else (18 Oct). Present in every sign-off since 3 Oct |
+
+The checks for the rules that the flow can make (DF.6, DF.13, DF.14, CO.6a and the routing rules) are in `scripts/06_finish.tcl` and `scripts/common/drc_eco.tcl`.
 
 ## What changes when the design changes
 

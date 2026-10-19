@@ -58,3 +58,4 @@ build/
 formality.log
 lec_work_*/
 scripts/utils/local.env
+sim/experiments/*/work/

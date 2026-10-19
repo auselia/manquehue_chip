@@ -9,8 +9,9 @@
 
 current_mode scan
 
-# Shift clocks. Keep the names `clock` and `jtag_tck`: 04_cts.tcl and the sign-off export set the uncertainties
-# by name. The waveforms are the ones of dft_scan.tcl: clk_i at 50-70 ns, jtag_tck_i at 75-90 ns of 100 ns.
+# Shift clocks. Keep the names `clock` and `jtag_tck`: 04_cts.tcl and common/export_signoff.tcl set the
+# uncertainties by name. The waveforms are the ones of dft_scan.tcl: clk_i at 50-70 ns, jtag_tck_i at 75-90 ns of
+# 100 ns.
 create_clock -name clock -period 100 -waveform {50 70} [get_ports clk_i]
 create_clock -name jtag_tck -period 100 -waveform {75 90} [get_ports jtag_tck_i]
 

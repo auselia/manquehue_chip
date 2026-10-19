@@ -1,5 +1,5 @@
 #!/bin/bash
-# Called by the Makefile in work/ after the finish and pt_export steps: puts the step logs and the Formality guidance
+# Called by the Makefile in work/ after the finish step and after make pt_export: puts the step logs and the Formality guidance
 # files (SVF) of the build into the run folder outputs/latest/, so the run is self-contained.
 #   finish     -> outputs/latest/logs/<step>.log of the six netlist-changing steps + outputs/latest/svf/default-*.svf
 #   pt_export  -> outputs/latest/logs/pt_export.log only (the other logs stay those of the finish step)

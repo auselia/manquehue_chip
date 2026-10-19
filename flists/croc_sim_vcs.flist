@@ -1,6 +1,8 @@
-// Croc SoC - Verilator SIMULATION flist
-// Behavioral (generic) tech cells + testbench/VIP. Top: tb_croc_soc
-// Paths are relative to this file's location (repo root). Invoke with: -F croc_sim.flist
+///////////////////////////////////////////////////////////////////////////////
+// Croc SoC File List
+// Author: Nicolás Villegas - Universidad de los Andes, Chile
+// Description: VCS simulation file list (top tb_croc_soc)
+///////////////////////////////////////////////////////////////////////////////
 
 // ---- include dirs ----
 +incdir+../rtl/apb/include
@@ -17,11 +19,26 @@
 +define+VERILATOR=1
 +define+COMMON_CELLS_ASSERTS_OFF=1
 
-// ---- verification helpers + generic (behavioral) tech cells ----
+// ---- simulation cells (behavioral) ----
 ../rtl/common_verification/clk_rst_gen.sv
 ../rtl/tech_cells_generic/tc_sram.sv
 ../rtl/tech_cells_generic/tc_sram_impl.sv
 ../rtl/tech_cells_generic/tc_clk.sv
+
+// ---- flash model (VCS only) ----
+../rtl/obi_qspi/flash_model/W25Q128JWxxIM_V1.2_VCS.vp
+
+// ---- riscv-dbg JTAG/DMI simulation VIP ----
+../rtl/riscv-dbg/tb/jtag_test_simple.sv
+
+// ---- testbench ----
+../rtl/test/tb_croc_pkg.sv
+../rtl/test/croc_vip.sv
+../rtl/test/tb_croc_soc.sv
+
+///////////////////////////////////////////////////////////////////////////////
+// Croc original file list
+///////////////////////////////////////////////////////////////////////////////
 
 // ---- common_cells ----
 ../rtl/common_cells/binary_to_gray.sv
@@ -172,10 +189,9 @@
 ../rtl/obi_uart/obi_uart_register.sv
 ../rtl/obi_uart/obi_uart.sv
 
-// ---- obi_qspi & flash model ----
+// ---- obi_qspi ----
 ../rtl/obi_qspi/qqspi.v
 ../rtl/obi_qspi/obi_qspi.sv
-../rtl/obi_qspi/flash_model/W25Q128JWxxIM_V1.2_VCS.vp
 
 // ---- riscv-dbg (synthesizable RTL) ----
 ../rtl/riscv-dbg/dm_pkg.sv
@@ -189,9 +205,6 @@
 ../rtl/riscv-dbg/dm_top.sv
 ../rtl/riscv-dbg/dmi_jtag.sv
 ../rtl/riscv-dbg/dm_obi_top.sv
-
-// ---- riscv-dbg JTAG/DMI sim VIP (was your missing 'riscv_dbg_simple') ----
-../rtl/riscv-dbg/tb/jtag_test_simple.sv
 
 // ---- packages + soc ----
 ../rtl/croc_pkg.sv
@@ -210,8 +223,3 @@
 ../rtl/croc_domain.sv
 ../rtl/user_domain.sv
 ../rtl/croc_soc.sv
-
-// ---- testbench (sim only) ----
-../rtl/test/tb_croc_pkg.sv
-../rtl/test/croc_vip.sv
-../rtl/test/tb_croc_soc.sv

@@ -1,26 +1,8 @@
-# Croc SoC - FPGA (ZedBoard / Zynq-7000 PL) flist
-# Derived directly from croc_sim.flist (the source of truth for the current
-# RTL) by: dropping simulation-only sources (VIP/testbench, clk_rst_gen),
-# swapping the generic behavioral tech cells for the Xilinx XPM/UNISIM ones,
-# and appending the ZedBoard top-level wrapper.
-#
-# Removed vs. croc_sim.flist:
-#   rtl/common_verification/clk_rst_gen.sv   (tb-only clock/reset generator;
-#                                              croc_zedboard_top.sv provides
-#                                              its own MMCM + reset sync)
-#   rtl/tech_cells_generic/tc_sram.sv         (behavioral SRAM model)
-#   rtl/tech_cells_generic/tc_clk.sv          (behavioral clock cells)
-#   rtl/riscv-dbg/tb/jtag_test_simple.sv      (JTAG/DMI simulation VIP)
-#   rtl/test/tb_croc_pkg.sv                   (testbench)
-#   rtl/test/croc_vip.sv                      (testbench)
-#   rtl/test/tb_croc_soc.sv                   (testbench, top for sim)
-# Added vs. croc_sim.flist:
-#   rtl/tech_cells_generic/fpga/tc_sram_xilinx.sv  (tc_sram via XPM memory macros)
-#   rtl/tech_cells_generic/fpga/tc_clk_xilinx.sv   (tc_clk_* via BUFGMUX/passthrough)
-#   rtl/fpga/croc_zedboard_top.sv                  (new top: MMCM, reset sync, IOBUFs)
-# tc_sram_impl.sv is unchanged -- it just wraps whichever `tc_sram` module is
-# in the compile, so pointing the flist at the Xilinx tc_sram.sv is a
-# drop-in swap; croc_domain.sv itself needs no changes.
+###############################################################################
+# Croc SoC File List
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# Description: FPGA file list for the ZedBoard (top croc_zedboard_top)
+###############################################################################
 
 # ---- include dirs ----
 +incdir+../rtl/apb/include
@@ -29,7 +11,7 @@
 +incdir+../rtl/idma/include
 +incdir+../rtl/obi/include
 
-# ---- defines ----
+# ---- defines (FPGA) ----
 +define+TARGET_FLIST
 +define+TARGET_RTL
 +define+TARGET_SYNTHESIS
@@ -37,10 +19,17 @@
 +define+TARGET_VIVADO
 +define+COMMON_CELLS_ASSERTS_OFF=1
 
-# ---- generic tech cells (Xilinx variants) ----
+# ---- FPGA cells (Xilinx variants) ----
 ../rtl/tech_cells_generic/fpga/tc_sram_xilinx.sv
 ../rtl/tech_cells_generic/tc_sram_impl.sv
 ../rtl/tech_cells_generic/fpga/tc_clk_xilinx.sv
+
+# ---- FPGA top level ----
+../rtl/fpga/croc_zedboard_top.sv
+
+###############################################################################
+# Croc original file List
+###############################################################################
 
 # ---- common_cells ----
 ../rtl/common_cells/binary_to_gray.sv
@@ -225,6 +214,3 @@
 ../rtl/croc_domain.sv
 ../rtl/user_domain.sv
 ../rtl/croc_soc.sv
-
-# ---- FPGA top level ----
-../rtl/fpga/croc_zedboard_top.sv

@@ -1,14 +1,13 @@
-# -----------------------------------------------------------------------------
+###############################################################################
 # Croc SoC Physical Design Flow
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Unified Fusion Compiler (FC) RTL-to-GDS + KLayout/IC Validator DRC+LVS Makefile
-# -----------------------------------------------------------------------------
+# Description: Fusion Compiler flow, sign-off checks, simulation and FPGA targets
+###############################################################################
 
 SHELL := /bin/bash
 .DELETE_ON_ERROR:
 
-# Helpers for converting Make's space-separated lists into comma-separated
-# strings (e.g. for klayout -rd args that take a comma-separated list).
+# Comma-separated lists for the klayout -rd arguments
 empty :=
 space := $(empty) $(empty)
 comma := ,
@@ -28,18 +27,11 @@ REPO_DIR           := $(shell pwd)
 # ------------------------------------------------------------------------------
 # Sign-off run selection (shared by DRC and LVS)
 # ------------------------------------------------------------------------------
-# Each Fusion Compiler run (see 06_finish.tcl) lands in its own folder:
-#   outputs/<TOP>_<YYYYMMDD_HHMMSS>/{<TOP>.gds, <TOP>.v}
-# and outputs/latest is a symlink to the newest one. Sign-off targets read
-# GDS/VLOG out of that run folder and write their results right back into it
-# (.../drc/, .../lvs/), so everything for a run lives in one place.
-#
-#   make drc                              # latest run
-#   make lvs                              # latest run
-#   make drc RUN=croc_soc_20260804_101500 # a specific (older) run
-#   make drc GDS=/path/to/other.gds VLOG=/path/to/other.v  # fully explicit
+# 06_finish.tcl writes every run to outputs/<TOP>_<YYYYMMDD_HHMMSS>/ and points outputs/latest at it. The checks
+# read GDS and VLOG from the run folder and write their results into it.
+#   make drc RUN=croc_soc_20260804_101500       a folder under outputs/, or an absolute path
+#   make drc GDS=/path/to.gds VLOG=/path/to.v
 RUN  ?= latest
-# RUN is a folder name under outputs/ or an absolute path.
 RUN_DIR := $(if $(filter /%,$(RUN)),$(RUN),$(OUTPUTS_DIR)/$(RUN))
 GDS  ?= $(RUN_DIR)/$(TOP).gds
 VLOG ?= $(RUN_DIR)/$(TOP).v
@@ -47,8 +39,7 @@ VLOG ?= $(RUN_DIR)/$(TOP).v
 # ------------------------------------------------------------------------------
 # Sign-off / DRC configuration (KLayout + GF180MCU)
 # ------------------------------------------------------------------------------
-# DRC_HOME must contain: run_drc.py, rule_decks/, utils/, and the three
-# top-level decks gf180mcu.drc / gf180mcu_antenna.drc / gf180mcu_density.drc.
+# run_drc.py, rule_decks/, utils/ and the decks gf180mcu.drc, gf180mcu_antenna.drc, gf180mcu_density.drc
 DRC_HOME      ?= $(HOME)/Documents/gf180_drc_lvs/drc/
 # Metal stack option passed to run_drc.py / run_lvs.py:  A=3LM  B=4LM  C=5LM
 GF180MCU_OPT  ?= C
@@ -56,120 +47,48 @@ GF180MCU_OPT  ?= C
 DRC_RUN_MODE  ?= flat
 # Extra run_drc.py flags, e.g. DRC_EXTRA="--antenna --density"
 DRC_EXTRA     ?= --thr=6
-# run_drc.py derives $PDK_ROOT/$PDK from these; we set them explicitly so a
-# PDK_ROOT already exported for the Synopsys flow can't interfere.
+# Set here, so that a PDK_ROOT exported for the Synopsys flow does not interfere
 DRC_PDK_ROOT  ?= $(dir $(patsubst %/,%,$(DRC_HOME)))
 DRC_PDK       ?= $(notdir $(patsubst %/,%,$(DRC_HOME)))
 
 # ------------------------------------------------------------------------------
 # Sign-off / LVS configuration (KLayout + GF180MCU)
 # ------------------------------------------------------------------------------
-# LVS_HOME must contain: run_lvs.py, verilog2spice.py, fold_wells.py, and the
-# gf180mcu.lvs deck. Fusion Compiler does not export a SPICE schematic, so
-# `make lvs` first rebuilds one from the exported gate-level Verilog (VLOG)
-# using verilog2spice.py against the gf180mcu_fd_sc_mcu7t5v0 CDL, then runs
-# KLayout LVS comparing that schematic against the GDS.
+# run_lvs.py, verilog2spice.py, fold_wells.py and the gf180mcu.lvs deck. FC exports no SPICE netlist, so make lvs
+# builds one from the gate-level Verilog (verilog2spice.py with the standard-cell CDL) and compares it with the GDS.
 LVS_HOME         ?= $(HOME)/Documents/gf180_drc_lvs/lvs/
-# KLayout run mode: flat | deep | tiling (deep is the validated default here)
+# KLayout run mode: flat | deep | tiling (deep is the tested default)
 LVS_RUN_MODE     ?= deep
-# Substrate net name used in the design
+# Substrate net
 LVS_SUB          ?= VSS
-# Complete, versioned GF180MCU PDK managed by `ciel` (the open-source PDK
-# version manager). ~/.ciel/gf180mcu<OPT> is a stable symlink to the
-# currently-active ciel version, so it survives PDK upgrades. It ships one
-# combined CDL per library (libs.ref/<lib>/cdl/<lib>.cdl) -- this is the
-# REAL, complete gf180mcu_fd_sc_mcu7t5v0 library whose subckt names match
-# what Fusion Compiler's write_verilog actually instantiates.
-#
-# NOTE: this is deliberately NOT gf180_drc_lvs/lvs/testing/sc_testcases/*.cdl
-# (different, X1_7T5P0-style cell names -- a test-suite fixture) and NOT
-# ~/pdk_synopsys/cdl/*.cdl (a partial, per-cell export missing most cells,
-# e.g. inv_1/nand2_1/fillcap_*/dffrnq_1 -- confirmed missing 2026-08-12).
-# GF180MCU_OPT selects the metal-stack variant (A/B/C/D), matching ciel's own
-# gf180mcuA/B/C/D directories; the standard-cell CDL itself is identical
-# across all four (verified by checksum), only IO/SRAM/tech data differs.
+# The ciel PDK (~/.ciel/gf180mcu<OPT> follows the active version). Its CDL has the cell names that write_verilog
+# uses. Not gf180_drc_lvs/lvs/testing (test cells) and not ~/pdk_synopsys/cdl (most cells are missing). The
+# standard-cell CDL is the same in the variants A to D.
 LVS_PDK_KIT      ?= $(HOME)/.ciel/gf180mcu$(GF180MCU_OPT)/libs.ref
-# Reference (real) standard-cell CDL. fold_wells.py always strips the
-# physical-only `antenna` cell (its diodes break KLayout's SPICE reader),
-# and folds VPW -> VSS (matching gf180mcu.lvs's own connect_global on the
-# substrate, which globally merges every p-well/substrate tap into VSS
-# *within* KLayout's per-leaf-cell extraction). It deliberately does NOT
-# fold VNW -> VDD: n-well has no equivalent global connect in this deck, so
-# a layout leaf cell keeps its n-well tap as a genuinely separate pin
-# (merged into VDD only through abutment with neighboring cells at the
-# parent level) -- folding it in the schematic would give every leaf cell a
-# spurious pin-count mismatch. verilog2spice.py's own default
-# `--tie VNW=VDD` ties each *instantiation's* VNW pin to VDD instead,
-# mirroring what abutment does in the layout. The result is cached under
-# outputs/.cache/ and only rebuilt when the source CDL changes.
+# fold_wells.py removes the `antenna` cell (its diodes break the KLayout SPICE reader) and folds VPW into VSS, as
+# the global substrate connect of gf180mcu.lvs does. VNW stays a pin: verilog2spice.py ties it to VDD in every
+# instance, as abutment does in the layout. The result is cached in outputs/.cache/.
 LVS_SC_CDL       ?= $(LVS_PDK_KIT)/gf180mcu_fd_sc_mcu7t5v0/cdl/gf180mcu_fd_sc_mcu7t5v0.cdl
 LVS_WELL_TIES    ?= --tie VPW=VSS
-# Renames the CDL's SPICE MOSFET model names (nfet_05v0/pfet_05v0) to match
-# gf180mcu.lvs's own layout-side device class names (nmos_5p0/pmos_5p0, from
-# its extract_devices(mos4("nmos_5p0"), ...) calls). With matching names,
-# KLayout's NetlistComparer treats them as the same class automatically --
-# no same_device_classes equivalence declaration needed. That matters
-# because this KLayout version's (0.30.9) built-in same_device_classes DSL
-# helper reliably errors out even when given classes that verifiably exist
-# (see the note in gf180mcu.lvs), which otherwise leaves every MOSFET
-# pairing -- and thus the deck's own native `compare` and the .lvsdb you'd
-# open in KLayout -- unusably wrong (confirmed 2026-08-12: renaming took the
-# deck's own compare from ~thousands of spurious failures down to 126 minor
-# warnings, concentrated in decap fillers and a few compound gates, none of
-# them hard failures). Without this, the .lvsdb in KLayout cannot be trusted.
+# Gives the CDL models (nfet_05v0, pfet_05v0) the device class names of gf180mcu.lvs (nmos_5p0, pmos_5p0), so
+# KLayout pairs the transistors without same_device_classes (that helper fails in KLayout 0.30.9).
 LVS_MODEL_RENAME ?= --rename-model nfet_05v0=nmos_5p0 --rename-model pfet_05v0=pmos_5p0
-# Hard macros with no transistor-level CDL to compare against (e.g. SRAM):
-# black-boxed by pin interface only, so they LVS as opaque cells and must be
-# signed off separately. Defaults to every gf180mcu SRAM size in the kit;
-# harmless to list sizes the design doesn't use (verilog2spice.py only emits
-# stubs for cells actually instantiated).
+# Hard macros without a transistor-level CDL (the SRAMs) are black boxes by their pins and need their own sign-off.
+# Sizes that the design does not use do no harm.
 LVS_BLACKBOX_CDL ?= $(wildcard $(LVS_PDK_KIT)/gf180mcu_fd_ip_sram/cdl/gf180mcu_fd_ip_sram__sram*.cdl)
-# Hard macros to black-box on the LAYOUT (GDS) side for `make lvs` too --
-# not just the schematic. Fusion Compiler's write_gds places the SRAM's
-# real, full transistor-level view (thousands of devices per instance);
-# without this, LVS "compares" that against the schematic's pin-only stub
-# and fails on device count alone, telling you nothing about the design
-# itself. `make lvs` derives a black-boxed copy of $(GDS) (blackbox_gds_cells.rb
-# strips diffusion/poly/well/implant/contact layers from just these cells'
-# sub-hierarchy, leaving metal/via routing and pin labels untouched, so the
-# macro's boundary connectivity is unaffected) and signs off against that --
-# $(GDS) itself is never modified, so it's unaffected for `make drc` and
-# stays exactly what Fusion Compiler wrote for tapeout. Defaults to the cell
-# names implied by LVS_BLACKBOX_CDL; set to empty to sign off the real GDS
-# as-is (e.g. once you have a transistor-level SRAM CDL to LVS it against
-# directly instead of treating it as a black box).
+# The same macros are black boxes in the layout: make lvs removes their device layers in a copy of the GDS
+# (blackbox_gds_cells.rb) and keeps metal, vias and pin labels. $(GDS) does not change. Empty: compare the full GDS.
 LVS_BLACKBOX_CELLS ?= $(basename $(notdir $(LVS_BLACKBOX_CDL)))
-# Comma-separated, case-insensitive substrings: subcircuit instances whose
-# referenced circuit name contains any of these are removed from BOTH the
-# layout and schematic netlists before compare (symmetrically, comparison
-# scope only -- the real GDS/.v/.sp are untouched, so DRC and tapeout are
-# unaffected). fillcap (decoupling-cap fillers) has thousands of instances
-# tying only VDD/VSS with no signal connectivity and no distinguishing
-# topology between same-size instances, so exact 1:1 instance
-# correspondence between an independently-drawn layout and an
-# independently-synthesized schematic is fundamentally ambiguous -- not a
-# real violation, just more interchangeable siblings than a graph-
-# isomorphism matcher can uniquely resolve (confirmed 2026-08-13: this was
-# the deciding factor between "Netlists don't match" and "Congratulations!
-# Netlists match" on croc_soc, with the *same* 126 harmless
-# MatchWithWarning notes either way -- see lvs_compare_summary.txt).
-# Set to empty to compare every instance, filler cells included.
+# Cells left out of the compare on both sides (comma-separated substrings). The fillcap cells connect only VDD
+# and VSS, so the compare cannot pair same-size instances one to one. Empty: compare every instance.
 LVS_EXCLUDE_FROM_COMPARE ?= fillcap
-# Known-good run_lvs.py switches (matches the manually-verified croc_soc run).
+# run_lvs.py switches of the tested croc_soc run
 LVS_FLAGS        ?= --set_spice_comments --set_net_only --set_top_lvl_pins --set_combine --set_purge --set_purge_nets
 # Extra run_lvs.py flags, e.g. LVS_EXTRA="--thr=6 --set_verbose"
 LVS_EXTRA        ?= --thr=6
 LVS_PDK_ROOT     ?= $(dir $(patsubst %/,%,$(LVS_HOME)))
 LVS_PDK          ?= $(notdir $(patsubst %/,%,$(LVS_HOME)))
-# Layout-vs-schematic MOSFET device-class equivalence, passed to
-# lvs_compare.rb (the secondary cross-check -- see LVS_MODEL_RENAME above
-# for the primary fix, which makes this unnecessary by construction: with
-# both sides' CDL model names already renamed to match the layout's own
-# device class names, they read back with the SAME name -- e.g. NMOS_5P0
-# on both sides, not NMOS_5P0 vs NFET_05V0 -- so KLayout's NetlistComparer
-# already treats them as equivalent with no mapping needed. Empty by
-# default; only set this if you override LVS_MODEL_RENAME to something
-# that leaves the names actually differing between the two sides.
+# Device class map for lvs_compare.rb. Empty: LVS_MODEL_RENAME already gives both sides the same names.
 LVS_DEVICE_CLASS_MAP ?=
 
 CACHE_DIR       := $(OUTPUTS_DIR)/.cache
@@ -178,37 +97,22 @@ FOLDED_SC_CDL   := $(CACHE_DIR)/gf180mcu_fd_sc_mcu7t5v0.folded.cdl
 # ------------------------------------------------------------------------------
 # Sign-off / DRC + LVS configuration (Synopsys IC Validator + GF180MCU)
 # ------------------------------------------------------------------------------
-# Second, independent DRC/LVS engine using the ICV decks shipped alongside
-# the Synopsys PDK install (pdk_synopsys/DRC_ICV*, pdk_synopsys/LVS_ICV) --
-# useful as a cross-check against the KLayout `drc`/`lvs` targets above, or
-# on its own. LVS reuses the same verilog2spice.py/fold_wells.py helpers
-# from LVS_HOME/LVS_SC_CDL above; only the standard-cell CDL is re-folded
-# without the KLayout-specific model rename (see FOLDED_SC_CDL_ICV below).
+# Second DRC and LVS engine with the ICV decks of the Synopsys PDK (DRC_ICV*, LVS_ICV), a cross-check of the
+# KLayout targets. LVS uses the same verilog2spice.py and fold_wells.py, without the model rename.
 ICV_HOME_DIR      ?= /usr/synopsys/icvalidator/Y-2026.03-SP2
 ICV_PDK_HOME      ?= $(HOME)/pdk_synopsys
 ICV_HOST_INIT     ?= 4
-# Both ICV decks were authored assuming a 1nm (0.001um) GDS database unit,
-# but Fusion Compiler's write_gds exports at 0.1nm (0.0001um); without a
-# fix ICV aborts immediately with "ERROR: Library resolution "0.0001" does
-# not match specified runset layout_resolution "0.001"." This runset config
-# patches the deck's resolution_options() to match, via `icv -runset_config`
-# (confirmed 2026-08-14: both DRC decks and the LVS deck run clean with this
-# fix in place). If Fusion Compiler's GDS export precision ever changes,
-# update ICV_LAYOUT_RESOLUTION AND the matching value inside the file itself.
+# The ICV decks expect a 0.001 um database unit. resolution_override.rs sets the deck to ICV_LAYOUT_RESOLUTION,
+# which must be the unit of the GDS from write_gds (06_finish.tcl). Change the value here and in the file.
 ICV_RUNSET_CONFIG     ?= scripts/signoff/pv/resolution_override.rs
 ICV_LAYOUT_RESOLUTION ?= 0.0001
 
-# DRC: pick either the foundry-original, full-coverage deck (DRC_ICV/,
-# default -- needs BEOL_STACK/TOPMETAL/etc below) or the simpler, community-
-# ported DRC_ICV_MODIFIED/ deck (no extra env vars required, but its own
-# README warns it "may miss critical rules" -- see pdk_synopsys/
-# DRC_ICV_MODIFIED/DRC/ICV/README.md):
+# DRC deck: the foundry deck DRC_ICV (default, needs the ICV_* settings below) or DRC_ICV_MODIFIED (no settings,
+# but its README says that it can miss rules):
 #   make drc-icv ICV_DRC_RUNSET=$(ICV_PDK_HOME)/DRC_ICV_MODIFIED/DRC/ICV/gf180mcu_drc.rs
 ICV_DRC_RUNSET   ?= $(ICV_PDK_HOME)/DRC_ICV/DRC/ICV/gf180mcu_drc.rs
-# Required by DRC_ICV/gf180mcu_drc.rs. ICV_BEOL_STACK mirrors GF180MCU_OPT
-# above (A=1P3M B=1P4M C=1P5M); the rest have no equivalent in the KLayout
-# flow and default to the most common GF180MCU MCU tapeout choice --
-# override if your target metal stack/pad type differs.
+# Settings of DRC_ICV. ICV_BEOL_STACK matches GF180MCU_OPT (A=1P3M B=1P4M C=1P5M). The others are the usual
+# GF180MCU choices.
 ICV_BEOL_STACK   ?= 1P5M
 ICV_TOPMETAL     ?= 11KA
 ICV_MIMCAP       ?= OPT_A
@@ -222,32 +126,13 @@ ICV_LVS_RUNSET   ?= $(ICV_PDK_HOME)/LVS_ICV/LVS/ICV/cmos018hv.3p3.6v.lvs.rs
 ICV_LVS_HOME     ?= $(patsubst %/,%,$(dir $(ICV_LVS_RUNSET)))
 # Extra icv command-line options, e.g. ICV_LVS_EXTRA="-vueshort"
 ICV_LVS_EXTRA    ?=
-# LVS_ICV's own unit.cdl declares device types in uppercase (NFET_05V0/
-# PFET_05V0, OpenPDK-style) and ICV compares device names case-insensitively
-# by default, so -- unlike the KLayout gf180mcu.lvs deck -- this needs NO
-# --rename-model: the real gf180mcu_fd_sc_mcu7t5v0 CDL's own lowercase
-# nfet_05v0/pfet_05v0 model names already match (confirmed 2026-08-14: ICV
-# LVS ran to completion and matched 117/118 hierarchical cells on croc_soc
-# with the plain, un-renamed fold below; the one remaining top-level
-# mismatch is very likely the same filler-cell ambiguity documented at
-# LVS_EXCLUDE_FROM_COMPARE above, not a naming issue). Folded separately
-# from FOLDED_SC_CDL above (same LVS_WELL_TIES, no LVS_MODEL_RENAME) and
-# cached alongside it; only rebuilt when the source CDL changes.
+# LVS_ICV declares NFET_05V0 and PFET_05V0, and ICV compares names without case, so there is no model rename.
+# Folded and cached as FOLDED_SC_CDL.
 FOLDED_SC_CDL_ICV := $(CACHE_DIR)/gf180mcu_fd_sc_mcu7t5v0.icv.folded.cdl
 
-# Metal fill (density signoff). scripts/signoff/pv/croc_metal_fill.rs is a
-# purpose-built Metal1-Metal5 dummy-fill runset (not a pdk_synopsys file --
-# it lives in this repo) derived from pdk_synopsys/DRC_ICV_MODIFIED/DRC/
-# ICV/gf180mcu_fill.rs; see that file's header comment for the full
-# derivation and validation history (datatype fix, pad-ring-heuristic
-# removal, spacing retune against real GF180MCU DRC minimums). It still
-# needs -I pointed at DRC_ICV_MODIFIED/DRC/ICV for its
-# #include "gf180mcu_layers.rh".
-# Validated 2026-08-14 on croc_soc: raises Metal1-5 coverage from
-# 30.2%/18.9%/25.2%/17.7%/13.3% to 33.3%/39.4%/44.1%/60.8%/64.5% (all
-# above the gf180mcu_density.drc 30% signoff threshold), and a full
-# (non-density-only) KLayout DRC re-check found zero new violations
-# versus the unfilled baseline.
+# Metal fill for the density sign-off: croc_metal_fill.rs (in this repo, made from gf180mcu_fill.rs of
+# DRC_ICV_MODIFIED, see its header). It includes gf180mcu_layers.rh from ICV_FILL_INCLUDE_DIR. Metal1 to Metal5 end
+# above the 30 % of gf180mcu_density.drc, with no new DRC violations (14 Aug).
 ICV_FILL_RUNSET       ?= scripts/signoff/pv/croc_metal_fill.rs
 ICV_FILL_INCLUDE_DIR  ?= $(ICV_PDK_HOME)/DRC_ICV_MODIFIED/DRC/ICV
 # Extra icv command-line options, e.g. ICV_FILL_EXTRA="-vue"
@@ -270,20 +155,8 @@ SDC  ?= $(RUN_DIR)/$(TOP).sdc
 # The name carries the period in ns (SPEC_PERIOD 55.0 -> _55ns).
 SPEC_SDC ?= $(RUN_DIR)/$(TOP)_55ns.sdc
 
-# PrimeTime has no notion of FC's in-design MCMM (create_corner/create_mode/
-# create_scenario is an FC/ICC2-specific API -- confirmed 2026-08-15 that
-# plain pt_shell doesn't even have those commands, and pt_shell -multi_scenario
-# only adds create_scenario, built for distributing scenarios across a host
-# farm via per-scenario common_data/specific_data scripts). scripts/signoff/sta/
-# sta_corner.tcl instead runs one classic pt_shell session per corner, so
-# each corner's liberty views are spelled out explicitly here. Voltage/
-# temperature match scripts/common/mcmm.tcl's 3 corners exactly (slow=SS/
-# 4.5V/125C, typical=TT/5.0V/25C, fast=FF/5.5V/-40C -- switched 2026-08-18
-# from the 3.0/3.3/3.6V family this design was previously, incorrectly, set
-# to; gf180mcu_fd_sc_mcu7t5v0 ships all three voltage families in the same
-# library, this design's actual target is 5V); filenames are this PDK
-# kit's own gf180mcu_fd_sc_mcu7t5v0/gf180mcu_fd_io .db naming for that same
-# PVT triple (confirmed present under PT_PDK_DB_DIR 2026-08-15).
+# PrimeTime has no MCMM of its own (create_corner and create_mode are FC commands). sta_corner.tcl runs one
+# pt_shell per corner, so the libraries of each corner are named here. The corners are the ones of mcmm.tcl.
 PT_PDK_DB_DIR    ?= $(ICV_PDK_HOME)/db
 PT_SC_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ss_125C_4v50.db
 PT_SC_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.db
@@ -292,95 +165,42 @@ PT_IO_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ss_125C_4v50.db
 PT_IO_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__tt_025C_5v00.db
 PT_IO_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ff_n40C_5v50.db
 
-# SRAM macro: this PDK kit ships exactly ONE SRAM characterization
-# (gf180mcu_fd_ip_sram__sram512x8m8wm1, tt/25C/5.0V -- no ss/ff corner
-# views). Previously this was a real PDK-IP gap: the rest of the design ran
-# a 3.0-3.6V MCMM rail while this macro was stuck at 5.0V for lack of any
-# alternative characterization, and power_grid.tcl ties every macro
-# including the SRAM to one design-wide VDD/VSS net, so there was no
-# separate 5V supply for that 5V characterization to genuinely correspond
-# to. Since the whole design switched to the 5.0V-nominal rail (2026-08-18,
-# see scripts/common/mcmm.tcl), this SRAM view now matches the rest of the
-# design instead of being the odd one out -- reused across all 3 corners
-# below because SS/FF SRAM views still don't exist in this PDK kit, but the
-# voltage itself is no longer a mismatch. Only shipped as .lib (text), not
-# .db; Library Compiler (lc_shell, same Synopsys install family as the rest
-# of this flow) converts it once, cached the same way FOLDED_SC_CDL is
-# above and only rebuilt if the source .lib changes.
+# The PDK has one SRAM view (tt, 25 C, 5.0 V), used at all three corners. It ships as .lib only: Library Compiler
+# converts it once into outputs/.cache/, and again when the .lib changes.
 PT_SRAM_LIB ?= $(HOME)/pdk_synopsys/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.lib
 PT_SRAM_DB  := $(CACHE_DIR)/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db
 LC_HOME_DIR ?= /usr/synopsys/lc/Y-2026.03-SP1
 
-# PrimePower: vectorless (default/statistical switching activity) analysis --
-# this environment has no gate-level VCD/SAIF from a real workload run yet
-# (sim/ only has scripts + sw sources, no captured activity dump), so power
-# numbers below are an early/averaged estimate, not simulation-derived
-# signoff power. Set PP_SAIF to a real activity file once one exists.
+# PrimePower without activity data gives a vectorless estimate (default toggle rate and static probability).
+# Set PP_SAIF to a simulated activity file for real numbers.
 PP_SAIF ?=
 PP_DEFAULT_TOGGLE_RATE ?= 0.1
 PP_DEFAULT_STATIC_PROB ?= 0.5
-# Default to `fast` only, mirroring mcmm.tcl's own set_scenario_status (only
-# the fast=FF/3.6V/-40C scenario has dynamic_power/leakage_power enabled --
-# highest MCMM voltage, dominates both switching and leakage power enough to
-# outweigh the low-temperature leakage reduction). Override to check other
-# corners too, e.g. PP_CORNERS="slow typical fast".
+# fast by default: the scenario with power analysis in mcmm.tcl (5.5 V, the highest switching and leakage power).
+# Example: PP_CORNERS="slow typical fast"
 PP_CORNERS ?= fast
 
 # ------------------------------------------------------------------------------
 # Sign-off Rail Analysis - RedHawk-SC Fusion (in-design, via Fusion Compiler)
 # ------------------------------------------------------------------------------
-# Unlike drc/lvs/sta-pt/power-pp, this does NOT read an exported outputs/<run>
-# artifact -- it reopens the live 'finish' block in work/design.dlib (see
-# scripts/signoff/irdrop/analyze_rail.tcl) and runs RedHawk-SC's analyze_rail directly
-# against FC's own routed PDN, so it always reflects whatever 'make finish'
-# (or 'make all') last built, not a specific archived RUN. Nothing about the
-# block is modified/saved -- taps and the rail result exist only for the
-# session; reports land in outputs/latest/rail_rh/.
-#
-# create_taps -top_pg treats croc_soc's top-level VDD/VSS pins (the 6+6
-# discrete Metal5 pins) as the ideal external supply -- this is the direct
-# test of whether those 6 pins are enough, or where the worst IR drop is if
-# not.
-#
-# No standalone 'redhawk' binary exists in this env -- RedHawk-SC ships
-# bundled inside the IC Validator install instead (confirmed 2026-08-22:
-# ICV_HOME_DIR/pfsc/linux/bin/redhawk_sc runs and is licensed --
-# SNPS_INDESIGN_RH_RAIL, 100 seats).
+# make rail opens the finish block of work/design.dlib (not an archived run) and runs analyze_rail of RedHawk-SC on
+# the routed PDN of FC. It saves nothing. Reports go to outputs/latest/rail_rh/. create_taps -top_pg takes the
+# top-level VDD and VSS pins as the ideal supply, so the result shows if those pins are enough. RedHawk-SC is in
+# the IC Validator install (pfsc/linux/bin/redhawk_sc, license SNPS_INDESIGN_RH_RAIL).
 RAIL_PRODUCT      ?= redhawk_sc
 RAIL_REDHAWK_PATH ?= $(ICV_HOME_DIR)/pfsc/linux/bin
 RAIL_VOLTAGE_DROP ?= static
-# analyze_rail needs a tech file describing per-layer R/C (RAIL-300) -- FC's
-# own docs call this an "ATF" but this RedHawk-SC build only actually
-# accepts itf/ircx/nrc (confirmed empirically 2026-08-22, "unrecognized
-# type" on a hand-authored .atf). scripts/signoff/irdrop/tech/gf180mcu.itf is the
-# real thing, not hand-authored: recovered directly from GlobalFoundries'
-# own field-solver binary (~/pdk_synopsys/pex/*.nxtgrd, the same officially
-# -released PEX kit as the TLUplus files) via StarRC's grdgenxo
-# -nxtgrd2itf converter, then had its CONDUCTOR/VIA names remapped from
-# TLUplus-internal names (TM/M4../V1..) to GF180MCU's real LEF/DEF names
-# (Metal5/Metal4../Via1..) per ~/pdk_synopsys/tech/tluplus/mdb2itf.map --
-# required, or nearly every via/pin fails to resolve (141k+ connectivity
-# errors before the rename, ~0 after). See that file's own header for full
-# provenance, and grdgenxo needs the libnsl RPM installed first (`sudo dnf
-# install -y libnsl` on this Rocky 8.10 box) or it won't even launch.
+# Per-layer R and C for analyze_rail (RAIL-300). This RedHawk-SC takes itf, ircx or nrc, not atf. gf180mcu.itf
+# comes from the PDK nxtgrd (StarRC grdgenxo -nxtgrd2itf) with the layer names mapped to the LEF names (see its
+# header). grdgenxo needs the libnsl package on Rocky.
 RAIL_TECH_FILE    ?= scripts/signoff/irdrop/tech/gf180mcu.itf
-# KNOWN GAP (2026-08-22): static analysis (the default) works end to end,
-# real per-pin numbers, e.g. croc_soc's 6 VDD+6 VSS pins measured at
-# ~0.21% worst-case drop. RAIL_VOLTAGE_DROP=dynamic_vectorless also SOLVES
-# cleanly (real transient sim, 0 unconnected vias/pins in its own summary)
-# but report_rail_result/get_attribute can't extract per-pin dynamic
-# values afterward -- every attempt (voltage_drop_or_rise, effective_
-# voltage_drop, direct get_attribute on a real pin) returns empty or
-# "RAIL-1120 PG pin(s) might be disconnected to ideal voltage", despite the
-# solve's own connectivity counters being clean. Not yet root-caused;
-# static's result already gives a strong, complete answer on its own
-# (dynamic would only sharpen it further, not change the conclusion).
+# Known gap: the static analysis works (worst drop 0.21 % on the 6 VDD and 6 VSS pins). dynamic_vectorless
+# solves, but report_rail_result gives no per-pin values (RAIL-1120). Not root-caused.
 
 # ------------------------------------------------------------------------------
 # Fusion Compiler dynamic step rules (from scripts/0*_*.tcl)
 # ------------------------------------------------------------------------------
-# This block automatically reads any TCL file in scripts/ that starts with a number 
-# (e.g., 01_read_rtl.tcl, 02_floorplan.tcl) and creates a make target for it.
+# A target for every scripts/0*_*.tcl step: 01_read_rtl.tcl gives read_rtl, open_read_rtl and gui_read_rtl.
 define MAKE_FC_RULE
 .PHONY: $2 open_$2 gui_$2
 
@@ -416,16 +236,12 @@ all: $(DEPENDENCY)
 # ------------------------------------------------------------------------------
 # Physical Verification - KLayout DRC (GF180MCU)
 # ------------------------------------------------------------------------------
-# Runs run_drc.py on the run's GDS. Results (merged .lyrdb + per-deck logs)
-# land in <run>/drc/, right next to that run's .gds/.v, so nothing overwrites
-# and every check is traceable back to its exact GDS.
-#
-# Typical use (after the FC flow has produced a GDS):
-#   make drc                                   # checks outputs/latest
-#   make drc GF180MCU_OPT=B                     # 4LM stack instead of 5LM
-#   make drc DRC_EXTRA="--antenna --density"    # add antenna + density checks
-#   make drc RUN=croc_soc_20260804_101500       # re-check an older run
-#   make finish drc                             # build finish, then DRC, in one go
+# KLayout DRC of the run GDS. Results in <run>/drc/ (merged .lyrdb and the log of every deck).
+#   make drc
+#   make drc GF180MCU_OPT=B                     # 4 metal layers instead of 5
+#   make drc DRC_EXTRA="--antenna --density"
+#   make drc RUN=croc_soc_20260804_101500
+#   make finish drc
 .PHONY: drc
 drc:
 	@if [ ! -e "$(GDS)" ]; then \
@@ -456,17 +272,12 @@ drc:
 # ------------------------------------------------------------------------------
 # Physical Verification - KLayout LVS (GF180MCU)
 # ------------------------------------------------------------------------------
-# Fusion Compiler exports a GDS + gate-level Verilog, but no SPICE schematic.
-# `make lvs` rebuilds one (verilog2spice.py, using the folded
-# gf180mcu_fd_sc_mcu7t5v0 CDL + any hard-macro CDLs as black boxes), then runs
-# KLayout LVS comparing it against the GDS. Results land in <run>/lvs/,
-# alongside that run's .gds/.v (and its drc/ folder, if `make drc` also ran).
-#
-# Typical use (after the FC flow has produced a GDS + Verilog netlist):
-#   make lvs                                    # latest run
-#   make lvs GF180MCU_OPT=B                      # 4LM stack instead of 5LM
-#   make lvs RUN=croc_soc_20260804_101500        # re-check an older run
-#   make finish drc lvs                          # build, then DRC, then LVS
+# KLayout LVS of the run: the SPICE netlist from the run Verilog (see LVS_* above) against the GDS. Results in
+# <run>/lvs/.
+#   make lvs
+#   make lvs GF180MCU_OPT=B                      # 4 metal layers instead of 5
+#   make lvs RUN=croc_soc_20260804_101500
+#   make finish drc lvs
 .PHONY: lvs
 lvs:
 	@if [ ! -e "$(GDS)" ]; then \
@@ -568,17 +379,12 @@ lvs:
 # ------------------------------------------------------------------------------
 # Physical Verification - Synopsys IC Validator DRC (GF180MCU)
 # ------------------------------------------------------------------------------
-# Runs `icv` on the run's GDS using the ICV decks under ICV_PDK_HOME
-# (pdk_synopsys/DRC_ICV by default). Results land in <run>/drc_icv/,
-# alongside the KLayout drc/ folder (if `make drc` also ran) -- both read
-# the exact same GDS, so they're a natural cross-check of each other.
-#
-# Typical use (after the FC flow has produced a GDS):
-#   make drc-icv                                     # checks outputs/latest
-#   make drc-icv ICV_BEOL_STACK=1P4M                  # 4LM stack instead of 5LM
+# IC Validator DRC of the run GDS with the decks of ICV_PDK_HOME. Results in <run>/drc_icv/.
+#   make drc-icv
+#   make drc-icv ICV_BEOL_STACK=1P4M                  # 4 metal layers instead of 5
 #   make drc-icv ICV_DRC_RUNSET=$(ICV_PDK_HOME)/DRC_ICV_MODIFIED/DRC/ICV/gf180mcu_drc.rs
-#   make drc-icv RUN=croc_soc_20260804_101500         # re-check an older run
-#   make finish drc-icv                               # build finish, then DRC
+#   make drc-icv RUN=croc_soc_20260804_101500
+#   make finish drc-icv
 .PHONY: drc-icv
 drc-icv:
 	@if [ ! -e "$(GDS)" ]; then \
@@ -621,19 +427,12 @@ drc-icv:
 # ------------------------------------------------------------------------------
 # Physical Verification - Synopsys IC Validator LVS (GF180MCU)
 # ------------------------------------------------------------------------------
-# Rebuilds an ICV-flavored SPICE schematic from the exported gate-level
-# Verilog (same verilog2spice.py used by `make lvs`, but folded WITHOUT the
-# KLayout-specific --rename-model -- see FOLDED_SC_CDL_ICV above), then
-# runs ICV LVS comparing it against the GDS (black-boxing the same hard
-# macros as `make lvs`, via the same blackbox_gds_cells.rb). Results land
-# in <run>/lvs_icv/, alongside the KLayout lvs/ folder (if `make lvs` also
-# ran).
-#
-# Typical use (after the FC flow has produced a GDS + Verilog netlist):
-#   make lvs-icv                                     # latest run
-#   make lvs-icv ICV_BEOL_STACK=1P4M                  # 4LM stack instead of 5LM
-#   make lvs-icv RUN=croc_soc_20260804_101500         # re-check an older run
-#   make finish drc-icv lvs-icv                       # build, then DRC, then LVS
+# IC Validator LVS: the SPICE netlist from the run Verilog (without the model rename, FOLDED_SC_CDL_ICV) against
+# the GDS, with the same black-box macros as make lvs. Results in <run>/lvs_icv/.
+#   make lvs-icv
+#   make lvs-icv ICV_BEOL_STACK=1P4M                  # 4 metal layers instead of 5
+#   make lvs-icv RUN=croc_soc_20260804_101500
+#   make finish drc-icv lvs-icv
 .PHONY: lvs-icv
 lvs-icv:
 	@if [ ! -e "$(GDS)" ]; then \
@@ -733,17 +532,12 @@ lvs-icv:
 # ------------------------------------------------------------------------------
 # Metal Fill - Synopsys IC Validator (GF180MCU, density signoff)
 # ------------------------------------------------------------------------------
-# Runs scripts/signoff/pv/croc_metal_fill.rs against the run's GDS and writes a new,
-# fill-merged GDS to <run>/fill_icv/filled.gds. See ICV_FILL_RUNSET above for
-# the validation history. This does NOT overwrite $(GDS) or touch outputs/
-# in place -- filled.gds is a distinct artifact; point drc/drc-icv/lvs/
-# lvs-icv at it explicitly (GDS=.../fill_icv/filled.gds) to sign it off.
-#
-# Typical use (after the FC flow has produced a GDS):
-#   make fill-icv                                    # latest run
-#   make fill-icv RUN=croc_soc_20260804_101500        # an older run
-#   make drc GDS=outputs/latest/fill_icv/filled.gds DRC_EXTRA=--density_only  # verify density
-#   make finish fill-icv                              # build finish, then fill
+# Metal fill of the run GDS with croc_metal_fill.rs into a new file, <run>/fill_icv/filled.gds. $(GDS) does not
+# change: give the filled GDS to the checks with GDS=.../fill_icv/filled.gds.
+#   make fill-icv
+#   make fill-icv RUN=croc_soc_20260804_101500
+#   make drc GDS=outputs/latest/fill_icv/filled.gds DRC_EXTRA=--density_only
+#   make finish fill-icv
 .PHONY: fill-icv
 fill-icv:
 	@if [ ! -e "$(GDS)" ]; then \
@@ -958,14 +752,10 @@ power-pp:
 # ------------------------------------------------------------------------------
 # Sign-off Rail Analysis - RedHawk-SC Fusion (in-design voltage drop / IR drop)
 # ------------------------------------------------------------------------------
-# Runs scripts/signoff/irdrop/analyze_rail.tcl against work/design.dlib's 'finish'
-# block (always the current build, not a specific RUN -- see the RAIL_*
-# variables above). Reports land in outputs/latest/rail_rh/.
-#
-# Typical use (after `make finish`):
-#   make rail                                         # static, uses RAIL_TECH_FILE's default
-#   make rail RAIL_VOLTAGE_DROP=dynamic_vectorless    # dynamic (solves clean; see KNOWN GAP above
-#                                                      # re: per-pin report extraction not working yet)
+# RedHawk-SC rail analysis of the finish block in work/design.dlib (see RAIL_* above). Reports in
+# outputs/latest/rail_rh/.
+#   make rail                                         # static
+#   make rail RAIL_VOLTAGE_DROP=dynamic_vectorless    # solves, no per-pin values yet (see the known gap above)
 .PHONY: rail
 rail:
 	@if [ ! -x "$$(command -v fc_shell)" ]; then \
@@ -1029,8 +819,7 @@ distclean: clean
 # ------------------------------------------------------------------------------
 .PHONY: sw sim sim-vcs verilate run clean-sw clean-sim
 
-# Default application binary. Override on the command line, e.g.:
-#   make run BIN=sim/sw/bin/test/test_gpio.hex
+# Default program. Example: make run BIN=sim/sw/bin/test/test_gpio.hex
 BIN ?= sim/sw/hello_world/bin/helloworld.hex
 
 sw:
@@ -1041,33 +830,32 @@ clean-sw:
 	@echo "[SW] Cleaning software binaries..."
 	@$(MAKE) -C sim/sw clean
 
-# Compile the Verilator hardware model only (re-run after any RTL change).
+# Build the Verilator model only (again after every RTL change)
 verilate:
 	@echo "[SIM] Compiling Verilator hardware model..."
 	@cd sim && BUILD_ONLY=1 bash ../scripts/sim/run_verilator.sh
 
-# Run a binary on the already-compiled model -- no recompile, near-instant.
+# Run a program on the built model, no rebuild
 run: sw
 	@echo "[SIM] Running $(BIN) ..."
 	@cd sim && BIN=$(abspath $(BIN)) SKIP_BUILD=1 bash ../scripts/sim/run_verilator.sh
 
-# Compile + run in one shot (original behavior; defaults to helloworld).
+# Build and run (default helloworld)
 sim:
 	@echo "[SIM] Launching Verilator simulation flow..."
 	@cd sim && BIN=$(abspath $(BIN)) bash ../scripts/sim/run_verilator.sh
 
-# Compile the VCS hardware model (elaboration phase).
+# Build the VCS model (elaboration)
 vcs-compile:
 	@echo "[SIM] Compiling VCS hardware model..."
 	@cd sim && BUILD_ONLY=1 bash ../scripts/sim/run_vcs.sh
 
-# Run a binary on the already-compiled VCS model.
-# Assumes the simulation binary (e.g., simv) exists from a previous vcs-compile.
+# Run a program on the VCS model of a previous vcs-compile
 run-vcs: sw
 	@echo "[SIM] Running $(BIN) on VCS..."
 	@cd sim && BIN=$(abspath $(BIN)) SKIP_BUILD=1 bash ../scripts/sim/run_vcs.sh
 
-# Compile + run VCS in one shot.
+# Build and run with VCS
 sim-vcs: sw
 	@echo "[SIM] Launching full VCS simulation flow..."
 	@cd sim && BIN=$(abspath $(BIN)) bash ../scripts/sim/run_vcs.sh
@@ -1083,8 +871,8 @@ clean-sim:
 
 VIVADO ?= vivado
 
-# Non-project-mode batch build: synth -> opt -> place -> route -> bitstream.
-# Reads croc_fpga.flist + constraints/zedboard.xdc; output in work_fpga/.
+# Vivado batch build (synthesis, place, route, bitstream) from croc_fpga.flist and constraints/zedboard.xdc.
+# Output in work_fpga/.
 fpga:
 	@echo "[FPGA] Running Vivado non-project build for the ZedBoard..."
 	@$(VIVADO) -mode batch -source scripts/fpga/build_zedboard.tcl
@@ -1214,7 +1002,7 @@ help:
 	@echo "  make clean-fpga  – Remove the FPGA build directory and Vivado logs"
 	@echo "================================================================"
 # ------------------------------------------------------------------------------
-# Checks of a finished run (scripts/pt, scripts/gls, scripts/dft, scripts/chip)
+# Checks of a finished run (scripts/signoff, scripts/sim, scripts/dft, scripts/chip)
 # ------------------------------------------------------------------------------
 # Every check reads RUN (a folder name under outputs/ or an absolute path, default latest) and writes
 # outputs/<run>/checks/<step>/summary.txt. `make report` collects them into outputs/<run>/report.md.

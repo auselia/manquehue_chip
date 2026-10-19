@@ -847,7 +847,7 @@ sta-pt:
 	     exit 1; \
 	   fi; \
 	   echo "[STA-PT] --- corner: $$corner ---"; \
-	   PATH="$(PT_HOME_DIR)/bin:$$PATH" pt_shell -x " \
+	   ( cd "$$out_dir" && PATH="$(PT_HOME_DIR)/bin:$$PATH" pt_shell -x " \
 	     set CORNER $$corner; \
 	     set TOP $(TOP); \
 	     set VLOG $$vlog_real; \
@@ -855,10 +855,10 @@ sta-pt:
 	     set SPEF_FILE $$spef; \
 	     set SC_DB $$sc_db; \
 	     set IO_DB $$io_db; \
-	     set SRAM_DB $(PT_SRAM_DB); \
+	     set SRAM_DB $(abspath $(PT_SRAM_DB)); \
 	     set REPORT_DIR $$out_dir; \
 	     source $(REPO_DIR)/scripts/signoff/sta/sta_corner.tcl; \
-	     exit" \
+	     exit" ) \
 	   2>&1 | tee "$$out_dir/sta_pt.$$corner.log"; \
 	 done; \
 	 echo "[STA-PT] ================ Summary ================"; \
@@ -931,7 +931,7 @@ power-pp:
 	     exit 1; \
 	   fi; \
 	   echo "[POWER-PP] --- corner: $$corner ---"; \
-	   PATH="$(PT_HOME_DIR)/bin:$$PATH" pt_shell -x " \
+	   ( cd "$$out_dir" && PATH="$(PT_HOME_DIR)/bin:$$PATH" pt_shell -x " \
 	     set CORNER $$corner; \
 	     set TOP $(TOP); \
 	     set VLOG $$vlog_real; \
@@ -939,13 +939,13 @@ power-pp:
 	     set SPEF_FILE $$spef; \
 	     set SC_DB $$sc_db; \
 	     set IO_DB $$io_db; \
-	     set SRAM_DB $(PT_SRAM_DB); \
+	     set SRAM_DB $(abspath $(PT_SRAM_DB)); \
 	     set REPORT_DIR $$out_dir; \
 	     set PP_TOGGLE_RATE $(PP_DEFAULT_TOGGLE_RATE); \
 	     set PP_STATIC_PROB $(PP_DEFAULT_STATIC_PROB); \
-	     set PP_SAIF {$(PP_SAIF)}; \
+	     set PP_SAIF {$(abspath $(PP_SAIF))}; \
 	     source $(REPO_DIR)/scripts/signoff/power/power_corner.tcl; \
-	     exit" \
+	     exit" ) \
 	   2>&1 | tee "$$out_dir/power_pp.$$corner.log"; \
 	 done; \
 	 echo "[POWER-PP] ================ Summary ================"; \

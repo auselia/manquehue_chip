@@ -29,6 +29,21 @@ module croc_soc import croc_pkg::*; #(
   output logic [3:0] qspi_sd_en_o,
   output logic [2:0] qspi_csn_o,
 
+  // SPI block (docs/spi_adc_spec.md section 3): ADS7057 ADC and SX1276 radio
+  output logic adc_sclk_o,     // forwarded system clock, idles high
+  output logic adc_csn_o,
+  input  logic adc_sdo_i,
+  input  logic adc_wake_n_i,   // latched window comparator of the AFE board, active low
+  input  logic adc_big_n_i,
+  output logic adc_wake_clr_o,
+  output logic adc_cap_en_o,
+  output logic rf_sclk_o,
+  output logic rf_mosi_o,
+  input  logic rf_miso_i,
+  output logic rf_csn_o,
+  input  logic rf_dio0_i,
+  output logic rf_rstn_o,
+
   input  logic [GpioCount-1:0] gpio_i,       // Input from GPIO pins
   output logic [GpioCount-1:0] gpio_o,       // Output to GPIO pins
   output logic [GpioCount-1:0] gpio_out_en_o // Output enable signal; 0 -> input, 1 -> output
@@ -90,6 +105,25 @@ croc_domain #(
   .core_busy_o  ( status_o   )
 );
 
+obi_spi_pkg::spi_pads_out_t spi_pads_out;
+obi_spi_pkg::spi_pads_in_t  spi_pads_in;
+
+assign adc_sclk_o     = spi_pads_out.adc_sclk;
+assign adc_csn_o      = spi_pads_out.adc_csn;
+assign adc_wake_clr_o = spi_pads_out.adc_wake_clr;
+assign adc_cap_en_o   = spi_pads_out.adc_cap_en;
+assign rf_sclk_o      = spi_pads_out.rf_sclk;
+assign rf_mosi_o      = spi_pads_out.rf_mosi;
+assign rf_csn_o       = spi_pads_out.rf_csn;
+assign rf_rstn_o      = spi_pads_out.rf_rstn;
+assign spi_pads_in    = '{
+  adc_sdo:    adc_sdo_i,
+  adc_wake_n: adc_wake_n_i,
+  adc_big_n:  adc_big_n_i,
+  rf_miso:    rf_miso_i,
+  rf_dio0:    rf_dio0_i
+};
+
 user_domain #(
   .GpioCount       ( GpioCount       ),
   .NumExternalIrqs ( NumExternalIrqs )
@@ -112,7 +146,10 @@ user_domain #(
   .qspi_sd_o   ( qspi_sd_o   ),
   .qspi_sd_i   ( qspi_sd_i   ),
   .qspi_sd_en_o ( qspi_sd_en_o ),
-  .qspi_csn_o   ( qspi_csn_o   )
+  .qspi_csn_o   ( qspi_csn_o   ),
+
+  .spi_pads_o   ( spi_pads_out ),
+  .spi_pads_i   ( spi_pads_in  )
 );
 
 endmodule

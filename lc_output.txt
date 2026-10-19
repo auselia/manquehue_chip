@@ -1,0 +1,38 @@
+ 
+                             Library Compiler (TM)
+                                 DesignWare (R)
+
+                Version Y-2026.03-SP1 for linux64 - May 10, 2026
+                            Base build date 4/6/2026
+
+                    Copyright (c) 1988 - 2026 Synopsys, Inc.
+   This software and the associated documentation are proprietary to Synopsys,
+      Inc.  This software may only be used in accordance with the terms and
+  conditions of a written license agreement with Synopsys, Inc.  All other use,
+   reproduction, or distribution of this software is strictly prohibited.  By
+   installing, accessing, using, or executing this software, you agree that it
+  will reside on, operate within, and have access to the computers and networks
+    where such software is used ("Host System"), and that Synopsys may access
+     components and data of the Host System as necessary for it to function
+ properly, to authenticate and validate license keys, to verify that it is used
+ only in conformity with the applicable license restrictions, and to communicate
+                 error messages and associated data to Synopsys.
+
+
+Invocation: /usr/synopsys/lc/Y-2026.03-SP1/linux64/lc/bin/lc2_shell_exec
+Execution time: Sun Oct 18 18:50:27 2026
+Host: linux.local (1 x 3609.601 MHz 12th Gen Intel(R) Core(TM) i7-12700KF)
+Working directory: /home/navillegas/Documents/manquehue_chip_wt/lora
+
+Initializing...
+Reading '/home/navillegas/pdk_synopsys/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.lib' ...
+Warning: Line 29, The 'internal_power_calculation' attribute in char_config group is required for NLPM library. 
+        No default can be applied to this attribute. (LBDB-366)
+Information: Line 169, Cell 'gf180mcu_fd_ip_sram__sram512x8m8wm1', The cell 'gf180mcu_fd_ip_sram__sram512x8m8wm1' contains memory/memory_read/memory_write groups which are deprecated, use the is_memory_cell attribute instead. (LIBG-280)
+Technology library 'gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00' read successfully
+Wrote the 'gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00' library to '/home/navillegas/Documents/manquehue_chip_wt/lora/outputs/.cache/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db' successfully
+Maximum memory usage for this session: 110.62 MB
+CPU usage for this session:      1 seconds (  0.00 hours)
+Elapsed time for this session:      1 seconds (  0.00 hours)
+Thank you for using Library Compiler.
+

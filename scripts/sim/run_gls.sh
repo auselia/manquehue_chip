@@ -11,6 +11,7 @@
 #        GLS_RUN     netlist run folder, default outputs/latest
 #        GLS_TIMEOUT run time limit in seconds, default 7200
 #        JOBS       compile parallelism, default 8
+#        GLS_PLUSARGS more plusargs for the testbench, for example +flash=<hex> (program in the QSPI flash model)
 #        FLOPDELAY  output delay of the sequential cell models, default 0.5ns. Keep it above the 100 ps clock
 #                   delay (Tdly) of the vendor SRAM model, which samples address and data at CLK + Tdly: with
 #                   0.1 ns the flop outputs change at the same instant and stores are corrupted.
@@ -98,6 +99,9 @@ $REPO/rtl/clint/clint_reg_pkg.sv
 $REPO/rtl/obi_timer/obi_timer_reg_pkg.sv
 $W/tb/tb_croc_pkg.sv
 $W/tb/croc_vip.sv
+$REPO/sim/models/ads7057_model.v
+$REPO/sim/models/spi_flash_model.v
+$REPO/sim/models/sx1276_model.v
 $W/tb/tb_croc_soc.sv
 $V/primitives.v
 $W/cells.v
@@ -110,6 +114,6 @@ verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX" -j "${JOBS:-8}" -Wno-fatal -W
   || { echo "verilator build failed, see $W/build.log"; exit 1; }
 echo "run start $(date +%T)" > run.status
 set +e
-( time timeout "${GLS_TIMEOUT:-7200}" stdbuf -oL ./obj_dir/Vgls +binary="$HEX" ) > run.log 2>&1
+( time timeout "${GLS_TIMEOUT:-7200}" stdbuf -oL ./obj_dir/Vgls +binary="$HEX" ${GLS_PLUSARGS:-} ) > run.log 2>&1
 echo "run end $(date +%T) rc=$?" >> run.status
 tail -n 15 run.log

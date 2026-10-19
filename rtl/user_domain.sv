@@ -27,18 +27,45 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   output logic [3:0] qspi_sd_o,
   input  logic [3:0] qspi_sd_i,
   output logic [3:0] qspi_sd_en_o,
-  output logic [2:0] qspi_csn_o
+  output logic [2:0] qspi_csn_o,
+
+  // pads of the SPI block (ADS7057 ADC, SX1276 radio)
+  output obi_spi_pkg::spi_pads_out_t spi_pads_o,
+  input  obi_spi_pkg::spi_pads_in_t  spi_pads_i
 );
 
-  assign interrupts_o = '0;
+  // [0] radio master, [1] ADC reader (SPI block), [2] AE-FFT accelerator done, [3] reserved
+  logic [1:0] spi_irq;
+  logic       fft_irq;
+  assign interrupts_o = NumExternalIrqs'({fft_irq, spi_irq});
 
 
   //////////////////////
   // User Manager MUX //
   /////////////////////
 
-  // No manager so we don't need a obi_mux module and just terminate the request properly
-  assign user_mgr_obi_req_o = '0;
+  mgr_obi_req_t [NumUserMgr-1:0] user_mgr_req;
+  mgr_obi_rsp_t [NumUserMgr-1:0] user_mgr_rsp;
+
+  obi_mux #(
+    .SbrPortObiCfg      ( MgrObiCfg        ),
+    .MgrPortObiCfg      ( MgrObiCfg        ),
+    .sbr_port_obi_req_t ( mgr_obi_req_t    ),
+    .sbr_port_a_chan_t  ( mgr_obi_a_chan_t ),
+    .sbr_port_obi_rsp_t ( mgr_obi_rsp_t    ),
+    .sbr_port_r_chan_t  ( mgr_obi_r_chan_t ),
+    .NumSbrPorts        ( NumUserMgr       ),
+    .NumMaxTrans        ( 2                ),
+    .UseIdForRouting    ( 1'b0             )
+  ) i_user_mgr_mux (
+    .clk_i,
+    .rst_ni,
+    .testmode_i,
+    .sbr_ports_req_i ( user_mgr_req       ),
+    .sbr_ports_rsp_o ( user_mgr_rsp       ),
+    .mgr_port_req_o  ( user_mgr_obi_req_o ),
+    .mgr_port_rsp_i  ( user_mgr_obi_rsp_i )
+  );
 
 
   ////////////////////////////
@@ -62,16 +89,22 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   sbr_obi_rsp_t user_design_obi_rsp;
   sbr_obi_req_t user_qspi_obi_req;
   sbr_obi_rsp_t user_qspi_obi_rsp;
+  sbr_obi_req_t user_spi_obi_req;
+  sbr_obi_rsp_t user_spi_obi_rsp;
+  sbr_obi_req_t user_fft_obi_req;
+  sbr_obi_rsp_t user_fft_obi_rsp;
 
   // Fanout into more readable signals
   assign user_error_obi_req               = all_user_sbr_obi_req[UserError];
   assign all_user_sbr_obi_rsp[UserError]  = user_error_obi_rsp;
   assign user_design_obi_req              = all_user_sbr_obi_req[UserDesign];
   assign all_user_sbr_obi_rsp[UserDesign] = user_design_obi_rsp;
-  assign user_qspi_obi_req             = all_user_sbr_obi_req[UserQSpi];
+  assign user_qspi_obi_req              = all_user_sbr_obi_req[UserQSpi];
   assign all_user_sbr_obi_rsp[UserQSpi] = user_qspi_obi_rsp;
-  assign user_design_obi_req               = all_user_sbr_obi_req[UserDesign];
-  assign all_user_sbr_obi_rsp[UserDesign]  = user_design_obi_rsp;
+  assign user_spi_obi_req               = all_user_sbr_obi_req[UserSpi];
+  assign all_user_sbr_obi_rsp[UserSpi]  = user_spi_obi_rsp;
+  assign user_fft_obi_req               = all_user_sbr_obi_req[UserFft];
+  assign all_user_sbr_obi_rsp[UserFft]  = user_fft_obi_rsp;
 
 
   //-----------------------------------------------------------------------------------------------
@@ -136,6 +169,37 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
     .spi_sd_i     ( qspi_sd_i     ),
     .spi_sd_en_o  ( qspi_sd_en_o  ),
     .spi_csn_o    ( qspi_csn_o    )
+  );
+
+  // SPI block
+  obi_spi #(
+    .SbrObiCfg ( SbrObiCfg     ),
+    .sbr_req_t ( sbr_obi_req_t ),
+    .sbr_rsp_t ( sbr_obi_rsp_t ),
+    .mgr_req_t ( mgr_obi_req_t ),
+    .mgr_rsp_t ( mgr_obi_rsp_t )
+  ) i_obi_spi (
+    .clk_i,
+    .rst_ni,
+    .testmode_i,
+    .obi_sbr_req_i ( user_spi_obi_req         ),
+    .obi_sbr_rsp_o ( user_spi_obi_rsp         ),
+    .obi_mgr_req_o ( user_mgr_req[UserMgrSpi] ),
+    .obi_mgr_rsp_i ( user_mgr_rsp[UserMgrSpi] ),
+    .irq_o         ( spi_irq                  ),
+    .pads_o        ( spi_pads_o               ),
+    .pads_i        ( spi_pads_i               )
+  );
+
+  // AE-FFT accelerator: registers on the subordinate port, SRAM access through the manager mux
+  fft_hwpe i_fft_hwpe (
+    .clk_i,
+    .rst_ni,
+    .obi_sbr_req_i ( user_fft_obi_req         ),
+    .obi_sbr_rsp_o ( user_fft_obi_rsp         ),
+    .obi_mgr_req_o ( user_mgr_req[UserMgrFft] ),
+    .obi_mgr_rsp_i ( user_mgr_rsp[UserMgrFft] ),
+    .irq_o         ( fft_irq                  )
   );
 
   // UserDesign placeholder.

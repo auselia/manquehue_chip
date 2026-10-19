@@ -8,7 +8,7 @@
 # env:   PDK_ROOT   default ~/.ciel
 #        GLS_CXX    g++ with -fcoroutines (Verilator --timing); system g++ 8.5 on Rocky has none
 #        GLS_RUN    netlist run folder, default outputs/latest
-#        EXPECTED_LAG  scan cells in the chain, default 3964 (dft_drc: "Chain 1 ... scan_cells")
+#        EXPECTED_LAG  scan cells in the chain (run_gls_all.sh reads it from the run), default 3964 (dft_drc: "Chain 1 ... scan_cells")
 #        FLOPDELAY  output delay of the sequential cell models, default 0.5ns
 #        JOBS       compile parallelism, default 8
 # Run it inside an environment that has verilator (the template's nix-shell on Rocky).

@@ -184,6 +184,14 @@
 ../rtl/obi_qspi/qqspi.v
 ../rtl/obi_qspi/obi_qspi.sv
 
+# ---- obi_spi (radio master, ADS7057 reader) ----
+../rtl/user_domain/spi/obi_spi_pkg.sv
+../rtl/user_domain/spi/obi_spi_regs.sv
+../rtl/user_domain/spi/obi_spi_clk_gate.sv
+../rtl/user_domain/spi/adc_rdr.sv
+../rtl/user_domain/spi/rf_spi.sv
+../rtl/user_domain/spi/obi_spi.sv
+
 # ---- riscv-dbg (synthesizable RTL) ----
 ../rtl/riscv-dbg/dm_pkg.sv
 ../rtl/riscv-dbg/debug_rom/debug_rom.sv
@@ -212,5 +220,11 @@
 ../rtl/clint/clint.sv
 ../rtl/obi_timer/obi_timer.sv
 ../rtl/croc_domain.sv
+# ---- AE-FFT accelerator (fft_hwpe) ----
+../rtl/user_domain/fft/fft_cos_rom.sv
+../rtl/user_domain/fft/fft_trig.sv
+../rtl/user_domain/fft/fft_hwpe_core.sv
+../rtl/user_domain/fft/fft_hwpe_regs.sv
+../rtl/user_domain/fft/fft_hwpe.sv
 ../rtl/user_domain.sv
 ../rtl/croc_soc.sv

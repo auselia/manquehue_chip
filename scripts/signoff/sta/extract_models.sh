@@ -19,7 +19,8 @@ for spec in "slow gf180mcu_fd_sc_mcu7t5v0__ss_125C_4v50 gf180mcu_fd_io__ss_125C_
             "typical gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00 gf180mcu_fd_io__tt_025C_5v00 typ_25" \
             "fast gf180mcu_fd_sc_mcu7t5v0__ff_n40C_5v50 gf180mcu_fd_io__ff_n40C_5v50 typ_-40"; do
   set -- $spec
-  ( PATH="$PT_BIN:$PATH" pt_shell -x "set CORNER $1; set TOP croc_soc; set VLOG $L/croc_soc.v; \
+  # pt_shell writes its command logs into the working directory: one folder per corner (they run in parallel)
+  ( mkdir -p "$OUT/pt_$1" && cd "$OUT/pt_$1" && PATH="$PT_BIN:$PATH" pt_shell -x "set CORNER $1; set TOP croc_soc; set VLOG $L/croc_soc.v; \
       set SDC_FILE $L/croc_soc_55ns.sdc; set SPEF_FILE $L/croc_soc.$4.spef; set SC_DB $DB/$2.db; \
       set IO_DB $DB/$3.db; set SRAM_DB $SRAM; set OUT_DIR $OUT; \
       source $REPO/scripts/signoff/sta/extract_model_corner.tcl; exit" > "$OUT/etm.$1.log" 2>&1 ) &

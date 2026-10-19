@@ -27,6 +27,8 @@ redirect -file $REPORT_DIR/worst_hold.$CORNER.rpt { report_timing -delay_type mi
 exit
 TCL
 run() { # corner sc io spef
+  # pt_shell writes its command logs into the working directory: one folder per corner (they run in parallel)
+  mkdir -p "$O/pt_$1" && cd "$O/pt_$1"
   PATH=$PT_HOME/bin:$PATH pt_shell -x "
     set CORNER $1; set VLOG $RUN/croc_soc.v; set SDC_FILE $RUN/croc_soc_scan.sdc; set SPEF_FILE $RUN/croc_soc.$4.spef
     set SC_DB $PDK_DB/gf180mcu_fd_sc_mcu7t5v0__$2.db; set IO_DB $PDK_DB/gf180mcu_fd_io__$3.db; set SRAM_DB $SRAM_DB

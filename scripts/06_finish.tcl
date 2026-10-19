@@ -41,11 +41,9 @@ puts "INFO: removing [llength $orphan_taps] taps with no device within $TAP_DEVI
 if {[llength $orphan_taps] > 0} { remove_cells [add_to_collection {} $orphan_taps] }
 
 # DF.13 / DF.14 for the taps that stay: the endcaps (an N-well tap and a substrate tap each, they cannot be removed)
-# and the filltie cells next to a device that is only just in reach. The deck measures from the tap diffusion to the
-# MOS diffusion (DF.13_5V: PCOMP in the N-well within a 15 um box around the N-well tap, DF.14_5V: NCOMP outside the
-# N-well around the substrate tap). Cell boxes are larger than their diffusions, so a decap cell whose box is 14 um
-# away can have its diffusion beyond 15 um (the channel between the SRAM banks, 18 Oct). A tap with no device cell
-# within TAP_DEVICE_SURE gets decap fillers around it at full utilization: their MOS devices are within reach.
+# and the filltie cells. The deck measures from the tap diffusion to a MOS diffusion in a 15 um box. Cell boxes are
+# larger than their diffusions, so a decap cell 14 um away can be out of reach. A tap with no device cell within
+# TAP_DEVICE_SURE gets decap fillers around it at full utilization.
 set TAP_DEVICE_SURE   12.0
 set ENDCAP_DCAP_REACH 10.0
 set lonely_endcaps 0
@@ -93,19 +91,8 @@ foreach {net pins} [pg_pins [lindex $outline 1 0] [lindex $outline 1 1]] {
 }
 
 # -----------------------------------------------------------------------------
-# Timestamped, self-archiving GDS / netlist export
-# -----------------------------------------------------------------------------
-# Everything lands in <repo>/outputs (we run from <repo>/work, so ../outputs).
-# Each run gets its own folder outputs/<TOP>_<YYYYMMDD_HHMMSS>/ containing
-# <TOP>.gds and <TOP>.v, and a stable outputs/latest symlink is repointed at
-# the newest run folder. Consequences:
-#   * runs never overwrite each other -> you stop losing old GDS files;
-#   * downstream steps (DRC, LVS) can always reference outputs/latest/<TOP>.gds
-#     without knowing the timestamp, and each writes its results into
-#     outputs/<run>/drc/ and outputs/<run>/lvs/ right next to that run's
-#     .gds/.v -- one self-contained folder per run;
-#   * to sign off a *previous* run, just point the tool at its run folder
-#     (make drc RUN=<TOP>_<timestamp>).
+# Export into outputs/<TOP>_<YYYYMMDD_HHMMSS>/ (one folder per run, the checks write their results into it) and
+# point outputs/latest at it. Older runs stay: make drc RUN=<TOP>_<timestamp>.
 # -----------------------------------------------------------------------------
 set OUTPUTS_DIR [file normalize [file join [file dirname [info script]] .. outputs]]
 file mkdir $OUTPUTS_DIR
@@ -136,15 +123,8 @@ drc_eco_reroute $RUN_DIR
 set GDS_OUT   [file join $RUN_DIR "${TOP_MODULE}.gds"]
 set VLOG_OUT  [file join $RUN_DIR "${TOP_MODULE}.v"]
 
-# NOTE: *fillcap* (decoupling-cap fillers, inserted above via DCAP_CELLS)
-# is deliberately NOT in this exclude list, unlike *fill_*/*filltie*/
-# *endcap*. Those three are pure geometry with no devices, so excluding
-# them from the Verilog was always a no-op for LVS. fillcap cells are real
-# 2-terminal VDD/VSS capacitors -- excluding them here made every one of
-# ~2972 layout instances show up with zero schematic counterpart at all
-# (confirmed 2026-08-12: subcircuit_mismatch went 8 -> 2972 the one run
-# this was tried), far worse than the handful of mildly-ambiguous instance
-# pairings you get by including them normally. Leave them in.
+# The fillcap cells stay in the netlist (unlike fill, filltie and endcap, which have no devices): they are
+# VDD-VSS capacitors, and without them LVS finds about 2,970 layout instances with no schematic match.
 write_verilog -include all \
     -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
     $VLOG_OUT
@@ -180,8 +160,7 @@ set lef_fh [open $LEF_OUT w]
 puts -nonewline $lef_fh $lef_text
 close $lef_fh
 
-# Refresh the "latest" pointer. It targets the bare run-folder name so the
-# symlink stays valid even if the whole outputs/ directory is later moved.
+# The link targets the bare folder name, so it stays valid if outputs/ moves.
 set LATEST_LINK [file join $OUTPUTS_DIR "latest"]
 catch { file delete -- $LATEST_LINK }
 exec ln -sfn $RUN_NAME $LATEST_LINK

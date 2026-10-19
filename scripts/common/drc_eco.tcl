@@ -1,14 +1,13 @@
 ###############################################################################
-# Signoff-driven DRC ECO: reroute the nets that the real DRC deck flags.
-# Fusion Compiler's router only knows the rules in the technology file, so some foundry
-# rules (e.g. V1.3c, Via1 end-of-line overlap) can be violated by a routed net without FC
-# noticing. This runs the wafer.space KLayout deck on the routing rules, reroutes the signal
-# nets under any marker, and checks again. Sourced from 06_finish.tcl after detail routing.
-# A marker that is still there after its nets were rerouted (the router takes the same path again, for example
-# CO.6a at a cell pin, 18 Oct) moves the logic cell under it by two sites instead: the fillers next to it are
-# taken out, the cell is moved and legalized, the gap is filled again (decap fillers first) and route_eco
-# reconnects it.
+# Croc SoC Physical Design Flow
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# Description: Sign-off DRC ECOs (sourced by 06_finish.tcl)
 ###############################################################################
+
+# drc_eco_reroute: the FC router knows only the rules of the technology file, so a routed net can break a foundry
+# rule (for example V1.3c, CO.6a). Runs the wafer.space KLayout deck on the routing rules, reroutes the signal nets
+# under each marker and checks again. A marker that comes back after a reroute moves the logic cell under it to
+# the nearest free place in its row (fillers out, cell moved, gap filled again, route_eco).
 
 set DRC_ECO_HELPER [file normalize [file join [file dirname [info script]] .. utils drc_markers.py]]
 
@@ -90,11 +89,10 @@ proc drc_eco_reroute {run_dir} {
     set nets [list]
     foreach m $markers {
       lassign $m x0 y0 x1 y1 rule
-      # Look 0.3 um around the marker: the routing that causes a rule such as CO.6a (a Metal1 jog next to
-      # a cell contact) can sit a fraction of a um away from where the deck puts the marker.
+# 0.3 um around the marker: the routing behind CO.6a (a Metal1 jog at a cell contact) can be a little away.
       set d 0.3
       set area [list [list [expr {$x0 - $d}] [expr {$y0 - $d}]] [list [expr {$x1 + $d}] [expr {$y1 + $d}]]]
-      # Contact rules involve only Metal1 routing; the other rules can involve any metal.
+# Contact rules involve only Metal1 routing, the other rules any metal.
       set shape_filter [expr {[string match CO.* $rule] ? "layer_name == Metal1" : "layer_name =~ Metal*"}]
       foreach_in_collection s [get_shapes -intersect $area -filter $shape_filter -quiet] {
         set n [get_attribute $s net.name]
@@ -126,11 +124,10 @@ proc drc_eco_reroute {run_dir} {
 }
 
 ###############################################################################
-# Placement ECO for base-layer rules that come from two cells in neighbouring rows, for example DF.6_5V:
-# the poly of a gate in one row ends 0.395 um from the COMP of a cell in the row above, which the deck reads as a
-# COMP extension below 0.4 um. Neither cell is wrong alone, only the pair at that x offset. This runs the COMP deck
-# of the wafer.space KLayout rules, moves the smaller logic cell under each marker by two sites, legalizes and
-# repairs the routes, and checks again. Sourced from 06_finish.tcl before the fillers are inserted.
+# Placement ECO for base-layer rules from two cells in neighbouring rows, for example DF.6_5V: the poly end of a gate
+# in one row is 0.395 um from the COMP of a cell in the row above (minimum 0.4 um). Runs the COMP deck of the
+# wafer.space rules, moves the smaller logic cell under each marker by two sites, legalizes, repairs the routes and
+# checks again. Sourced from 06_finish.tcl before the fillers.
 ###############################################################################
 
 proc drc_eco_move_cells {eco_dir rules} {

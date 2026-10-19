@@ -102,10 +102,9 @@ FOLDED_SC_CDL   := $(CACHE_DIR)/gf180mcu_fd_sc_mcu7t5v0.folded.cdl
 ICV_HOME_DIR      ?= /usr/synopsys/icvalidator/Y-2026.03-SP2
 ICV_PDK_HOME      ?= $(HOME)/pdk_synopsys
 ICV_HOST_INIT     ?= 4
-# The ICV decks expect a 0.001 um database unit. resolution_override.rs sets the deck to ICV_LAYOUT_RESOLUTION,
-# which must be the unit of the GDS from write_gds (06_finish.tcl). Change the value here and in the file.
-ICV_RUNSET_CONFIG     ?= scripts/signoff/pv/resolution_override.rs
-ICV_LAYOUT_RESOLUTION ?= 0.0001
+# Optional runset config for icv -runset_config (a path in the repo). Empty: the decks run as they are. The GDS of
+# 06_finish.tcl has the 1 nm database unit that the decks expect.
+ICV_RUNSET_CONFIG     ?=
 
 # DRC deck: the foundry deck DRC_ICV (default, needs the ICV_* settings below) or DRC_ICV_MODIFIED (no settings,
 # but its README says that it can miss rules):
@@ -141,18 +140,11 @@ ICV_FILL_EXTRA        ?=
 # ------------------------------------------------------------------------------
 # Sign-off STA / power - Synopsys PrimeTime + PrimePower (GF180MCU, MCMM)
 # ------------------------------------------------------------------------------
-# Reads the SDC + per-corner SPEF that 06_finish.tcl (scripts/common/export_signoff.tcl)
-# writes into outputs/<run>/ (same folder as GDS/Verilog -- see that
-# script's header comment for why one write_parasitics call produces 3 SPEF
-# files, one per MCMM corner temperature). `make sta-pt`/`make power-pp`
-# don't depend on the FC steps -- like drc/lvs/drc-icv above, they just check
-# the SDC/SPEF exist and tell you to run `make finish` (or `make pt_export` to
-# write them again from the saved finish block) if not, rather than silently
-# kicking off a (potentially multi-hour) FC re-run as a side effect.
+# The checks read the SDC and the SPEF per corner that 06_finish.tcl writes into the run folder
+# (common/export_signoff.tcl). Without them they stop and ask for make finish, or make pt_export to write them again.
 PT_HOME_DIR ?= /usr/synopsys/prime/Y-2026.03-SP2
 SDC  ?= $(RUN_DIR)/$(TOP).sdc
-# Sign-off SDC: the same constraints at SPEC_PERIOD (scripts/common/setup.tcl), written by scripts/common/export_signoff.tcl.
-# The name carries the period in ns (SPEC_PERIOD 55.0 -> _55ns).
+# Sign-off SDC: the same constraints at SPEC_PERIOD of setup.tcl (55.0 gives _55ns)
 SPEC_SDC ?= $(RUN_DIR)/$(TOP)_55ns.sdc
 
 # PrimeTime has no MCMM of its own (create_corner and create_mode are FC commands). sta_corner.tcl runs one
@@ -424,7 +416,7 @@ drc-icv:
 	   MIMCAP_SELECTION="$(ICV_MIMCAP)" PADBONDING="$(ICV_PADBONDING)" \
 	   LATCH_CHECK="$(ICV_LATCH_CHECK)" \
 	   icv -f gdsii -c "$(TOP)" -i "$$gds_real" -vue \
-	     -runset_config "$(REPO_DIR)/$(ICV_RUNSET_CONFIG)" \
+	     $(if $(ICV_RUNSET_CONFIG),-runset_config "$(REPO_DIR)/$(ICV_RUNSET_CONFIG)") \
 	     -host_init $(ICV_HOST_INIT) $(ICV_DRC_EXTRA) \
 	     "$(ICV_DRC_RUNSET)" \
 	 ) 2>&1 | tee "$$out_dir/drc_icv.log"
@@ -522,7 +514,7 @@ lvs-icv:
 	   ICV_LVS="$(ICV_LVS_HOME)" BEOL_STACK="$(ICV_BEOL_STACK)" \
 	   icv -f gdsii -c "$(TOP)" -i "$$lvs_gds" \
 	     -s "$$out_dir/$(TOP).sp" -sf SPICE -vue \
-	     -runset_config "$(REPO_DIR)/$(ICV_RUNSET_CONFIG)" \
+	     $(if $(ICV_RUNSET_CONFIG),-runset_config "$(REPO_DIR)/$(ICV_RUNSET_CONFIG)") \
 	     -host_init $(ICV_HOST_INIT) $(ICV_LVS_EXTRA) \
 	     "$(ICV_LVS_RUNSET)" \
 	 ) 2>&1 | tee "$$out_dir/lvs_icv.log"; \
@@ -592,16 +584,8 @@ fill-icv:
 # ------------------------------------------------------------------------------
 # Signoff STA - Synopsys PrimeTime (GF180MCU, MCMM: slow/typical/fast)
 # ------------------------------------------------------------------------------
-# Runs one classic pt_shell session per corner (see scripts/signoff/sta/sta_corner.tcl's
-# header comment for why, instead of PT's own -multi_scenario distributed
-# mode) against the SDC + per-corner SPEF that `make finish` wrote. Setup is
-# checked at slow+typical, hold at fast -- mirrors scripts/common/mcmm.tcl's
-# own set_scenario_status split exactly (the existing, already-validated FC
-# in-design convention: setup is worst at the slowest corner, hold is worst
-# at the fastest). Results land in <run>/sta_pt/: report_timing_setup /
-# report_constraint_setup / report_qor per slow+typical corner,
-# report_timing_hold / report_constraint_hold / report_qor for fast, plus a
-# combined summary printed at the end of the run.
+# PrimeTime STA, one pt_shell per corner (sta_corner.tcl). Setup at slow and typical, hold at fast, as in mcmm.tcl.
+# Reports in <run>/sta_pt/ and a summary at the end.
 #
 # Typical use (after `make finish`):
 #   make sta-pt                                # all 3 corners, outputs/latest
@@ -674,13 +658,8 @@ sta-pt:
 # ------------------------------------------------------------------------------
 # Power analysis - Synopsys PrimePower (GF180MCU)
 # ------------------------------------------------------------------------------
-# Reuses the exact same netlist/SDC/SPEF/liberty setup as sta-pt (see
-# scripts/signoff/power/power_corner.tcl -- power commands live directly in pt_shell,
-# not a separate pwr_shell session; that launcher disables read_verilog and
-# expects to attach to an already-built session instead), then applies
-# vectorless (default toggle_rate/static_probability) switching activity and
-# reports power. Set PP_SAIF=<path/to.saif> to use real simulated activity
-# instead once one exists; empty (the default) uses the vectorless estimate.
+# PrimePower with the setup of sta-pt (power_corner.tcl, power commands in plain pt_shell). Vectorless activity, or
+# PP_SAIF=<file.saif> for simulated activity.
 #
 # Typical use (after `make finish`):
 #   make power-pp                                # fast corner only (default)

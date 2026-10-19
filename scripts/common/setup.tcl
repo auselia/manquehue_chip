@@ -17,12 +17,9 @@ set CLOCK_PERIOD        50.0
 # stops about 1.4 ns short of any period it is given, so a netlist implemented at 50 ns closes at 55 ns.
 set SPEC_PERIOD         55.0
 
-# Top-level power pins: {layer llx lly urx ury} in um, one list per net, for a block outline W x H.
-# They are the straight sections of the PG rings (power_grid.tcl: VDD 13 to 23 um and VSS 1 to 11 um
-# inside the outline): Metal5 along the bottom and top, Metal4 down both sides. The first 30 um at each
-# end is left out because the rings' own corner via arrays sit there. The macro height follows the cell
-# area (02_floorplan.tcl), so the pins are computed from the outline, not fixed numbers.
-# 06_finish.tcl checks that each rectangle lies on a shape of its net.
+# Top-level power pins: {layer llx lly urx ury} in um per net, for an outline W x H. They are the straight parts of
+# the PG rings (power_grid.tcl: VDD 13 to 23 um, VSS 1 to 11 um inside the outline), without the 30 um corner
+# via arrays. Computed from the outline because the height follows the cell area. 06_finish.tcl checks each pin.
 proc pg_pins {W H} {
   return [list \
     VDD [list [list Metal5 43 13 [expr {$W - 43}] 23] \
@@ -34,8 +31,7 @@ proc pg_pins {W H} {
               [list Metal4 1 31 11 [expr {$H - 31}]] \
               [list Metal4 [expr {$W - 11}] 31 [expr {$W - 1}] [expr {$H - 31}]]]]
 }
-# Signoff-driven DRC ECO (drc_eco.tcl): the wafer.space KLayout deck, restricted to the routing
-# rules FC cannot see, finds violations and the nets under them are rerouted.
+# Sign-off DRC ECOs (drc_eco.tcl): the wafer.space KLayout deck and its routing-rule decks.
 set KLAYOUT_BIN         "/nix/store/dljmpck53kb6zxhvd73b688286b0kwkn-klayout-0.30.9/bin/klayout"
 set DRC_DECK            "$::env(HOME)/.ciel/gf180mcuD/libs.tech/klayout/tech/drc/gf180mcu.drc"
 set DRC_ECO_DECKS       "via,metal,contact"
@@ -47,7 +43,7 @@ set PG_PIN_BAND 25
 # -----------------------------------------------------------------------------
 # 2. PDK & Technology Paths
 # -----------------------------------------------------------------------------
-# Hardcoded path to Synopsys technology data for GF180MCU
+# Synopsys technology data for GF180MCU
 set TECHLIB_DATA_DIR    "/home/navillegas/pdk_synopsys"
 
 set STDCELL_TRACK_SIZE  7
@@ -67,7 +63,7 @@ set LPE_SPEC            "typ"
 # -----------------------------------------------------------------------------
 # 3. Reference Libraries (NDMs)
 # -----------------------------------------------------------------------------
-# Includes Standard Cells, IOs, and the SRAM Macro
+# Standard cells, IO cells and the SRAM macro
 set REFERENCE_LIBRARY [list \
     "${TECHLIB_DATA_DIR}/ndm/gf180mcu_fd_sc_mcu${STDCELL_TRACK_SIZE}t5v0.ndm" \
     "${TECHLIB_DATA_DIR}/ndm/gf180mcu_fd_io.ndm" \
@@ -77,8 +73,8 @@ set REFERENCE_LIBRARY [list \
 # -----------------------------------------------------------------------------
 # 4. Flow Constraints
 # -----------------------------------------------------------------------------
-# Exclude oversized cells and clock-related cells from synthesis datapath:
+# Oversized and clock cells, not used in the synthesized datapath
 set SYN_IGNORE_CELLS    {*/*_12 */*_16 */*_20 */*__clk*}
 
-# Define the set of cells eligible for Clock Tree Synthesis (CTS):
+# Cells allowed in clock tree synthesis
 set CTS_CELLS           {*/*clk* */*icg* */*lat* */*dff*}

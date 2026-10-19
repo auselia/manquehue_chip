@@ -10,14 +10,9 @@ puts "================================================================"
 # -----------------------------------------------------------------------------
 # Report location
 # -----------------------------------------------------------------------------
-# 01_read_rtl through 05_route run before the run folder outputs/<run>/ exists (06_finish.tcl creates it when it
-# exports the GDS and the netlist). Their reports go to a staging directory, work/reports/<step>/, and 06_finish.tcl
-# copies them into outputs/<run>/reports/<step>/. So every run folder carries the reports of the build it was exported
-# from, next to its drc/, lvs/, sta_pt/ and power_pp/. The staging directory belongs to work/ (make clean removes it)
-# and always holds the latest build attempt.
-#
-# 06_finish runs after the run folder exists, it sets $RUN_DIR before sourcing this file and writes into
-# outputs/<run>/reports/<step>/ directly. The parasitics report is in reports/export_signoff/ (common/export_signoff.tcl).
+# 01_read_rtl to 05_route run before the run folder exists: their reports go to work/reports/<step>/ and
+# 06_finish.tcl copies them into outputs/<run>/reports/<step>/. 06_finish sets RUN_DIR and writes there directly. The
+# parasitics report is in reports/export_signoff/ (common/export_signoff.tcl).
 if {[info exists RUN_DIR] && [file isdirectory $RUN_DIR]} {
     set REPORT_DIR [file join $RUN_DIR reports ${ACTIVE_STEP}]
 } else {

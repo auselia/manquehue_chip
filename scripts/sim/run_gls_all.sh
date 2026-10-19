@@ -1,6 +1,7 @@
 #!/bin/bash
 # Gate-level simulation of a run: Verilator (full-SoC testbench, program prints GLS OK), boot from the QSPI flash
-# model (flash_hello prints FLASH OK, no JTAG load), scan shift, and the Icarus macro-level JTAG boot test. The chip-level test (pad ring) is part of `make chip`, it needs the chip netlist.
+# model (flash_hello prints FLASH OK, no JTAG load), scan shift, and the Icarus macro-level JTAG boot test. The
+# chip-level test (pad ring) is part of `make chip`: it needs the chip netlist.
 # usage: scripts/sim/run_gls_all.sh      (env: RUN)
 set -e
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

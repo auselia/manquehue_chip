@@ -62,9 +62,23 @@ proc drc_eco_reroute {run_dir} {
         set fill [filter_collection $fill "ref_name =~ *fill_* || ref_name =~ *fillcap*"]
         if {[sizeof_collection $fill] > 0} { remove_cells $fill }
       }
-      puts "INFO: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats after the reroute, moving $name ([get_attribute $c ref_name]) by 2 sites"
-      move_objects -delta [list [expr {2 * $site_w}] 0] $c
-      legalize_placement -cells $c
+      # the nearest free place in the row, 2 to 6 sites left or right of the placement boundary (taps and logic
+      # cells stay where they are, a place over one of them would be undone by legalize_placement)
+      set pb [get_attribute $c boundary_bbox]
+      set dx ""
+      foreach k {-2 2 -4 4 -6 6} {
+        set nb [list [list [expr {[lindex $pb 0 0] + $k * $site_w + 0.01}] [expr {[lindex $pb 0 1] + 0.5}]] \
+                     [list [expr {[lindex $pb 1 0] + $k * $site_w - 0.01}] [expr {[lindex $pb 1 1] - 0.5}]]]
+        set hit [remove_from_collection [get_objects_by_location -classes cell -intersect $nb -quiet] $c]
+        if {[sizeof_collection $hit] == 0} { set dx $k; break }
+      }
+      if {$dx eq ""} {
+        puts "WARNING: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats, no free place for $name within 6 sites"
+      } else {
+        puts "INFO: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats after the reroute, moving $name ([get_attribute $c ref_name]) by $dx sites"
+        move_objects -delta [list [expr {$dx * $site_w}] 0] $c
+        legalize_placement -cells $c
+      }
       set row [list [list [expr {[lindex $bb 0 0] - 6.0}] [lindex $bb 0 1]] [list [expr {[lindex $bb 1 0] + 6.0}] [lindex $bb 1 1]]]
       create_stdcell_fillers -lib_cells $DCAP_CELLS -bboxes $row -prefix eco_dcap
       create_stdcell_fillers -lib_cells $FILL_CELLS -bboxes $row -prefix eco_fill

@@ -1,10 +1,10 @@
 ###############################################################################
 # Croc SoC Physical Design Flow
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: DFT signal declarations for the STIL export (export_stil.tcl)
+# Description: DFT signal declarations (scan ports, clocks, reset, AutoFix)
 ###############################################################################
 
-# Sections 1 to 3 of scripts/common/dft_scan.tcl, without the insertion. Keep the two files the same.
+# DFT signals and scan configuration. Sourced by scripts/common/dft_scan.tcl (synthesis) and export_stil.tcl.
 
 ###############################################################################
 # 1. Test I/O pins

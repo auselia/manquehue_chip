@@ -15,8 +15,7 @@
 +define+TARGET_FLIST
 +define+TARGET_RTL
 +define+TARGET_SYNTHESIS
-+define+TARGET_VERILATOR
-+define+VERILATOR=1
++define+TARGET_VCS
 +define+COMMON_CELLS_ASSERTS_OFF=1
 
 // ---- simulation cells (behavioral) ----

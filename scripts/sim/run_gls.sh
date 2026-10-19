@@ -1,7 +1,6 @@
 #!/bin/bash
 # Zero-delay gate-level simulation of the croc_soc macro netlist (outputs/latest/croc_soc.v)
-# with Verilator, using the repo testbench. No waveform dump: the testbench hard-codes
-# `define TRACE_WAVE and a --trace build writes tens of GB.
+# with Verilator, using the repo testbench. No waveform dump (TRACE_WAVE is not defined): a trace writes tens of GB.
 #
 # usage: scripts/sim/run_gls.sh <program.hex> [work dir]
 #   program.hex  must fit the 2 KB SRAM, e.g. sim/sw/gls_mini/build.sh -> bin/gls_mini.hex

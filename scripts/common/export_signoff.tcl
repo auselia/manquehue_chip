@@ -1,55 +1,31 @@
 # -----------------------------------------------------------------------------
-# 07_pt_export.tcl  --  signoff STA/power inputs for PrimeTime / PrimePower
+# export_signoff.tcl  --  sign-off STA/power inputs for PrimeTime / PrimePower
 #
-# Everything upstream (01_read_rtl.tcl -> tech_setup.tcl -> mcmm.tcl) already
-# builds the exact MCMM environment PrimeTime needs: 3 real corners (slow/
-# typical/fast, see common/mcmm.tcl) and a real constraint set for mode `func`
-# (common/mode_func.tcl). What was missing was exporting that environment as
-# standalone files -- PrimeTime has no notion of FC's in-memory design.dlib,
-# it only reads Verilog + Liberty + SDC + SPEF from disk.
+# Sourced by 06_finish.tcl after `save_block -as finish`, and by scripts/utils/pt_export.tcl (make pt_export, to
+# write the files again from the saved finish block). Needs $RUN_DIR, the run folder of the GDS and netlist.
 #
-# This step opens the already-finished, already-signed-off `finish` block
-# (post stdcell-filler insertion, post final route_detail, post
-# change_names -- i.e. exactly what 06_finish.tcl exports to GDS/Verilog) and
-# writes the artifacts PT/PP need on top of that same GDS/Verilog:
+# PrimeTime has no notion of FC's design library, it reads Verilog + Liberty + SDC + SPEF from disk. The MCMM
+# environment of the flow (3 corners slow/typical/fast, common/mcmm.tcl, and mode `func`, common/mode_func.tcl)
+# is written next to the GDS/Verilog:
 #   <run>/<TOP>.sdc              -- mode `func` constraints, propagated clocks (implementation period)
 #   <run>/<TOP>_55ns.sdc         -- the same at the sign-off period SPEC_PERIOD (only the clock period differs)
+#   <run>/<TOP>_scan.sdc         -- mode `scan` (scan shift), for make scan-sta
 #   <run>/<TOP>.typ_125.spef     -- parasitics for the `slow`    scenario (125C)
 #   <run>/<TOP>.typ_25.spef      -- parasitics for the `typical` scenario ( 25C)
 #   <run>/<TOP>.typ_-40.spef     -- parasitics for the `fast`    scenario (-40C)
 #   <run>/<TOP>.spef_scenario    -- FC's own manifest mapping file->scenario
 #                                    (kept for traceability, not read by PT)
 #
-# All three come from ONE write_parasitics call: mcmm.tcl assigns the same
-# parasitic spec ("typ" -- the only nxtgrd this PDK kit ships, see pex/;
-# there is no separate min/max RC corner deck) to every corner's
-# -early_spec/-late_spec, but write_parasitics still extracts once per
-# corner because sheet resistance is temperature-dependent -- the 125C/25C/
-# -40C split above is real (if small) RC variation, not a copy-paste of one
-# file. This is MORE accurate than reusing a single SPEF across corners
-# would have been, and it fell out of just calling write_parasitics with
-# MCMM active -- no extra looping needed here.
+# All three SPEF files come from ONE write_parasitics call: mcmm.tcl assigns the same parasitic spec ("typ", the
+# only nxtgrd this PDK kit ships, see pex/) to every corner, but write_parasitics still extracts once per corner
+# because sheet resistance is temperature-dependent, so the 125C/25C/-40C split is real (if small) RC variation.
 #
-# Why here and not inside 06_finish.tcl: keeps the already-validated tapeout
-# path (GDS/Verilog export) completely untouched. This step is purely
-# additive and can be re-run / iterated on its own via `make pt_export`
-# without touching 06_finish.tcl.
+# It changes the hold uncertainty of the in-memory block to the sign-off value. 06_finish.tcl sources it after
+# save_block, so the saved finish block keeps the implementation constraints.
 # -----------------------------------------------------------------------------
 
-source [file dirname [info script]]/common/open_lib.tcl
-open_block finish
-
-# -----------------------------------------------------------------------------
-# Locate this run's output folder (the one 06_finish.tcl just created and
-# pointed outputs/latest at). Mirrors 06_finish.tcl's own OUTPUTS_DIR logic so
-# the SDC/SPEF land right next to that run's GDS/Verilog.
-# -----------------------------------------------------------------------------
-set OUTPUTS_DIR [file normalize [file join [file dirname [info script]] .. outputs]]
-set RUN_DIR      [file normalize [file join $OUTPUTS_DIR latest]]
-
-if { ![file isdirectory $RUN_DIR] } {
-  puts "ERROR: outputs/latest does not resolve to a run directory ($RUN_DIR)."
-  puts "ERROR: Run 06_finish.tcl (make finish) before make pt_export."
+if { ![info exists RUN_DIR] || ![file isdirectory $RUN_DIR] } {
+  puts "ERROR: export_signoff.tcl needs RUN_DIR, the run folder of the GDS and netlist."
   exit 1
 }
 
@@ -157,13 +133,12 @@ current_scenario typical
 # this single call writes one SPEF per corner (see header comment above).
 write_parasitics -output $SPEF_BASE
 
-set ACTIVE_STEP "07_pt_export"
-source [file dirname [info script]]/common/reporting.tcl
+# Report of the extracted parasitics, with the other reports of the build.
+file mkdir [file join $RUN_DIR reports export_signoff]
+redirect -file [file join $RUN_DIR reports export_signoff report_parasitics.rpt] { report_parasitics }
 
 puts "INFO: Wrote SDC   -> $SDC_OUT"
 puts "INFO: Wrote SDC   -> $SDC_SCAN_OUT (scan shift)"
 puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_125.spef (slow)"
 puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_25.spef (typical)"
 puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_-40.spef (fast)"
-
-save_block -as pt_export

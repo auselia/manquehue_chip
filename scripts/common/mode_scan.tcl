@@ -14,7 +14,7 @@
 
 current_mode scan
 
-# Shift clocks. Names must stay `clock` and `jtag_tck`: 04_cts.tcl and 07_pt_export.tcl set the
+# Shift clocks. Names must stay `clock` and `jtag_tck`: 04_cts.tcl and common/export_signoff.tcl set the
 # uncertainties by those names in every scenario. Period and waveforms are the ones declared to
 # the DFT tool (set_dft_signal -type ScanClock in dft_scan.tcl): both clocks pulse inside one
 # 100 ns shift cycle, clk_i at 50-70 ns and jtag_tck_i at 75-90 ns.

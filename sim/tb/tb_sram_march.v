@@ -22,8 +22,8 @@ module tb_sram_march;
     .jtag_tck_i(tck), .jtag_tdi_i(tdi), .jtag_tdo_o(tdo), .jtag_tms_i(tms), .jtag_trst_ni(trst_n),
     .uart_rx_i(1'b1), .uart_tx_o(uart_tx),
     .qspi_clk_o(), .qspi_sd_o(), .qspi_sd_i(4'b0000), .qspi_sd_en_o(), .qspi_csn_o(),
-    .adc_sclk_o(), .adc_csn_o(), .adc_sdo_i(1'b0), .adc_wake_n_i(1'b1), .adc_big_n_i(1'b1), .adc_wake_clr_o(), .adc_cap_en_o(),
-    .rf_sclk_o(), .rf_mosi_o(), .rf_miso_i(1'b0), .rf_csn_o(), .rf_dio0_i(1'b0), .rf_rstn_o(),
+    .spi_sck_o(), .spi_sd_o(), .spi_sd_i(1'b0), .spi_cs0_o(), .spi_cs1_o(), .afe_irq_i(1'b1),
+    .rf_dio0_i(1'b0), .rf_rstn_o(),
     .gpio_i(2'b00), .gpio_o(), .gpio_out_en_o(),
     .scan_si_i(1'b0), .scan_se_i(1'b0), .scan_so_o(scan_so)
   );

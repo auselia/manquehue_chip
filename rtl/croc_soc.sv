@@ -29,20 +29,15 @@ module croc_soc import croc_pkg::*; #(
   output logic [3:0] qspi_sd_en_o,
   output logic [2:0] qspi_csn_o,
 
-  // SPI block (docs/spi_adc_spec.md section 3): ADS7057 ADC and SX1276 radio
-  output logic adc_sclk_o,     // forwarded system clock, idles high
-  output logic adc_csn_o,
-  input  logic adc_sdo_i,
-  input  logic adc_wake_n_i,   // latched window comparator of the AFE board, active low
-  input  logic adc_big_n_i,
-  output logic adc_wake_clr_o,
-  output logic adc_cap_en_o,
-  output logic rf_sclk_o,
-  output logic rf_mosi_o,
-  input  logic rf_miso_i,
-  output logic rf_csn_o,
-  input  logic rf_dio0_i,
-  output logic rf_rstn_o,
+  // SPI block (docs/spi_adc_spec.md section 3): ADS7057 ADC and SX1276 radio on one shared bus
+  output logic spi_sck_o,      // ADC: forwarded system clock, idles high. Radio: its SCLK while it owns the bus
+  output logic spi_sd_o,       // radio MOSI
+  input  logic spi_sd_i,       // ADC SDO and radio MISO
+  output logic spi_cs0_o,      // ADC chip select, active low
+  output logic spi_cs1_o,      // radio chip select, active low
+  input  logic afe_irq_i,      // window comparator of the AFE board (WAKE_N), active low
+  input  logic rf_dio0_i,      // radio interrupt (TxDone, RxDone)
+  output logic rf_rstn_o,      // radio reset, active low
 
   input  logic [GpioCount-1:0] gpio_i,       // Input from GPIO pins
   output logic [GpioCount-1:0] gpio_o,       // Output to GPIO pins
@@ -108,20 +103,15 @@ croc_domain #(
 obi_spi_pkg::spi_pads_out_t spi_pads_out;
 obi_spi_pkg::spi_pads_in_t  spi_pads_in;
 
-assign adc_sclk_o     = spi_pads_out.adc_sclk;
-assign adc_csn_o      = spi_pads_out.adc_csn;
-assign adc_wake_clr_o = spi_pads_out.adc_wake_clr;
-assign adc_cap_en_o   = spi_pads_out.adc_cap_en;
-assign rf_sclk_o      = spi_pads_out.rf_sclk;
-assign rf_mosi_o      = spi_pads_out.rf_mosi;
-assign rf_csn_o       = spi_pads_out.rf_csn;
-assign rf_rstn_o      = spi_pads_out.rf_rstn;
-assign spi_pads_in    = '{
-  adc_sdo:    adc_sdo_i,
-  adc_wake_n: adc_wake_n_i,
-  adc_big_n:  adc_big_n_i,
-  rf_miso:    rf_miso_i,
-  rf_dio0:    rf_dio0_i
+assign spi_sck_o   = spi_pads_out.sck;
+assign spi_sd_o    = spi_pads_out.sd_o;
+assign spi_cs0_o   = spi_pads_out.cs0_n;
+assign spi_cs1_o   = spi_pads_out.cs1_n;
+assign rf_rstn_o   = spi_pads_out.rf_rstn;
+assign spi_pads_in = '{
+  sd_i:      spi_sd_i,
+  afe_irq_n: afe_irq_i,
+  rf_dio0:   rf_dio0_i
 };
 
 user_domain #(

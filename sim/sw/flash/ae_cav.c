@@ -14,7 +14,7 @@
 // band that stands out from the signal around it; a steady 254 kHz tone passes BAND_OK and fails DECAY).
 // FFT setup for 909 kS/s (7.1 kHz per bin): KMIN 6 (42.6 kHz), band bins 22..55 (156 to 391 kHz), BAND_THR 179
 // (0.70), DECAY_THR 192 (0.75), GAIN_SHIFT 3, EN_SHIFT 4. These are the spec values at 2.5 MS/s moved to 909 kS/s.
-// Packet, 24 bytes, little endian: 0 'C', 1 sequence, 2 flags ([0] BAND_OK [1] DECAY [2] SAT [3] BIG_N seen
+// Packet, 24 bytes, little endian: 0 'C', 1 sequence, 2 flags ([0] BAND_OK [1] DECAY [2] SAT [3] reserved, 0
 // [4] WAKE_MODE), 3 PEAK_BIN, 4 PEAK_POW, 8 BAND_ENERGY, 12 TOTAL_ENERGY, 16 TD_ENERGY of T, 20 TD_ENERGY of P or N.
 // UART: "M<mode> R<ADC_TPOS> W<first word of T> P<first word of the other block>", in time order and before the
 // swap (test aid for sim/sw/flash/check_ae_cav.py), the features,
@@ -43,7 +43,6 @@
 #define ADC_BUF0   0x108
 #define ADC_BUF1   0x10C
 #define ADC_NSAMP  0x110
-#define ADC_PINS   0x120
 #define ADC_TRIG   0x124
 #define ADC_TPOS   0x128
 #define A_EN        (1u << 0)
@@ -53,6 +52,7 @@
 #define A_TRIG_LOW  (1u << 14)
 #define A_DONE      (1u << 5)
 #define A_BUSERR    (1u << 4)
+#define A_BUSWAIT   (1u << 7)
 
 #define F_CTRL     0x00
 #define F_STATUS   0x04
@@ -160,12 +160,11 @@ int main() {
     SPI(ADC_TRIG)  = MODE ? ((1u << 16) | 256u) : (128u - PRE);
     SPI(ADC_CTRL)  = A_EN | A_RUN | A_TRIGGERED | A_TRIG_LOW | A_IDLE(2);
 
-    uint32_t st, t0 = mcycle(), big = 0;
-    while (!((st = SPI(ADC_STATUS)) & A_DONE)) {
-        if (!(SPI(ADC_PINS) & (1u << 9))) big = 1;          // BIG_N low (not latched on the v3 board)
+    uint32_t st, t0 = mcycle();
+    while (!((st = SPI(ADC_STATUS)) & A_DONE))
         if (mcycle() - t0 > TIMEOUT) { fail |= 1u << 0; break; }
-    }
     if (st & A_BUSERR) fail |= 1u << 4;
+    if (st & A_BUSWAIT) fail |= 1u << 5;                   // a frame waited for the radio during the capture
     uint32_t tpos = SPI(ADC_TPOS);
     if (!(tpos & (1u << 16))) fail |= 1u << 0;
     volatile uint32_t *ring = (volatile uint32_t *)BUF0;
@@ -195,7 +194,7 @@ int main() {
     pkt[0] = 0x80;                                         // FIFO write
     pkt[1] = 'C';
     pkt[2] = 0;
-    pkt[3] = (uint8_t)(band_ok | (decay << 1) | (sat << 2) | (big << 3) | (MODE << 4));
+    pkt[3] = (uint8_t)(band_ok | (decay << 1) | (sat << 2) | (MODE << 4));
     pkt[4] = (uint8_t)peak;
     put32(&pkt[5], ppow); put32(&pkt[9], band); put32(&pkt[13], total); put32(&pkt[17], td1); put32(&pkt[21], td2);
     rf_reg(0x0D, 0x80);

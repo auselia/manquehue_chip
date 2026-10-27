@@ -3,7 +3,8 @@
 //
 // Block testbench of obi_spi (docs/spi_adc_spec.md section 7). It drives the OBI subordinate port with byte,
 // halfword and word accesses, answers the manager port like an SRAM (with stall and error injection), and puts the
-// ADS7057 and SX1276 behavioural models (sim/models) on the pads.
+// ADS7057 and SX1276 behavioural models (sim/models) on the shared SPI bus: one SCLK, MOSI to the radio, the data
+// input from the ADC while CS0 is low and from the radio while CS1 is low.
 //
 // The ADC model input changes at every CS rise: the sample taken at CS fall number k is code_of(k), a bijection of k,
 // so every sample found in the SRAM tells which CS fall it was taken at.
@@ -39,7 +40,7 @@ module tb_obi_spi;
   function automatic logic [31:0] idle_f(int n); return 32'(n) << 8; endfunction
   // ADC_STATUS fields
   localparam logic [31:0] StRunning = 32'h1, StFull0 = 32'h2, StFull1 = 32'h4, StOverrun = 32'h8, StBusErr = 32'h10,
-                          StDone = 32'h20, StWake = 32'h40, StActive = 32'h100;
+                          StDone = 32'h20, StWake = 32'h40, StBusWait = 32'h80, StActive = 32'h100;
 
   logic clk = 1'b0, rst_n = 1'b0;
   always #(ClkPeriod/2) clk = ~clk;
@@ -74,11 +75,18 @@ module tb_obi_spi;
 
   // ------------------------------------------------------------------ models on the pads
   wire adc_sdo, rf_miso, rf_dio0;
+  // shared bus: the pad SCLK, the two chip selects and MOSI. rf_sclk is the radio master's own SCLK (its idle level
+  // shows only while the radio owns the bus).
+  wire sck     = pads_out.sck;
+  wire adc_csn = pads_out.cs0_n;
+  wire rf_csn  = pads_out.cs1_n;
+  wire rf_mosi = pads_out.sd_o;
+  wire rf_sclk = i_dut.rf_sclk;
   logic [13:0] ain_code;
 
   ads7057_model i_adc (
-    .cs_n     ( pads_out.adc_csn  ),
-    .sclk     ( pads_out.adc_sclk ),
+    .cs_n     ( adc_csn           ),
+    .sclk     ( sck               ),
     .sdo      ( adc_sdo           ),
     .ain_code ( ain_code          )
   );
@@ -87,30 +95,36 @@ module tb_obi_spi;
   wire  adc_sdo_slow;
   logic use_slow = 1'b0;
   ads7057_model #(.TCO_NS(35.0)) i_adc_slow (
-    .cs_n     ( pads_out.adc_csn  ),
-    .sclk     ( pads_out.adc_sclk ),
+    .cs_n     ( adc_csn           ),
+    .sclk     ( sck               ),
     .sdo      ( adc_sdo_slow      ),
     .ain_code ( ain_code          )
   );
 
   sx1276_model i_radio (
-    .nss_n ( pads_out.rf_csn  ),
-    .sclk  ( pads_out.rf_sclk ),
-    .mosi  ( pads_out.rf_mosi ),
+    .nss_n ( rf_csn  ),
+    .sclk  ( sck              ),
+    .mosi  ( rf_mosi ),
     .miso  ( rf_miso          ),
     .dio0  ( rf_dio0          )
   );
 
-  logic wake_n = 1'b1, big_n = 1'b1;
+  logic wake_n = 1'b1;
   logic rf_loop = 1'b0;                              // MISO = MOSI instead of the radio model
   always_comb begin
-    pads_in            = PadsInIdle;
-    pads_in.adc_sdo    = use_slow ? (adc_sdo_slow === 1'b1) : (adc_sdo === 1'b1);
-    pads_in.adc_wake_n = wake_n;
-    pads_in.adc_big_n  = big_n;
-    pads_in.rf_miso    = rf_loop ? pads_out.rf_mosi : (rf_miso === 1'b1);
-    pads_in.rf_dio0    = (rf_dio0 === 1'b1);
+    pads_in           = PadsInIdle;
+    pads_in.sd_i      = !rf_csn ? (rf_loop ? rf_mosi : (rf_miso === 1'b1))
+                                : (use_slow ? (adc_sdo_slow === 1'b1) : (adc_sdo === 1'b1));
+    pads_in.afe_irq_n = wake_n;
+    pads_in.rf_dio0   = (rf_dio0 === 1'b1);
   end
+
+  // shared bus rules, checked all the time: never both chip selects low, the SCLK owner changes only while both
+  // are high, and the pad SCLK is the radio SCLK while the radio CS is low
+  int unsigned both_cs_low = 0, own_switch_bad = 0, rf_sck_bad = 0;
+  always @(adc_csn or rf_csn) if (rst_n && !adc_csn && !rf_csn) both_cs_low++;
+  always @(i_dut.rf_own_q) if (rst_n && (!adc_csn || !rf_csn)) own_switch_bad++;
+  always @(negedge clk) if (rst_n && !rf_csn && sck !== rf_sclk) rf_sck_bad++;
 
   // input of the ADC: code_of(k) is sampled at CS fall number k (k counts from 0)
   function automatic logic [13:0] code_of(int k); return 14'((k * 1237 + 5000) % 16384); endfunction
@@ -119,12 +133,12 @@ module tb_obi_spi;
   realtime     t_cs_fall_prev = 0, cs_period = 0;
   realtime     t_cs_fall = 0, cs_low_time = 0;
   initial ain_code = code_of(0);
-  always @(negedge pads_out.adc_csn) begin
+  always @(negedge adc_csn) begin
     n_cs_fall++;
     cs_period      = $realtime - t_cs_fall;
     t_cs_fall      = $realtime;
   end
-  always @(posedge pads_out.adc_csn) if (n_cs_fall > 0) begin
+  always @(posedge adc_csn) if (n_cs_fall > 0) begin
     ain_code    = code_of(n_cs_fall);
     cs_low_time = $realtime - t_cs_fall;
   end
@@ -137,14 +151,14 @@ module tb_obi_spi;
   logic [7:0]  rf_seen [$];
   realtime     t_rf_csn_fall = 0, t_rf_first_edge = 0, t_rf_last_edge = 0, t_rf_csn_rise = 0, t_rf_mosi = 0;
   realtime     t_rf_edge_prev = 0, rf_half_min = 1e9;
-  always @(pads_out.rf_mosi) t_rf_mosi = $realtime;
-  always @(negedge pads_out.rf_csn) begin
+  always @(rf_mosi) t_rf_mosi = $realtime;
+  always @(negedge rf_csn) begin
     t_rf_csn_fall = $realtime; rf_edges = 0; rf_bits = 0;
   end
-  always @(posedge pads_out.rf_csn) t_rf_csn_rise = $realtime;
-  always @(pads_out.rf_sclk) if (!pads_out.rf_csn) begin
+  always @(posedge rf_csn) t_rf_csn_rise = $realtime;
+  always @(sck) if (!rf_csn) begin
     bit leading;
-    leading = (pads_out.rf_sclk != mon_cpol);        // the first edge of a bit leaves the idle level
+    leading = (sck != mon_cpol);        // the first edge of a bit leaves the idle level
     if (rf_edges == 0) t_rf_first_edge = $realtime;
     if (rf_edges > 0 && $realtime - t_rf_edge_prev < rf_half_min) rf_half_min = $realtime - t_rf_edge_prev;
     t_rf_edge_prev = $realtime;
@@ -152,7 +166,7 @@ module tb_obi_spi;
     rf_edges++;
     if (leading == !mon_cpha) begin                  // sampling edge: MOSI must not change here
       if (t_rf_mosi == $realtime) rf_mosi_at_sample++;
-      rf_shift = {rf_shift[6:0], pads_out.rf_mosi};
+      rf_shift = {rf_shift[6:0], rf_mosi};
       rf_bits++;
       if (rf_bits % 8 == 0) rf_seen.push_back(rf_shift);
     end
@@ -380,7 +394,7 @@ module tb_obi_spi;
     expect32(AdcCtrl,   '1, TrigLow | idle_f(3), "ADC_CTRL reset");
     expect32(AdcStatus, '1, 32'h0, "ADC_STATUS reset");
     expect32(AdcNsamp,  '1, 32'd128, "ADC_NSAMP reset");
-    expect32(AdcPins,   '1, 32'h302, "ADC_PINS reset (CAP_EN 1, WAKE_N 1, BIG_N 1)");
+    expect32(AdcPins,   '1, 32'h100, "ADC_PINS reset (WAKE_N 1)");
     for (int off = 'h124; off < 'h200; off += 4) begin
       rd32(12'(off), data);
       check(data == '0, $sformatf("ADC block unused word 0x%03h: 0x%08h", off, data));
@@ -411,15 +425,12 @@ module tb_obi_spi;
     wr(AdcNsamp, 4'b0001, 32'h0000_0008); expect32(AdcNsamp, '1, 32'd264, "ADC_NSAMP byte write");
     wr(AdcCtrl, 4'b0010, idle_f(1) | TrigLow); expect32(AdcCtrl, 32'hF00, idle_f(2), "ADC_CTRL IDLE clamps to 2");
     wr32(AdcCtrl, TrigLow | idle_f(3));
-    wr(AdcPins, 4'b0001, 32'h3);
-    check(pads_out.adc_wake_clr == 1'b1 && pads_out.adc_cap_en == 1'b1, "ADC_PINS outputs");
-    wr32(AdcPins, 32'h0);
-    check(pads_out.adc_wake_clr == 1'b0 && pads_out.adc_cap_en == 1'b0, "ADC_PINS outputs cleared");
-    wake_n = 1'b0; big_n = 1'b0;
+    wr32(AdcPins, 32'hFFFF_FFFF);
+    expect32(AdcPins, '1, 32'h100, "ADC_PINS is read only");
+    wake_n = 1'b0;
     repeat (4) @(posedge clk);
-    expect32(AdcPins, 32'h300, 32'h000, "ADC_PINS inputs low");
-    wake_n = 1'b1; big_n = 1'b1;
-    wr32(AdcPins, 32'h2);
+    expect32(AdcPins, '1, 32'h000, "ADC_PINS WAKE_N low");
+    wake_n = 1'b1;
     wr32(AdcStatus, 32'hFF);                            // WAKE flag from the test above
     check(pads_out == PadsOutIdle, "pads idle while EN = 0");
 
@@ -527,7 +538,7 @@ module tb_obi_spi;
     // ---------------- 7. manager stall of 200 clocks
     clear_sram();
     wr32(AdcCtrl, En | Run | TrigLow | idle_f(2));
-    @(posedge pads_out.adc_csn);
+    @(posedge adc_csn);
     mgr_stall = 1'b1;
     repeat (200) @(posedge clk);
     mgr_stall = 1'b0;
@@ -535,7 +546,7 @@ module tb_obi_spi;
     adc_reset();
     clear_sram();
     wr32(AdcCtrl, En | Run | TrigLow | idle_f(2));      // a stall of 60 clocks loses nothing
-    @(posedge pads_out.adc_csn);
+    @(posedge adc_csn);
     mgr_stall = 1'b1;
     repeat (60) @(posedge clk);
     mgr_stall = 1'b0;
@@ -685,8 +696,8 @@ module tb_obi_spi;
     wr32(AdcCtrl, TrigLow | idle_f(3));
     repeat (2) @(posedge clk);                          // the clock gate may still pass the pulse it latched
     #1;
-    check(pads_out.adc_csn == 1'b1 && pads_out.adc_sclk == 1'b1,
-          $sformatf("ADC pads idle 2 clocks after EN = 0: CSN %b SCLK %b", pads_out.adc_csn, pads_out.adc_sclk));
+    check(adc_csn == 1'b1 && sck == 1'b1,
+          $sformatf("ADC pads idle 2 clocks after EN = 0: CSN %b SCLK %b", adc_csn, sck));
     testmode = 1'b1;
     wr32(AdcCtrl, En | Run | TrigLow | idle_f(3));
     begin
@@ -694,7 +705,7 @@ module tb_obi_spi;
       sclk_low = 0;
       repeat (200) begin
         @(negedge clk);
-        if (pads_out.adc_sclk == 1'b0) sclk_low++;
+        if (sck == 1'b0) sclk_low++;
       end
       check(sclk_low == 0, $sformatf("SCLK low %0d times in test mode", sclk_low));
     end
@@ -702,7 +713,8 @@ module tb_obi_spi;
     adc_reset();
 
     // ---------------- 12. the radio pads did not move during the ADC tests
-    check(pads_out.rf_csn == 1'b1 && pads_out.rf_sclk == 1'b0 && pads_out.rf_rstn == 1'b0, "radio pads idle");
+    check(rf_csn == 1'b1 && rf_sclk == 1'b0 && pads_out.rf_rstn == 1'b0, "radio pads idle");
+    check(sck == 1'b1, "SCLK pad at the ADC idle level while the radio is idle");
 
     // ---------------- 13. radio: reset pin, RegVersion at CLKDIV 24 and 0, CS timing, SCLK rate
     wr32(RfPins, 32'h1);
@@ -724,7 +736,7 @@ module tb_obi_spi;
       check(rf_mosi_at_sample == 0, "MOSI changed at a sampling edge");
       rf_half_min = 1e9;
     end
-    check(pads_out.rf_sclk == 1'b0 && pads_out.rf_csn == 1'b1, "radio pins idle after the transfers (mode 0)");
+    check(rf_sclk == 1'b0 && rf_csn == 1'b1, "radio pins idle after the transfers (mode 0)");
 
     // ---------------- 14. radio: burst write and read back, FIFO writes of 9 and 300 bytes (stall and refill)
     begin
@@ -811,7 +823,7 @@ module tb_obi_spi;
       wr32(RfCtrl, rf_ctrl(1, cpol, cpha, 2, 2));
       mon_cpol = cpol; mon_cpha = cpha;
       repeat (4) @(posedge clk);
-      check(pads_out.rf_sclk == cpol, $sformatf("mode %0d: SCLK idles at %0d", m, pads_out.rf_sclk));
+      check(rf_sclk == cpol, $sformatf("mode %0d: SCLK idles at %0d", m, rf_sclk));
       tx = new[12];
       foreach (tx[i]) tx[i] = 8'((i * 29 + m * 64 + 3) & 8'hFF);
       rf_seen.delete();
@@ -821,7 +833,7 @@ module tb_obi_spi;
       foreach (tx[i]) if (rx[i] !== tx[i] || i >= rf_seen.size() || rf_seen[i] !== tx[i]) bad++;
       check(bad == 0, $sformatf("mode %0d: %0d of 12 bytes wrong (loopback and pin decoder)", m, bad));
       check(rf_mosi_at_sample == 0, $sformatf("mode %0d: MOSI changed at a sampling edge", m));
-      check(pads_out.rf_sclk == cpol && pads_out.rf_csn == 1'b1, $sformatf("mode %0d: pins idle after the transfer", m));
+      check(rf_sclk == cpol && rf_csn == 1'b1, $sformatf("mode %0d: pins idle after the transfer", m));
     end
     mon_cpol = 1'b0; mon_cpha = 1'b0;
 
@@ -832,9 +844,9 @@ module tb_obi_spi;
       tx = new[2]; tx[0] = 8'h11; tx[1] = 8'h22;
       rf_xfer(tx, rx, 1'b1);
       repeat (20) @(posedge clk);
-      check(pads_out.rf_csn == 1'b0, "KEEP_CS: CS stays low after the transfer");
+      check(rf_csn == 1'b0, "KEEP_CS: CS stays low after the transfer");
       rf_xfer(tx, rx, 1'b0);
-      check(pads_out.rf_csn == 1'b1, "CS rises after a transfer without KEEP_CS");
+      check(rf_csn == 1'b1, "CS rises after a transfer without KEEP_CS");
       for (int i = 0; i < 9; i++) wr(RfData, 4'b0100, 32'(i) << 16);   // lane 2, the 9th byte overflows
       expect32(RfStatus, 32'h0000_FF04, 32'h0000_0804, "TX FIFO full with 8 bytes");
       expect32(RfErr, 32'h1, 32'h1, "TX_OVERFLOW");
@@ -851,12 +863,69 @@ module tb_obi_spi;
       wr32(RfCtrl, rf_ctrl(1, 0, 0, 24, 1) | 32'h2);  // SW_RST
       repeat (2) @(posedge clk);
       expect32(RfStatus, 32'h0000_FF1F, 32'h0000_000A, "SW_RST: idle, both FIFOs empty");
-      check(pads_out.rf_csn == 1'b1 && pads_out.rf_sclk == 1'b0, "SW_RST: pins idle");
+      check(rf_csn == 1'b1 && rf_sclk == 1'b0, "SW_RST: pins idle");
       wr32(RfCtrl, rf_ctrl(0, 1, 0, 24, 1));          // EN = 0 with CPOL 1: SCLK idles high
-      check(pads_out.rf_csn == 1'b1 && pads_out.rf_sclk == 1'b1 && pads_out.rf_mosi == 1'b0, "EN = 0: pins idle");
+      check(rf_csn == 1'b1 && rf_sclk == 1'b1 && rf_mosi == 1'b0, "EN = 0: pins idle");
       wr32(RfCtrl, rf_ctrl(0, 0, 0, 24, 1));
     end
     rf_loop = 1'b0;
+    expect32(AdcStatus, StBusWait, 32'h0, "no BUS_WAIT from radio transfers while the ADC is off");
+
+    // ---------------- 18. shared bus: radio transfers while the ADC reader runs
+    begin
+      logic [7:0] v, tx [], rx [];
+      int unsigned falls;
+      int t0 [5];
+      // the model counters run from the start: section 11 cuts frames on purpose, so count from here
+      t0 = '{i_adc.tacq_violations, i_adc.tsu_violations, i_adc.tht_violations, i_adc.tph_violations,
+             i_adc.short_frame_count};
+      wr32(RfCtrl, rf_ctrl(1, 0, 0, 1, 1));
+      wr32(AdcBuf0, Buf0);
+      wr32(AdcBuf1, Buf1);
+      wr32(AdcNsamp, 32'd8);
+      wr32(AdcStatus, 32'hFF);
+      clear_sram();
+      wr32(AdcCtrl, En | Run | TrigLow | idle_f(3));
+      wait_status(StFull0, StFull0, 3000, "shared bus: buffer 0 full before the radio");
+      // a register read of the radio in the middle of the ADC frames: the radio waits for the end of a frame,
+      // the frames wait for the radio
+      for (int i = 0; i < 4; i++) begin
+        repeat (7 * i + 3) @(posedge clk);                 // different points in the ADC frame
+        sx_read(7'h42, v);
+        check(v == 8'h12, $sformatf("shared bus: RegVersion %0d during ADC frames: 0x%02h", i, v));
+      end
+      expect32(AdcStatus, StBusWait, StBusWait, "shared bus: BUS_WAIT after radio transfers during a capture");
+      // the ADC continues: the next full buffer holds consecutive samples again
+      // FULL flags of buffers written during the radio transfers are cleared, then buffer 1 is filled again
+      wr32(AdcStatus, StFull0 | StFull1 | StOverrun | StBusWait);
+      wait_status(StFull0, StFull0, 3000, "shared bus: buffer 0 full after the radio");
+      wr32(AdcStatus, StFull1);
+      wait_status(StFull1, StFull1, 3000, "shared bus: buffer 1 full after the radio");
+      read_buffer(Buf1, 8, s1);
+      check_run(s1, -1, "shared bus: buffer 1 after the radio", k1);
+      expect32(AdcStatus, StBusWait, 32'h0, "shared bus: no BUS_WAIT without radio traffic");
+      // KEEP_CS keeps the bus: no ADC frame until the radio CS rises
+      tx = new[2]; tx[0] = 8'h42; tx[1] = 8'h00;
+      rf_xfer(tx, rx, 1'b1);
+      falls = n_cs_fall;
+      repeat (300) @(posedge clk);
+      check(n_cs_fall == falls, $sformatf("shared bus: %0d ADC frames while the radio keeps CS low", n_cs_fall - falls));
+      check(rf_csn == 1'b0, "shared bus: radio CS still low (KEEP_CS)");
+      rf_xfer(tx, rx, 1'b0);
+      repeat (300) @(posedge clk);
+      check(n_cs_fall > falls + 5, $sformatf("shared bus: ADC frames after the radio released the bus: %0d",
+                                             n_cs_fall - falls));
+      check(i_adc.tacq_violations == t0[0] && i_adc.tsu_violations == t0[1] && i_adc.tht_violations == t0[2] &&
+            i_adc.tph_violations == t0[3], $sformatf("shared bus: ADS7057 timing violations tacq %0d tsu %0d tht %0d tph %0d",
+            i_adc.tacq_violations - t0[0], i_adc.tsu_violations - t0[1], i_adc.tht_violations - t0[2],
+            i_adc.tph_violations - t0[3]));
+      check(i_adc.short_frame_count == t0[4], $sformatf("shared bus: short frames %0d", i_adc.short_frame_count - t0[4]));
+      adc_reset();
+      wr32(RfCtrl, rf_ctrl(0, 0, 0, 24, 1));
+    end
+    check(both_cs_low == 0, $sformatf("shared bus: both chip selects low %0d times", both_cs_low));
+    check(own_switch_bad == 0, $sformatf("shared bus: SCLK owner changed with a CS low %0d times", own_switch_bad));
+    check(rf_sck_bad == 0, $sformatf("shared bus: pad SCLK differs from the radio SCLK %0d times", rf_sck_bad));
 
     repeat (4) @(posedge clk);
     if (errors == 0) $display("PASS: tb_obi_spi, %0d checks, 0 failures", checks);

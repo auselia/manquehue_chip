@@ -27,7 +27,7 @@ puts "INFO: Generating Macro with actual dimensions: ${macro_width}x${macro_heig
 initialize_floorplan \
     -control_type die \
     -shape R \
-    -side_length "$macro_width $macro_height" \
+    -side_length "1120 1800" \
     -core_offset 25.0
 
 compile_fusion -to initial_map
@@ -37,48 +37,98 @@ check_design_states -verbose
 # than the pin. Left and right edges get horizontal Metal3 pins, top and bottom get vertical Metal2.
 set_block_pin_constraints -self -allowed_layers {Metal2 Metal3} -pin_spacing 2
 
-set ports_top {
-    jtag_trst_ni
-    testmode_i
-    scan_si_i
-    scan_se_i
-    scan_so_o
+# Pin positions: every pin faces its pad in the AC3E padframe (04_chip_top/padframe/padframe.yaml of
+# TO-GF180MCU-AC3E-2026_V1, proposal 2026-10-19_croc_shared_spi). CROC uses pads 35 to 75: the west side counts down,
+# the south side runs east, the east side counts up. No CROC pad faces the north edge, so it has no pins.
+# Pad centres in the die (1936 um wide, 100 um pitch west and east, 104 um south):
+#   west pad n: y = 2461 - 100 (n - 23)   south pad n: x = 448 + 104 (n - 44)   east pad n: y = 461 + 100 (n - 55)
+# The macro sits centred in x with its lower edge at croc_lly (the template core origin, to confirm at chip level).
+# Pins of one pad (a bidirectional pad has out, in and enable) are spread around the pad centre, pin_step apart.
+set die_width 1936.0
+set croc_lly  442.0
+set croc_llx  [expr {($die_width - $macro_width) / 2.0}]
+set pin_step  6.0
+set pin_edge  10.0
+
+set pad_pins {
+    35 rf_rstn_o
+    36 rf_dio0_i
+    37 scan_se_i
+    38 scan_so_o
+    41 scan_si_i
+    42 afe_irq_i
+    43 spi_sd_i
+    44 spi_sd_o
+    45 spi_cs1_o
+    46 spi_cs0_o
+    47 spi_sck_o
+    48 {gpio_o[1] gpio_i[1] gpio_out_en_o[1]}
+    49 {gpio_o[0] gpio_i[0] gpio_out_en_o[0]}
+    52 {qspi_sd_o[3] qspi_sd_i[3] qspi_sd_en_o[3]}
+    53 {qspi_sd_o[2] qspi_sd_i[2] qspi_sd_en_o[2]}
+    54 {qspi_sd_o[1] qspi_sd_i[1] qspi_sd_en_o[1]}
+    55 {qspi_sd_o[0] qspi_sd_i[0] qspi_sd_en_o[0]}
+    56 qspi_csn_o[2]
+    57 qspi_csn_o[1]
+    58 qspi_csn_o[0]
+    59 qspi_clk_o
+    60 uart_tx_o
+    61 uart_rx_i
+    62 jtag_tdo_o
+    63 jtag_tdi_i
+    64 jtag_tms_i
+    65 jtag_trst_ni
+    66 jtag_tck_i
+    67 status_o
+    70 testmode_i
+    71 ref_clk_i
+    72 rst_ni
+    73 clk_i
 }
 
-set ports_right {
-    status_o
-    jtag_tdo_o
-    rst_ni
-    gpio_i[1] gpio_o[1] gpio_out_en_o[1]
-    uart_rx_i
+# Side numbers run clockwise from the left edge (1 left, 2 top, 3 right, 4 bottom). -offset is measured from where
+# the edge starts when going clockwise: the left edge from the bottom, the right edge from the top, the bottom edge
+# from the right.
+set pin_offsets [dict create]
+foreach {pad ports} $pad_pins {
+    if {$pad <= 43} {
+        set side 1; set pos [expr {2461.0 - 100.0 * ($pad - 23) - $croc_lly}];  set len $macro_height
+    } elseif {$pad <= 54} {
+        set side 4; set pos [expr {448.0 + 104.0 * ($pad - 44) - $croc_llx}];   set len $macro_width
+    } else {
+        set side 3; set pos [expr {461.0 + 100.0 * ($pad - 55) - $croc_lly}];   set len $macro_height
+    }
+    set n [llength $ports]
+    set i 0
+    foreach port $ports {
+        set p [expr {$pos + ($i - ($n - 1) / 2.0) * $pin_step}]
+        set p [expr {min(max($p, $pin_edge), $len - $pin_edge)}]
+        # distance along the edge from its clockwise start
+        set off [expr {$side == 1 ? $p : $len - $p}]
+        create_pin_constraint -type individual -ports [get_ports $port] -sides $side -offset [format %.2f $off]
+        dict set pin_offsets $port [list $side $p]
+        incr i
+    }
 }
-
-set ports_bottom {
-    jtag_tms_i
-    jtag_tck_i
-    qspi_clk_o
-    qspi_sd_o[0] qspi_sd_o[1] qspi_sd_o[2] qspi_sd_o[3]
-    qspi_sd_i[0] qspi_sd_i[1] qspi_sd_i[2] qspi_sd_i[3]
-    qspi_sd_en_o[0] qspi_sd_en_o[1] qspi_sd_en_o[2] qspi_sd_en_o[3]
-    qspi_csn_o[0] qspi_csn_o[1] qspi_csn_o[2]
+set unpadded [remove_from_collection [remove_from_collection [get_ports *] [get_ports {VDD VSS} -quiet]] \
+                  [get_ports [dict keys $pin_offsets]]]
+if {[sizeof_collection $unpadded] > 0} {
+    puts "ERROR: ports without a pad: [get_object_name $unpadded]"
 }
-
-set ports_left {
-    ref_clk_i
-    uart_tx_o
-    clk_i
-    jtag_tdi_i
-    gpio_i[0] gpio_o[0] gpio_out_en_o[0]
-    adc_sclk_o adc_csn_o adc_sdo_i adc_wake_n_i adc_big_n_i adc_wake_clr_o adc_cap_en_o
-    rf_sclk_o rf_mosi_o rf_miso_i rf_csn_o rf_dio0_i rf_rstn_o
-}
-
-create_pin_constraint -type individual -ports $ports_top -sides 2
-create_pin_constraint -type individual -ports $ports_right -sides 3
-create_pin_constraint -type individual -ports $ports_bottom -sides 4
-create_pin_constraint -type individual -ports $ports_left -sides 1
 
 place_pins -self
+
+# every pin against its target position along its edge (macro coordinates)
+set pin_dev_max 0.0
+dict for {port t} $pin_offsets {
+    lassign $t side p
+    set bb [get_attribute [get_ports $port] bbox]
+    set cx [expr {([lindex $bb 0 0] + [lindex $bb 1 0]) / 2.0}]
+    set cy [expr {([lindex $bb 0 1] + [lindex $bb 1 1]) / 2.0}]
+    set got [expr {$side == 4 ? $cx : $cy}]
+    set pin_dev_max [expr {max($pin_dev_max, abs($got - $p))}]
+}
+puts [format "INFO: pins placed, largest distance from the pad target %.2f um" $pin_dev_max]
 
 shape_blocks
 

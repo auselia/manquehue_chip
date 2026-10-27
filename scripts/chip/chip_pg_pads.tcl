@@ -28,7 +28,7 @@ proc chip_croc_io {} {
     return $croc
 }
 
-set CHIP_PADRING [file normalize [file dirname [info script]]/../chip/padring.txt]
+set CHIP_PADRING [file normalize [file dirname [info script]]/padring.txt]
 
 # Supply segment net of every IO cell. Pads: the seg lines of padring.txt. Corners: their two neighbour pads.
 # IO fillers and breakers: the nearest pad on the same side (a filler never sits across a breaker).

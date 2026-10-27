@@ -49,7 +49,7 @@ set_scenario_status -none -hold true  -dynamic_power true  -leakage_power true  
 # mode_func.tcl constrains all scenarios that exist at this point. The chip floorplan has its own constraints and no
 # scan mode (no scan ports yet).
 if {$CHIP_FLOORPLAN} {
-    source [file dirname [info script]]/mode_func_chip.tcl
+    source [file dirname [info script]]/../chip/mode_func_chip.tcl
     current_scenario fast
     return
 }

@@ -32,7 +32,7 @@ set_app_options -name cts.optimize.enable_area_recovery_in_local_skew -value fal
 clock_opt
 # clock_opt connects every IO cell to VDD: the DC-DC segments of the pad ring get their supplies back
 if {$CHIP_FLOORPLAN} {
-    source [file dirname [info script]]/common/chip_pg_pads.tcl
+    source [file dirname [info script]]/chip/chip_pg_pads.tcl
     chip_connect_pads
     chip_float_dcdc_pins
 }

@@ -40,7 +40,7 @@ puts "INFO: croc core area [get_attribute [current_block] core_area_bbox]"
 # Pads and breakers: scripts/chip/padring.txt, also read by scripts/chip/gen_chip_top.py for the netlist top
 set chip_pads {}
 set chip_breakers {}
-set f [open [file dirname [info script]]/../chip/padring.txt]
+set f [open [file dirname [info script]]/padring.txt]
 foreach line [split [read $f] "\n"] {
     set line [string trim $line]
     if {$line eq "" || [string index $line 0] eq "#"} { continue }

@@ -841,7 +841,7 @@ distclean: clean
 # ------------------------------------------------------------------------------
 # Software & Simulation Flow
 # ------------------------------------------------------------------------------
-.PHONY: sw sim sim-vcs verilate run clean-sw clean-sim
+.PHONY: sw sim sim-spi sim-vcs verilate run clean-sw clean-sim
 
 # Default program. Example: make run BIN=sim/sw/bin/test/test_gpio.hex
 BIN ?= sim/sw/hello_world/bin/helloworld.hex
@@ -868,6 +868,11 @@ run: sw
 sim:
 	@echo "[SIM] Launching Verilator simulation flow..."
 	@cd sim && BIN=$(abspath $(BIN)) bash ../scripts/sim/run_verilator.sh
+
+# Block testbench of the SPI block (sim/tb/tb_obi_spi.sv) in Verilator, a lint run first. Build in build/obi_spi_tb.
+sim-spi:
+	@echo "[SIM] SPI block testbench..."
+	@bash scripts/sim/run_obi_spi_tb.sh
 
 # Build the VCS model (elaboration)
 vcs-compile:
@@ -1013,6 +1018,7 @@ help:
 	@echo "Simulation (Verilator):"
 	@echo "  make sim                       – Compile + run (defaults to helloworld)"
 	@echo "  make sim BIN=<path/to.hex>     – Compile + run a specific application"
+	@echo "  make sim-spi                   – SPI block testbench (tb_obi_spi, Verilator)"
 	@echo "  make verilate                  – Compile the HW model only (after RTL changes)"
 	@echo "  make run BIN=<path/to.hex>     – Run an app on the compiled model (no recompile)"
 	@echo "  make clean-sim                 – Remove the simulation build directory"
@@ -1050,7 +1056,7 @@ gls:
 dft:
 	RUN=$(RUN_DIR) scripts/dft/run_dft.sh
 chip:
-	RUN=$(RUN_DIR) scripts/chip/run_chip_flow.sh
+	RUN=$(RUN_DIR) scripts/waferspace/run_chip_flow.sh
 report:
 	python3 scripts/utils/report.py $(RUN_DIR)
 check: scan-sta gls dft chip report

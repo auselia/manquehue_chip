@@ -24,9 +24,9 @@ connect_pg_net -net VSS [get_pins -of_objects $all_macros -physical_context -fil
 
 connect_pg_net -automatic
 
-# Chip floorplan: supply pins of the pad ring (common/chip_pg_pads.tcl)
+# Chip floorplan: supply pins of the pad ring (chip/chip_pg_pads.tcl)
 if {$CHIP_FLOORPLAN} {
-    source [file dirname [info script]]/chip_pg_pads.tcl
+    source [file dirname [info script]]/../chip/chip_pg_pads.tcl
     chip_connect_pads
 }
 

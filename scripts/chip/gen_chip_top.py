@@ -3,14 +3,14 @@
 
 usage: scripts/chip/gen_chip_top.py   (from the repository root; make chip_top)
 
-Input: scripts/chip/padring.txt, the pad ring that scripts/common/chip_floorplan.tcl places. One instance per pad
+Input: scripts/chip/padring.txt, the pad ring that scripts/chip/chip_floorplan.tcl places. One instance per pad
 (pad_<signal>) and per breaker, and croc_soc (i_croc):
   - CROC pads (table PINS): connected to croc_soc, with the pull of the wafer.space template
     (waferspace_manquehue scripts/gen_chip_top.py). Input enables of the bidirectional pads: ~output enable.
   - unused and scan pads of the CROC segment: input and output off, pulled down. The scan pads are connected when the
     scan chain is inserted at chip level.
   - DC-DC pads: only PAD is connected. The core-side pins stay open: the DC-DC wrappers drive them by abutment.
-  - supply pads and breakers: no connections. FC connects the supply pins of every IO cell (common/chip_pg_pads.tcl).
+  - supply pads and breakers: no connections. FC connects the supply pins of every IO cell (chip/chip_pg_pads.tcl).
 """
 import re
 from pathlib import Path

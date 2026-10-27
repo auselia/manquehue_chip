@@ -21,7 +21,7 @@ set_verification_checkpoints
 # Run mapping and logic optimization before for DFT insertion.
 compile_fusion -to logic_opto
 if {$CHIP_FLOORPLAN} {
-    source [file dirname [info script]]/common/chip_pg_pads.tcl
+    source [file dirname [info script]]/chip/chip_pg_pads.tcl
     chip_float_dcdc_pins
 }
 

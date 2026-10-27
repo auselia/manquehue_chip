@@ -11,8 +11,8 @@ source [file dirname [info script]]/common/open_lib.tcl
 open_block route
 # Chip floorplan: the chip GDS list for the DRC ECOs, the pad supplies and the open DC-DC pad inputs
 if {$CHIP_FLOORPLAN} {
-    source [file dirname [info script]]/common/chip_export.tcl
-    source [file dirname [info script]]/common/chip_pg_pads.tcl
+    source [file dirname [info script]]/chip/chip_export.tcl
+    source [file dirname [info script]]/chip/chip_pg_pads.tcl
 }
 
 # Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.

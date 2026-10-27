@@ -1,4 +1,4 @@
-# AC3E pad ring of the chip floorplan (scripts/common/chip_floorplan.tcl, scripts/chip/gen_chip_top.py).
+# AC3E pad ring of the chip floorplan (scripts/chip/chip_floorplan.tcl, scripts/chip/gen_chip_top.py).
 # Pad numbers counterclockwise from the top of the west side: west 1-43 (top to bottom), south 44-54
 # (left to right), east 55-97 (bottom to top), north 98-108 (right to left). The instance is pad_<signal>.
 #   pad <number> <signal> <gf180mcu_fd_io cell>

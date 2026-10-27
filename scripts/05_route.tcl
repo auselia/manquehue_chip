@@ -22,7 +22,7 @@ route_opt
 
 route_detail -incremental true
 if {$CHIP_FLOORPLAN} {
-    source [file dirname [info script]]/common/chip_pg_pads.tcl
+    source [file dirname [info script]]/chip/chip_pg_pads.tcl
     chip_connect_pads
     chip_float_dcdc_pins
 }
@@ -37,6 +37,6 @@ if {$CHIP_FLOORPLAN} {
     file mkdir ../outputs/chip_route
     check_routes
     redirect -file ../outputs/chip_route/check_lvs.rpt { check_lvs -checks {open short} -max_errors 2000 }
-    source [file dirname [info script]]/common/chip_export.tcl
+    source [file dirname [info script]]/chip/chip_export.tcl
     write_chip_views [file normalize ../outputs/chip_route] chip_route
 }

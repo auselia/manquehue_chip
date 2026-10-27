@@ -4,7 +4,6 @@
 # Description: Formality equivalence of the RTL (croc.flist) and the final netlist (called by run_lec.sh)
 ###############################################################################
 
-# Status (7 Oct): passes through scripts/signoff/lec/run_lec.sh, 4,095 compare points, all 3,964 flops equal.
 # What it needs:
 #   - SVF_FILE: the SVF of all six FC sessions (read_rtl to finish) in flow order. It records the phase-inverted
 #     flops and the merged and removed registers. Formality still reports "guide_checkpoint rejected" and FM-632

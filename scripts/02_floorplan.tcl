@@ -11,17 +11,17 @@ set SITE_DEF unit
 
 if {$CHIP_FLOORPLAN} {
 # Chip floorplan: croc is the whole die, on the AC3E pad ring, with the DC-DC wrappers in the north
-# (common/chip_floorplan.tcl), and the CROC power grid. 03 to 06 continue on work/chip.dlib.
+# (chip/chip_floorplan.tcl), and the CROC power grid. 03 to 06 continue on work/chip.dlib.
 # The reference library stays in chip.dlib after the first chip run
 if {[sizeof_collection [get_libs -quiet chip_macros]] == 0} {
     set_ref_libs -add [file normalize chip_macros.ndm]
 }
-source [file dirname [info script]]/common/chip_floorplan.tcl
+source [file dirname [info script]]/chip/chip_floorplan.tcl
 set_dont_touch [get_cells -filter "ref_name =~ gf180mcu_fd_io__* || ref_name =~ gf180mcu_ws_ip__*"] true
 foreach m $CHIP_DCDC_MACROS { set_dont_touch [get_cells u_$m] true }
 
 compile_fusion -to initial_map
-source [file dirname [info script]]/common/chip_pg_pads.tcl
+source [file dirname [info script]]/chip/chip_pg_pads.tcl
 chip_float_dcdc_pins
 check_design_states -verbose
 
@@ -229,7 +229,7 @@ if {$CHIP_FLOORPLAN} {
 save_block -as floorplan_pre_pg
 source [file dirname [info script]]/common/power_grid.tcl
 save_block -as floorplan
-source [file dirname [info script]]/common/chip_export.tcl
+source [file dirname [info script]]/chip/chip_export.tcl
 write_chip_views [file normalize ../outputs/chip_floorplan] chip_floorplan
 print_message_info -ids * -summary
 return

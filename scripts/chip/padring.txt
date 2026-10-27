@@ -1,0 +1,136 @@
+# AC3E pad ring of the chip floorplan (scripts/chip/chip_floorplan.tcl, scripts/chip/gen_chip_top.py).
+# Pad numbers counterclockwise from the top of the west side: west 1-43 (top to bottom), south 44-54
+# (left to right), east 55-97 (bottom to top), north 98-108 (right to left). The instance is pad_<signal>.
+#   pad <number> <signal> <gf180mcu_fd_io cell>
+#   brk <instance> <pad>    a brk5 centred in the 25 um gap after the pad (10 um, brk5, 10 um)
+#   seg <net> <pad>-<pad> ...  supply segment between breakers: DVDD and VDD of its IO cells (pads, corners, IO
+#                           fillers) on this net. The CROC segment is VDD, the core supply. VSS runs around the ring.
+pad 1 CH3_in1 bi_24t
+pad 2 CH3_in2 bi_24t
+pad 3 CHx_Vs1 bi_24t
+pad 4 CHx_Vs2 bi_24t
+pad 5 CHx_PD bi_24t
+pad 6 CHx_VCOF bi_24t
+pad 7 CHx_VCOR bi_24t
+pad 8 ps1_vdd_w2 dvdd
+pad 9 ps1_vdd_w1 dvdd
+pad 10 ps1_vdd_w0 dvdd
+pad 11 ps1_vss_w1 dvss
+pad 12 ps1_vss_w0 dvss
+pad 13 ps2_vdd_w2 dvdd
+pad 14 ps2_vdd_w1 dvdd
+pad 15 ps2_vdd_w0 dvdd
+pad 16 ps2_vss_w1 dvss
+pad 17 ps2_vss_w0 dvss
+pad 18 gd2_vss dvss
+pad 19 gd2_vdd dvdd
+pad 20 ps3_vdd_w2 dvdd
+pad 21 ps3_vdd_w1 dvdd
+pad 22 ps3_vdd_w0 dvdd
+pad 23 ps3_vss_w1 dvss
+pad 24 ps3_vss_w0 dvss
+pad 25 gd3_vss dvss
+pad 26 gd3_vdd dvdd
+pad 27 unused_27 bi_24t
+pad 28 unused_28 bi_24t
+pad 29 unused_29 bi_24t
+pad 30 unused_30 bi_24t
+pad 31 unused_31 bi_24t
+pad 32 unused_32 bi_24t
+pad 33 unused_33 bi_24t
+pad 34 clk_i in_s
+pad 35 rf_rstn_o bi_24t
+pad 36 rf_dio0_i in_c
+pad 37 scan_en_i bi_24t
+pad 38 scan_out_o bi_24t
+pad 39 CROC_vdd_1 dvdd
+pad 40 CROC_vss_1 dvss
+pad 41 scan_in_i bi_24t
+pad 42 afe_irq_i bi_24t
+pad 43 spi_sd_i bi_24t
+pad 44 spi_sd_o bi_24t
+pad 45 spi_cs1_o bi_24t
+pad 46 spi_cs0_o bi_24t
+pad 47 spi_sck_o bi_24t
+pad 48 gpio1_io bi_24t
+pad 49 gpio0_io bi_24t
+pad 50 CROC_vdd_2 dvdd
+pad 51 CROC_vss_2 dvss
+pad 52 qspi_sd3_io bi_24t
+pad 53 qspi_sd2_io bi_24t
+pad 54 qspi_sd1_io bi_24t
+pad 55 qspi_sd0_io bi_24t
+pad 56 qspi_cs2_o bi_24t
+pad 57 qspi_cs1_o bi_24t
+pad 58 qspi_cs0_o bi_24t
+pad 59 qspi_clk_o bi_24t
+pad 60 uart_tx_o bi_24t
+pad 61 uart_rx_i bi_24t
+pad 62 jtag_tdo_o bi_24t
+pad 63 jtag_tdi_i bi_24t
+pad 64 jtag_tms_i bi_24t
+pad 65 jtag_trst_ni in_c
+pad 66 jtag_tck_i in_s
+pad 67 status_o bi_24t
+pad 68 CROC_vdd_3 dvdd
+pad 69 CROC_vss_3 dvss
+pad 70 testmode_i in_c
+pad 71 ref_clk_i in_s
+pad 72 rst_ni in_c
+pad 73 ps3_vss_e dvss
+pad 74 PS3_Vc_0 asig_5p0
+pad 75 PS3_Vc_1 asig_5p0
+pad 76 PS3_Vc_2 asig_5p0
+pad 77 PS3_Vc_3 asig_5p0
+pad 78 ps3_vdd_e dvdd
+pad 79 test_vss dvss
+pad 80 ps2_vss_e dvss
+pad 81 PS2_Vc_0 asig_5p0
+pad 82 PS2_Vc_1 asig_5p0
+pad 83 PS2_Vc_2 asig_5p0
+pad 84 PS2_Vc_3 asig_5p0
+pad 85 ps2_vdd_e dvdd
+pad 86 ps1_vss_e dvss
+pad 87 PS1_Vc_0 asig_5p0
+pad 88 PS1_Vc_1 asig_5p0
+pad 89 PS1_Vc_2 asig_5p0
+pad 90 PS1_Vc_3 asig_5p0
+pad 91 ps1_vdd_e dvdd
+pad 92 V_REF asig_5p0
+pad 93 V_FB asig_5p0
+pad 94 vco_vss dvss
+pad 95 vco_vdd dvdd
+pad 96 PWM_sel bi_24t
+pad 97 VCO_sel bi_24t
+pad 98 Seg_sel0 bi_24t
+pad 99 Seg_sel1 bi_24t
+pad 100 CH_out_sel0 bi_24t
+pad 101 CH_out_sel1 bi_24t
+pad 102 CH_sel bi_24t
+pad 103 db_dvss dvss
+pad 104 db_dvdd dvdd
+pad 105 CH1_in1 bi_24t
+pad 106 CH1_in2 bi_24t
+pad 107 CH2_in1 bi_24t
+pad 108 CH2_in2 bi_24t
+brk brk_w5 7
+brk brk_w4 12
+brk brk_w3 17
+brk brk_w2 19
+brk brk_w1 24
+brk brk_w0 26
+brk brk_e0 72
+brk brk_e1 78
+brk brk_e2 79
+brk brk_e3 85
+brk brk_e4 91
+brk brk_e5 95
+seg DB_DVDD  1-7 96-108
+seg PS1_VDD  8-12 86-91
+seg PS2_VDD  13-17 80-85
+seg GD2_VDD  18-19
+seg PS3_VDD  20-24 73-78
+seg GD3_VDD  25-26
+seg VDD      27-72
+seg TEST_VDD 79
+seg VCO_VDD  92-95

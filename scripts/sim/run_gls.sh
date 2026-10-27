@@ -6,7 +6,7 @@
 #   program.hex  must fit the 2 KB SRAM, e.g. sim/sw/gls_mini/build.sh -> bin/gls_mini.hex
 #   work dir     default /tmp/gls_full
 # env:   PDK_ROOT   default ~/.ciel
-#        GLS_CXX    g++ with -fcoroutines (Verilator --timing); system g++ 8.5 on Rocky has none
+#        GLS_CXX    g++ with -fcoroutines (Verilator --timing). The system g++ 8.5 on Rocky has none.
 #        GLS_RUN     netlist run folder, default outputs/latest
 #        GLS_TIMEOUT run time limit in seconds, default 7200
 #        JOBS       compile parallelism, default 8

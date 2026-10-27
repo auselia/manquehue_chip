@@ -1,6 +1,6 @@
 #!/bin/bash
 # The macro of a run through the wafer.space chip flow (LibreLane, pad ring) and the platform precheck.
-# usage: scripts/chip/run_chip_flow.sh      (env: RUN, SLOT, TEMPLATE_DIR, PRECHECK_DIR, COB=1 to run the precheck with --cob)
+# usage: scripts/waferspace/run_chip_flow.sh      (env: RUN, SLOT, TEMPLATE_DIR, PRECHECK_DIR, COB=1 to run the precheck with --cob)
 #
 # Needs the template with the testmode_i pull-down (src/chip_core.sv, input_pd_w). The template is not modified:
 # the macro paths are patched into a temporary copy of macros_5v.yaml that is deleted at the end.

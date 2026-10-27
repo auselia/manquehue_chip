@@ -9,25 +9,54 @@ open_block read_rtl
 
 set SITE_DEF unit
 
-set target_utilization 0.7
-set slot_width_limit 1130.0
-set external_gap 15.0
+if {$CHIP_FLOORPLAN} {
+# Chip floorplan: croc is the whole die, on the AC3E pad ring, with the DC-DC wrappers in the north
+# (chip/chip_floorplan.tcl), and the CROC power grid. 03 to 06 continue on work/chip.dlib.
+# The reference library stays in chip.dlib after the first chip run
+if {[sizeof_collection [get_libs -quiet chip_macros]] == 0} {
+    set_ref_libs -add [file normalize chip_macros.ndm]
+}
+source [file dirname [info script]]/chip/chip_floorplan.tcl
+set_dont_touch [get_cells -filter "ref_name =~ gf180mcu_fd_io__* || ref_name =~ gf180mcu_ws_ip__*"] true
+foreach m $CHIP_DCDC_MACROS { set_dont_touch [get_cells u_$m] true }
 
-set macro_width [expr {$slot_width_limit - (2 * $external_gap)}]
+compile_fusion -to initial_map
+source [file dirname [info script]]/chip/chip_pg_pads.tcl
+chip_float_dcdc_pins
+check_design_states -verbose
 
-# TODO: Probably a better way to do this
+# Pads connected to croc: Y drives croc logic, A is driven by croc logic (not by a tie cell)
+set pads_in {}
+set pads_out {}
+foreach_in_collection p [get_cells pad_*] {
+    set n [get_object_name $p]
+    set y [get_pins -quiet $n/Y]
+    if {[sizeof_collection $y] && [sizeof_collection [get_nets -quiet -of $y]]} {
+        set loads [get_pins -quiet -leaf -of [get_nets -of $y] -filter "direction == in && cell.full_name !~ pad_*"]
+        if {[sizeof_collection $loads]} { lappend pads_in $n }
+    }
+    set a [get_pins -quiet $n/A]
+    if {[sizeof_collection $a] && [sizeof_collection [get_nets -quiet -of $a]]} {
+        set drv [get_pins -quiet -leaf -of [get_nets -of $a] -filter "direction == out && cell.ref_name !~ *tie*"]
+        if {[sizeof_collection $drv]} { lappend pads_out $n }
+    }
+}
+puts "INFO: pads driving croc ([llength $pads_in]): [lsort $pads_in]"
+puts "INFO: pads driven by croc ([llength $pads_out]): [lsort $pads_out]"
+} else {
+
+# Macro outline: CROC_MACRO_SIZE (setup.tcl). The cell area of the elaborated netlist (report_area, before mapping)
+# gives the utilization of that outline, as a check.
+lassign $CROC_MACRO_SIZE macro_width macro_height
 redirect -variable area_rpt {report_area}
 regexp {Total cell area:\s+([0-9.]+)} $area_rpt full_match total_cell_area
-
-set required_macro_area [expr {$total_cell_area / $target_utilization}]
-set macro_height [expr {$required_macro_area / $macro_width}]
-
-puts "INFO: Generating Macro with actual dimensions: ${macro_width}x${macro_height} um"
+puts [format "INFO: macro %.1f x %.1f um, cell area %.0f um2, utilization %.2f" \
+    $macro_width $macro_height $total_cell_area [expr {$total_cell_area / ($macro_width * $macro_height)}]]
 
 initialize_floorplan \
     -control_type die \
     -shape R \
-    -side_length "1120 1800" \
+    -side_length [list $macro_width $macro_height] \
     -core_offset 25.0
 
 compile_fusion -to initial_map
@@ -37,76 +66,78 @@ check_design_states -verbose
 # than the pin. Left and right edges get horizontal Metal3 pins, top and bottom get vertical Metal2.
 set_block_pin_constraints -self -allowed_layers {Metal2 Metal3} -pin_spacing 2
 
-# Pin positions: every pin faces its pad in the AC3E padframe (04_chip_top/padframe/padframe.yaml of
-# TO-GF180MCU-AC3E-2026_V1, proposal 2026-10-19_croc_shared_spi). CROC uses pads 35 to 75: the west side counts down,
-# the south side runs east, the east side counts up. No CROC pad faces the north edge, so it has no pins.
-# Pad centres in the die (1936 um wide, 100 um pitch west and east, 104 um south):
-#   west pad n: y = 2461 - 100 (n - 23)   south pad n: x = 448 + 104 (n - 44)   east pad n: y = 461 + 100 (n - 55)
-# The macro sits centred in x with its lower edge at croc_lly (the template core origin, to confirm at chip level).
-# Pins of one pad (a bidirectional pad has out, in and enable) are spread around the pad centre, pin_step apart.
-set die_width 1936.0
-set croc_lly  442.0
-set croc_llx  [expr {($die_width - $macro_width) / 2.0}]
+# Pin positions: every pin faces its pad on the AC3E ring (chip/padring.txt), with the macro lower-left corner at
+# CROC_MACRO_LL in the die. The CROC pads are on the west (bottom part), south and east (bottom part) sides, so the
+# north edge has no pins. Pins of one pad (a bidirectional pad has out, in and enable) are spread around the pad
+# centre, pin_step apart.
+source [file dirname [info script]]/chip/padring.tcl
+lassign $CROC_MACRO_LL croc_llx croc_lly
+set pad_width 75.0
 set pin_step  6.0
 set pin_edge  10.0
 
-set pad_pins {
-    35 rf_rstn_o
-    36 rf_dio0_i
-    37 scan_se_i
-    38 scan_so_o
-    41 scan_si_i
-    42 afe_irq_i
-    43 spi_sd_i
-    44 spi_sd_o
-    45 spi_cs1_o
-    46 spi_cs0_o
-    47 spi_sck_o
-    48 {gpio_o[1] gpio_i[1] gpio_out_en_o[1]}
-    49 {gpio_o[0] gpio_i[0] gpio_out_en_o[0]}
-    52 {qspi_sd_o[3] qspi_sd_i[3] qspi_sd_en_o[3]}
-    53 {qspi_sd_o[2] qspi_sd_i[2] qspi_sd_en_o[2]}
-    54 {qspi_sd_o[1] qspi_sd_i[1] qspi_sd_en_o[1]}
-    55 {qspi_sd_o[0] qspi_sd_i[0] qspi_sd_en_o[0]}
-    56 qspi_csn_o[2]
-    57 qspi_csn_o[1]
-    58 qspi_csn_o[0]
-    59 qspi_clk_o
-    60 uart_tx_o
-    61 uart_rx_i
-    62 jtag_tdo_o
-    63 jtag_tdi_i
-    64 jtag_tms_i
-    65 jtag_trst_ni
-    66 jtag_tck_i
-    67 status_o
-    70 testmode_i
-    71 ref_clk_i
-    72 rst_ni
-    73 clk_i
+# pad signal -> macro ports (the same pins as chip/gen_chip_top.py)
+set pad_ports {
+    rf_rstn_o rf_rstn_o
+    rf_dio0_i rf_dio0_i
+    scan_en_i scan_se_i
+    scan_out_o scan_so_o
+    scan_in_i scan_si_i
+    afe_irq_i afe_irq_i
+    spi_sd_i spi_sd_i
+    spi_sd_o spi_sd_o
+    spi_cs1_o spi_cs1_o
+    spi_cs0_o spi_cs0_o
+    spi_sck_o spi_sck_o
+    gpio1_io {gpio_o[1] gpio_i[1] gpio_out_en_o[1]}
+    gpio0_io {gpio_o[0] gpio_i[0] gpio_out_en_o[0]}
+    qspi_sd3_io {qspi_sd_o[3] qspi_sd_i[3] qspi_sd_en_o[3]}
+    qspi_sd2_io {qspi_sd_o[2] qspi_sd_i[2] qspi_sd_en_o[2]}
+    qspi_sd1_io {qspi_sd_o[1] qspi_sd_i[1] qspi_sd_en_o[1]}
+    qspi_sd0_io {qspi_sd_o[0] qspi_sd_i[0] qspi_sd_en_o[0]}
+    qspi_cs2_o qspi_csn_o[2]
+    qspi_cs1_o qspi_csn_o[1]
+    qspi_cs0_o qspi_csn_o[0]
+    qspi_clk_o qspi_clk_o
+    uart_tx_o uart_tx_o
+    uart_rx_i uart_rx_i
+    jtag_tdo_o jtag_tdo_o
+    jtag_tdi_i jtag_tdi_i
+    jtag_tms_i jtag_tms_i
+    jtag_trst_ni jtag_trst_ni
+    jtag_tck_i jtag_tck_i
+    status_o status_o
+    testmode_i testmode_i
+    ref_clk_i ref_clk_i
+    rst_ni rst_ni
+    clk_i clk_i
 }
 
-# Side numbers run clockwise from the left edge (1 left, 2 top, 3 right, 4 bottom). -offset is measured from where
-# the edge starts when going clockwise: the left edge from the bottom, the right edge from the top, the bottom edge
-# from the right.
+# Side numbers run clockwise from the left edge (1 left, 2 top, 3 right, 4 bottom). -offset counts from where the
+# edge starts, going clockwise. The left edge starts at the bottom, the right edge at the top, the bottom edge at the
+# right.
 set pin_offsets [dict create]
-foreach {pad ports} $pad_pins {
-    if {$pad <= 43} {
-        set side 1; set pos [expr {2461.0 - 100.0 * ($pad - 23) - $croc_lly}];  set len $macro_height
-    } elseif {$pad <= 54} {
-        set side 4; set pos [expr {448.0 + 104.0 * ($pad - 44) - $croc_llx}];   set len $macro_width
-    } else {
-        set side 3; set pos [expr {461.0 + 100.0 * ($pad - 55) - $croc_lly}];   set len $macro_height
+foreach p $chip_pads {
+    lassign $p n sig cell
+    if {![dict exists $pad_ports $sig]} { continue }
+    lassign [pad_side_loc $n] pside loc
+    set centre [expr {$loc + $pad_width / 2.0}]
+    switch $pside {
+        left    { set side 1; set pos [expr {$centre - $croc_lly}]; set len $macro_height }
+        bottom  { set side 4; set pos [expr {$centre - $croc_llx}]; set len $macro_width }
+        right   { set side 3; set pos [expr {$centre - $croc_lly}]; set len $macro_height }
+        default { error "ERROR: CROC pad $n ($sig) on the $pside side" }
     }
-    set n [llength $ports]
+    set ports [dict get $pad_ports $sig]
+    set k [llength $ports]
     set i 0
     foreach port $ports {
-        set p [expr {$pos + ($i - ($n - 1) / 2.0) * $pin_step}]
-        set p [expr {min(max($p, $pin_edge), $len - $pin_edge)}]
+        set q [expr {$pos + ($i - ($k - 1) / 2.0) * $pin_step}]
+        set q [expr {min(max($q, $pin_edge), $len - $pin_edge)}]
         # distance along the edge from its clockwise start
-        set off [expr {$side == 1 ? $p : $len - $p}]
+        set off [expr {$side == 1 ? $q : $len - $q}]
         create_pin_constraint -type individual -ports [get_ports $port] -sides $side -offset [format %.2f $off]
-        dict set pin_offsets $port [list $side $p]
+        dict set pin_offsets $port [list $side $q]
         incr i
     }
 }
@@ -131,15 +162,16 @@ dict for {port t} $pin_offsets {
 puts [format "INFO: pins placed, largest distance from the pad target %.2f um" $pin_dev_max]
 
 shape_blocks
+}
 
-set all_macros [get_cells -hierarchical -filter "is_hard_macro && !is_physical_only"]
+set all_macros [get_cells -hierarchical -filter "is_hard_macro && !is_physical_only && ref_name =~ gf180mcu_fd_ip_sram__*"]
 create_keepout_margin -type hard_macro -outer {10 10 10 10} $all_macros
 create_keepout_margin -type hard -outer {10 10 10 10} $all_macros
 
 # Places the macros in the floorplan
 create_placement -floorplan
 
-# Locks the macros in place so their coordinates don't change
+# Locks the macros in place so their coordinates do not change
 set_fixed_objects [get_flat_cells -filter "is_hard_macro"]
 
 set blocked_layers {Metal1 Metal2 Metal3 Metal4 Metal5}
@@ -162,7 +194,7 @@ foreach_in_collection macro $all_macros {
     set new_urx [expr {$urx - 17}]
     set new_ury [expr {$ury - 17}]
 
-    # Ensure the macro is large enough so the math doesn't invert the box
+    # The macro must be large enough, or the shrink inverts the box
     if {($new_urx > $new_llx) && ($new_ury > $new_lly)} {
         
         set new_boundary [list [list $new_llx $new_lly] [list $new_urx $new_ury]]
@@ -187,6 +219,16 @@ compile_targeted_boundary_cells -all_targets
 create_tap_cells -lib_cell $TAP_CELL -pattern stagger -distance 40
 
 set_app_options -name place.legalize.enable_advanced_legalizer -value true
+
+if {$CHIP_FLOORPLAN} {
+save_block -as floorplan_pre_pg
+source [file dirname [info script]]/common/power_grid.tcl
+save_block -as floorplan
+source [file dirname [info script]]/chip/chip_export.tcl
+write_chip_views [file normalize ../outputs/chip_floorplan] chip_floorplan
+print_message_info -ids * -summary
+return
+}
 
 save_block -as floorplan_pre_pg
 

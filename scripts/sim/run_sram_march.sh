@@ -1,6 +1,6 @@
 #!/bin/bash
 # March C- of the 2 KB SRAM through the JTAG debug module on the gate-level macro, fault-free and with injected faults.
-# usage: run_sram_march.sh <croc_soc.v> [work dir]        (needs iverilog; about 2 min per run, runs in parallel)
+# usage: run_sram_march.sh <croc_soc.v> [work dir]        (needs iverilog, about 2 min per run, runs in parallel)
 # Results: <work dir>/run_<case>.log, last lines "MARCH PASS" / "MARCH FAIL". Faults go into the behavioural SRAM model.
 set -e
 MACRO_NL=$(readlink -f "${1:?croc_soc.v}"); W=${2:?work dir}

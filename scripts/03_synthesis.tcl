@@ -20,12 +20,20 @@ set_verification_checkpoints
 
 # Run mapping and logic optimization before for DFT insertion.
 compile_fusion -to logic_opto
+if {$CHIP_FLOORPLAN} {
+    source [file dirname [info script]]/chip/chip_pg_pads.tcl
+    chip_float_dcdc_pins
+}
 
 # DFT Insertion
+# The chip has no scan ports yet: its scan pads are connected when the chain is inserted at chip level
+if {!$CHIP_FLOORPLAN} {
 source [file dirname [info script]]/common/dft_scan.tcl
+}
 
 # Resumes compile_fusion till initial opto (last two steps are for timing optimization, done later)
 compile_fusion -from initial_place -to initial_opto
+if {$CHIP_FLOORPLAN} { chip_float_dcdc_pins }
 
 set ACTIVE_STEP "03_synthesis"
 source [file dirname [info script]]/common/reporting.tcl

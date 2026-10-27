@@ -45,8 +45,8 @@ create_clock -name jtag_tck \
              [get_ports $JTAG_TCK_PORT]
 
 # SCLK of the ADS7057: the system clock through a clock gate and an inverter (adc_rdr, spec section 6) leaves
-# through spi_sck_o. It idles high and falls at the rising edge of clk_i. The flow experiment
-# sim/experiments/fwd_clock showed that CTS handles a clock that ends at a port without special settings.
+# through spi_sck_o. It idles high and falls at the rising edge of clk_i. CTS handles a clock that ends at a port
+# without special settings (sim/experiments/fwd_clock).
 # spi_sck_o is the shared SPI clock: while the radio owns the bus, a clock mux puts the radio SCLK (a clk_i flop,
 # 10 MHz at most) on it instead. That leg is a data path from a flop, the same as the SCLK_HALF leg.
 create_generated_clock -name adc_sclk -source [get_ports $CLOCK_PORT_NAME] -divide_by 1 -invert \
@@ -189,8 +189,8 @@ set_output_delay -mode func -clock jtag_tck -clock_fall $JTAG_IO_DELAY $JTAG_OUT
 ################################################################################
 # 9. ADS7057 interface, against adc_sclk
 #
-# Datasheet SBAS821 tables 6.5 to 6.7 and the off-chip budget of the flow
-# experiment (sim/experiments/fwd_clock/constraints.sdc): pad out 7 to 12 ns on
+# Datasheet SBAS821 tables 6.5 to 6.7 and the off-chip budget of
+# sim/experiments/fwd_clock/constraints.sdc: pad out 7 to 12 ns on
 # every output, so 5 ns of spread between the CS pad and the SCLK pad, pad in
 # 3 ns, level translator 5 ns, trace 1 ns.
 ################################################################################

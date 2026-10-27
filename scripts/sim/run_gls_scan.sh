@@ -6,7 +6,7 @@
 #
 # usage: scripts/sim/run_gls_scan.sh [work dir]      (default /tmp/gls_scan)
 # env:   PDK_ROOT   default ~/.ciel
-#        GLS_CXX    g++ with -fcoroutines (Verilator --timing); system g++ 8.5 on Rocky has none
+#        GLS_CXX    g++ with -fcoroutines (Verilator --timing). The system g++ 8.5 on Rocky has none.
 #        GLS_RUN    netlist run folder, default outputs/latest
 #        EXPECTED_LAG  scan cells in the chain (run_gls_all.sh reads it from the run), default 3964 (dft_drc: "Chain 1 ... scan_cells")
 # The chain polarity comes from the netlist (scan_chain_trace.py): an odd number of inverters between the cells
@@ -74,7 +74,7 @@ verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX" -j "${JOBS:-8}" -Wno-fatal -W
 
 RC=0
 # must pass: normal shift, and jtag_trst_ni driven low (its resets are gated by testmode_i).
-# informational: rst_ni driven low. rst_ni is a DFT reset signal held inactive by the tester during scan; 800 flops
+# informational: rst_ni driven low. rst_ni is a DFT reset signal held inactive by the tester during scan. 800 flops
 # (the reset-generator output, which follows rst_ni in test mode) are not gated, so this run is expected to disturb the chain.
 for args in "" "+trstn_low" "+rstn_low"; do
   tag=$(echo "$args" | tr -d "+"); tag=${tag:-normal}

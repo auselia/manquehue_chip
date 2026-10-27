@@ -1,4 +1,4 @@
-# Shared settings of the verification scripts. Source it; every value can be overridden from the environment or
+# Shared settings of the verification scripts. Source it. Every value can be overridden from the environment or
 # from scripts/utils/local.env (not in git). No script writes to /tmp: results go to <run>/checks/<step>/.
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 [ -f "$REPO/scripts/utils/local.env" ] && . "$REPO/scripts/utils/local.env"

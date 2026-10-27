@@ -14,7 +14,7 @@ open_block synthesis
 foreach s [get_attribute [get_scenarios] -name name] {
   current_scenario $s
   set_clock_uncertainty -setup 0.7 [get_clocks clock]
-  # extra 0.1 ns hold margin while implementing (mode_func.tcl: 0.25 / 0.5); common/export_signoff.tcl restores it
+  # extra 0.1 ns hold margin while implementing (mode_func.tcl: 0.25 / 0.5). common/export_signoff.tcl restores it
   set_clock_uncertainty -hold 0.35 [get_clocks clock]
   set_clock_uncertainty -hold 0.6  [get_clocks jtag_tck]
 }
@@ -30,6 +30,12 @@ set_app_options -name clock_opt.flow.enable_clock_power_recovery      -value fal
 set_app_options -name cts.optimize.enable_area_recovery_in_local_skew -value false
 
 clock_opt
+# clock_opt connects every IO cell to VDD: the DC-DC segments of the pad ring get their supplies back
+if {$CHIP_FLOORPLAN} {
+    source [file dirname [info script]]/chip/chip_pg_pads.tcl
+    chip_connect_pads
+    chip_float_dcdc_pins
+}
 
 set ACTIVE_STEP "04_cts"
 source [file dirname [info script]]/common/reporting.tcl

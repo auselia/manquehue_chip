@@ -1,6 +1,6 @@
 #!/bin/bash
 # Scan test chain of a run: protocol, ATPG, pattern replay on the gate-level netlist, SRAM March test.
-# usage: scripts/dft/run_dft.sh      (env: RUN, JOBS, NPAT; NPAT=20 gives a quick run)
+# usage: scripts/dft/run_dft.sh      (env: RUN, JOBS, NPAT, and NPAT=20 gives a quick run)
 #
 # 1. protocol: Fusion Compiler `write_test_protocol` on the finished block (needs work/design.dlib of this checkout),
 #    else the committed baseline protocol scripts/dft/croc_soc.stil (same chain definition, valid while the scan

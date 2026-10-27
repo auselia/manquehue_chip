@@ -1,89 +1,92 @@
-# Croc SoC: Physical Implementation & Foundational Flow
+# manquehue_chip
 
-This repository provides a unified ASIC physical design flow for the **Croc RISC-V MCU**, targeting the **GF180MCU PDK**. It utilizes Synopsys Fusion Compiler (FC) to drive the physical design flow from RTL synthesis down to layout routing and GDSII export.
+This repository implements a small RISC-V system on chip for the GlobalFoundries GF180MCU 5 V process, with
+Synopsys Fusion Compiler (FC). The design is croc (`croc_soc`), an educational SoC from the PULP Platform, with
+additions for an acoustic sensor node: an SPI interface for an ADC and a LoRa radio, an FFT accelerator, and boot
+from a QSPI flash.
 
-## 📖 Project Background
+The flow builds `croc_soc` as a hard macro, and it also builds the whole chip: `croc_soc` on the 108-pad ring of the
+AC3E chip, next to the DC-DC converter blocks of the same die. The chip goes on a wafer.space GF180MCU shuttle.
 
-This physical implementation framework was initially developed as part of an internship project supported by **AC3E**, **Synopsys**, and the **Universidad de los Andes**.
+![croc_soc](docs/croc_arch.svg)
 
-While it started as a targeted study of the Croc architecture and Synopsys Reference Methodologies (RM), this repository now serves as a foundational, extensible framework for ongoing personal research and educational ASIC tapeouts in VLSI physical design.
+*`croc_soc` has two parts: `croc_domain` (CVE2 core, debug, peripherals, SRAM) and `user_domain` (SPI for the ADC and
+the radio, FFT, QSPI flash). PD_CORE and PD_MEM show the power domains of the power-gating study. The implementation
+has one supply.*
 
-**Author:** Nicolás Villegas – Electrical Engineering Student, Universidad de los Andes, Chile.
+## Layout
 
----
+| Folder | Contents |
+|---|---|
+| `rtl/` | croc RTL, vendored IPs, `user_domain/`, test benches in `rtl/test/` |
+| `rtl/chip/` | `chip_top.sv`, the chip netlist top (generated) |
+| `flists/` | file lists for FC, simulation and FPGA |
+| `scripts/` | FC steps `01_read_rtl` to `06_finish`, then `common/` (macro and chip), `chip/` (chip mode), `waferspace/` (macro into the wafer.space template), `dft/`, `signoff/`, `sim/`, `utils/`, `fpga/` |
+| `sim/` | test benches, models, firmware (`sw/`), FFT reference, experiments |
+| `docs/` | the architecture diagram |
+| `work/`, `outputs/` | FC library and logs, exported runs (not in git) |
 
-## 🛠️ Prerequisites
+## Tools
 
-To run this flow, your environment must have access to:
+- Synopsys Fusion Compiler and its Library Manager (`fc_shell`, `lm_shell`), with the Synopsys technology data of
+  GF180MCU.
+- The open GF180MCU PDK (gf180mcuD, installed with ciel), KLayout, and the GF180MCU DRC and LVS decks.
+- For sign-off: PrimeTime, Formality, IC Validator (optional), TestMAX ATPG, RedHawk-SC (optional).
+- For simulation: Verilator, Icarus Verilog, and a RISC-V GCC for the firmware.
+- For the chip precheck: the [wafer.space project template](https://github.com/wafer-space/gf180mcu-project-template)
+  (LibreLane, nix) and [gf180mcu-precheck](https://github.com/wafer-space/gf180mcu-precheck).
 
-* **Synopsys Fusion Compiler** (`fc_shell`)
-* **GF180MCU PDK** (OpenPDKs layout and CDL views)
-* A Linux environment with `bash`
+## Setup
 
-### Path Configuration
+Set the paths for your machine:
 
-Instead of relying on environment variables, the PDK path is explicitly defined at the top of the `Makefile`. Before running the flow, ensure you open the `Makefile` and update `PDK_ROOT` to point to your local GF180MCU installation.
+- `TECHLIB_DATA_DIR` in `scripts/common/setup.tcl`: the Synopsys technology data (NDM libraries, tech file, GDS).
+- `PDK_ROOT`, `TEMPLATE_DIR` and `PRECHECK_DIR` in `scripts/utils/env.sh`: the open PDK, the wafer.space template
+  and the precheck.
 
----
+`outputs/.cache` holds the SRAM timing that the flow makes on the first run. Copy it into a new worktree.
 
-### 📂 Directory Structure
+## Macro (croc_soc)
 
-This repository acts as a single source of truth for the flow, driven entirely by the `Makefile`.
-
-```text
-.
-├── Makefile            # Unified flow driver (handles FC and ICV runs)
-├── README.md           # Project documentation
-├── croc.flist          # Unified RTL source manifest
-├── rtl/                # Source SystemVerilog files (CVE2, OBI, APB, etc.)
-├── scripts/            # Fusion Compiler TCL scripts (01_read_rtl.tcl, etc.)
-│   └── common/         # Technology setup and constraints
-├── documentation/      # Flow documentation and physical design guides
+```
+make all                  # 01_read_rtl to 06_finish
+make floorplan            # or one step: read_rtl, floorplan, synthesis, cts, route, finish
+make gui_floorplan        # open a step in the GUI
 ```
 
-(Note: The work/ directory will be generated automatically during the build process to store the FC database, logs, and GDS outputs).
+Each run goes to `outputs/croc_soc_<timestamp>/` (GDS, netlist, LEF, blackbox, SDC, SPEF, reports), and
+`outputs/latest` points at the newest run. `CROC_MACRO_SIZE` and `CROC_MACRO_LL` in `setup.tcl` set the outline of
+the macro and its position in the chip. The pins face their pads in `scripts/chip/padring.txt`.
 
----
+## Chip (CHIP_FLOORPLAN=1)
 
-## ⚙️ Key Flow Configuration
+Chip mode builds the whole die: `croc_soc` on the CROC pads of the AC3E ring, the wafer.space IPs, and the DC-DC
+wrappers at their drawn positions. The wrapper GDS come from `DCDC_GDS_DIR`. `scripts/chip/padring.txt` holds the pad
+ring: the pads, the breakers and the supply segments.
 
-If you need to change the target module or runsets, you can edit these variables at the top of the `Makefile`:
+```
+make chip_macros_ndm      # once: wafer.space IPs, DC-DC abstracts, IO library
+make chip_pnr             # chip_top.sv from padring.txt, then 01 to 06 in work/chip.dlib
+make chip_finish          # seal ring and the wafer.space precheck (FILL=1: also a filled GDS)
+make chip_gui             # open a chip block (BLOCK=floorplan, route, ...)
+```
 
-* **Design Top:** The default top module is set to `croc_chip`.
-* **RTL List:** Driven by `croc.flist`.
+Outputs: `outputs/chip_floorplan/`, `chip_route/`, `chip_final/` (GDS, DEF, netlist) and `chip_finish/` (precheck).
 
----
+## Checks and simulation
 
-## 🚀 How to Run the Flow
+```
+make signoff              # DRC, LVS, PrimeTime STA, equivalence of a macro run (RUN=<run>, default latest)
+make check                # scan STA, gate-level simulation, DFT/ATPG, the macro in the wafer.space template, report
+make sim                  # croc on Verilator with a program (BIN=<hex>)
+make sim-spi              # SPI block test bench
+make help                 # every target and option
+```
 
-The `Makefile` dynamically generates rules from the TCL scripts in the `scripts/` directory.
+`sim/GLS.md` describes the gate-level simulation.
 
-### Full Automation
+## Credits
 
-* `make all`
-  * Runs the complete RTL-to-GDS flow: Synthesis → Nettran → LVS → DRC → Metal Fill → Post-Fill Checks.
-
-### Step-by-Step Build
-
-You can run the Fusion Compiler stages sequentially:
-
-* `make read_rtl` – Load RTL and elaborate
-* `make floorplan` – Floorplanning and Power Grid (PG) creation
-* `make synthesis` – Logic Synthesis
-* `make cts` – Clock Tree Synthesis
-* `make route` – Routing
-* `make finish` – Finalize and export the Verilog netlist and GDSII
-
-*(Tip: You can open any stage in the GUI by prefixing `gui_`, e.g., `make gui_floorplan`)*.
-
-### Cleaning Up
-
-* `make clean` – Deletes the `work/` directory and all generated logs/databases.
-* `make distclean` – Same as `make clean`, entirely resetting the workspace.
-
----
-
-## 🙏 Acknowledgments
-
-* **Croc Architecture:** The underlying Croc SoC RTL (CVE2, OBI) was developed by the Integrated Systems Laboratory at ETH Zurich and the University of Bologna.
-* **Flow Base:** The foundational `Makefile` and tool integration base logic was originally authored by W. Shepherd Pitts (NCSU) and Viktor Schneider (IMS LUH).
+Nicolás Villegas, Universidad de los Andes, Chile, with AC3E and Synopsys. The croc SoC is from ETH Zurich and the
+University of Bologna ([pulp-platform/croc](https://github.com/pulp-platform/croc)). The base of the FC flow is from
+W. Shepherd Pitts (NCSU) and Viktor Schneider (IMS LUH).

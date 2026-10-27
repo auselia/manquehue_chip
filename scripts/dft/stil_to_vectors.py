@@ -12,7 +12,7 @@ The Pattern block is a list of  Call "load_unload" {scan_si_i=...; scan_so_o=...
   so_mask.mem  1 where the output is compared (H or L), 0 where it is a don't care
   pi.mem       the inputs at the capture cycle, order of the _pi group of the STIL
   pi_pulse.mem 1 where that input is pulsed in the capture cycle (clk_i: high 50-70 ns, jtag_tck_i: high 75-90 ns,
-               rst_ni: low 75-90 ns of the 100 ns cycle); the value in pi.mem is then the rest level (0, 0, 1)
+               rst_ni: low 75-90 ns of the 100 ns cycle). The value in pi.mem is then the rest level (0, 0, 1)
   po_exp.mem   the outputs strobed at 40 ns of the capture cycle, order of the _po group
   po_mask.mem  1 where compared
   tb_atpg_pins.vh  the pins for sim/tb/tb_atpg.v: sizes, the pin registers and wires, the croc_soc instance, the _pi

@@ -31,7 +31,7 @@ summary flash_boot "${F:-no FLASH OK}"; [ -n "$F" ] || ST=FAIL
 
 # b. scan shift (0 mismatches, lag = number of scan cells)
 # scan cells of this run, from the DFT trace in its synthesis log ("Chain 1 successfully traced with N scan_cells").
-# It changes with every block that adds flops; 3964 is the count of the baseline netlist.
+# It changes with every block that adds flops. 3964 is the count of the baseline netlist.
 SCAN_CELLS=$(zcat -f "$RUN"/logs/synthesis.log* 2>/dev/null | grep -o "successfully traced with [0-9]* scan_cells" | grep -o "[0-9]*" | tail -1)
 SCAN_CELLS=${SCAN_CELLS:-3964}
 nixrun "EXPECTED_LAG=$SCAN_CELLS GLS_RUN=$RUN $REPO/scripts/sim/run_gls_scan.sh $O/scan_shift" > "$O/scan_shift.log" 2>&1 || true

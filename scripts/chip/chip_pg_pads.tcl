@@ -28,30 +28,13 @@ proc chip_croc_io {} {
     return $croc
 }
 
-set CHIP_PADRING [file normalize [file dirname [info script]]/padring.txt]
+source [file dirname [info script]]/padring.tcl
 
-# Supply segment net of every IO cell. Pads: the seg lines of padring.txt. Corners: their two neighbour pads.
-# IO fillers and breakers: the nearest pad on the same side (a filler never sits across a breaker).
 proc chip_segment_nets {} {
-    global CHIP_PADRING
-    set seg_of_pad [dict create]
+    global chip_pads chip_segments
+    set seg_of_pad $chip_segments
     set pad_of_num [dict create]
-    set f [open $CHIP_PADRING]
-    foreach line [split [read $f] "\n"] {
-        set line [string trim $line]
-        if {$line eq "" || [string index $line 0] eq "#"} { continue }
-        switch [lindex $line 0] {
-            pad { dict set pad_of_num [lindex $line 1] pad_[lindex $line 2] }
-            seg {
-                foreach r [lrange $line 2 end] {
-                    lassign [split $r -] lo hi
-                    if {$hi eq ""} { set hi $lo }
-                    for {set n $lo} {$n <= $hi} {incr n} { dict set seg_of_pad $n [lindex $line 1] }
-                }
-            }
-        }
-    }
-    close $f
+    foreach p $chip_pads { dict set pad_of_num [lindex $p 0] pad_[lindex $p 1] }
     set net_of [dict create]
     set pads {}
     dict for {n inst} $pad_of_num {

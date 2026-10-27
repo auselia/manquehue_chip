@@ -37,28 +37,8 @@ initialize_floorplan -control_type die -side_length [list $DIE_W $DIE_H] -site_d
     -core_offset [list $CORE_MARGIN [expr {$DIE_H - $croc_top}] $CORE_MARGIN $CORE_MARGIN]
 puts "INFO: croc core area [get_attribute [current_block] core_area_bbox]"
 
-# Pads and breakers: scripts/chip/padring.txt, also read by scripts/chip/gen_chip_top.py for the netlist top
-set chip_pads {}
-set chip_breakers {}
-set f [open [file dirname [info script]]/padring.txt]
-foreach line [split [read $f] "\n"] {
-    set line [string trim $line]
-    if {$line eq "" || [string index $line 0] eq "#"} { continue }
-    switch [lindex $line 0] {
-        pad { lappend chip_pads [lrange $line 1 3] }
-        brk { lappend chip_breakers [lrange $line 1 2] }
-    }
-}
-close $f
-
-# Side and position of a pad: the lower-left coordinate along its side (y on west/east, x on south/north)
-# W/E: 100 um pitch from 423.5; S/N: 104 um pitch from 410.5 (the AC3E padframe rule)
-proc pad_side_loc {n} {
-    if {$n <= 43} { return [list left   [expr {4623.5 - 100.0 * ($n - 1)}]] }
-    if {$n <= 54} { return [list bottom [expr {410.5 + 104.0 * ($n - 44)}]] }
-    if {$n <= 97} { return [list right  [expr {423.5 + 100.0 * ($n - 55)}]] }
-    return [list top [expr {1450.5 - 104.0 * ($n - 98)}]]
-}
+# Pads and breakers (padring.tcl reads scripts/chip/padring.txt, also read by gen_chip_top.py for the netlist top)
+source [file dirname [info script]]/padring.tcl
 
 # Orientation per side, as the LibreLane pad ring places them (DEF FW, W, N, FS): the DC-DC wrappers connect to
 # the pads by abutment and are drawn for this orientation

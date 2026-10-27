@@ -72,6 +72,10 @@ set REFERENCE_LIBRARY [list \
     "${TECHLIB_DATA_DIR}/ndm/gf180mcu_fd_ip_sram__sram512x8m8wm1.ndm" \
 ]
 
+# croc_soc macro: outline, and its lower-left corner in the chip die (the pins face their pads from there)
+set CROC_MACRO_SIZE     {1120 1800}
+set CROC_MACRO_LL       {392 404}
+
 # Chip floorplan (02_floorplan.tcl with CHIP_FLOORPLAN=1): the AC3E pad ring, the wafer.space IPs and the DC-DC
 # wrappers around the croc logic. Their views are in work/chip_macros.ndm (make chip_macros_ndm, DCDC_GDS_DIR).
 set CHIP_FLOORPLAN      [expr {[info exists ::env(CHIP_FLOORPLAN)] && $::env(CHIP_FLOORPLAN)}]

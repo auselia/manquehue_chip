@@ -46,7 +46,13 @@ foreach_in_collection c [get_corners] {
 set_scenario_status -all  -hold false -dynamic_power false -leakage_power false -cell_em false -signal_em false {typical slow}
 set_scenario_status -none -hold true  -dynamic_power true  -leakage_power true  -cell_em true  -signal_em true  {fast}
 
-# mode_func.tcl constrains all scenarios that exist at this point
+# mode_func.tcl constrains all scenarios that exist at this point. The chip floorplan has its own constraints and no
+# scan mode (no scan ports yet).
+if {$CHIP_FLOORPLAN} {
+    source [file dirname [info script]]/mode_func_chip.tcl
+    current_scenario fast
+    return
+}
 source [file dirname [info script]]/mode_func.tcl
 
 ###########################################################

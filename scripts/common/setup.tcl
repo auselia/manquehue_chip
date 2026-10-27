@@ -52,6 +52,8 @@ set TECHNOLOGY          "gf180mcu"
 # Tech Files & Layermaps
 set PDK_DIR             $TECHLIB_DATA_DIR
 # Official SRAM layouts (see 06_finish.tcl): ciel's gf180mcu_fd_ip_sram, override with SRAM_GDS_DIR
+# Official IO cell layouts (chip GDS, common/chip_export.tcl), override with IO_GDS_DIR
+if { [info exists ::env(IO_GDS_DIR)] } { set IO_GDS_DIR $::env(IO_GDS_DIR) } else { set IO_GDS_DIR "$::env(HOME)/.ciel/gf180mcuD/libs.ref/gf180mcu_fd_io/gds" }
 if { [info exists ::env(SRAM_GDS_DIR)] } { set SRAM_GDS_DIR $::env(SRAM_GDS_DIR) } else { set SRAM_GDS_DIR "$::env(HOME)/.ciel/gf180mcuD/libs.ref/gf180mcu_fd_ip_sram/gds" }
 set TECH_FILE           "${PDK_DIR}/tech/gf180nm_mcu_5LM_1TM_11K_${STDCELL_TRACK_SIZE}t_mw.tf"
 set ICC2GDS_LAYERMAP    "${PDK_DIR}/tech/gf180nm_mcu_5LM_1TM_11K_icc2gds.layermap"
@@ -69,6 +71,25 @@ set REFERENCE_LIBRARY [list \
     "${TECHLIB_DATA_DIR}/ndm/gf180mcu_fd_io.ndm" \
     "${TECHLIB_DATA_DIR}/ndm/gf180mcu_fd_ip_sram__sram512x8m8wm1.ndm" \
 ]
+
+# Chip floorplan (02_floorplan.tcl with CHIP_FLOORPLAN=1): the AC3E pad ring, the wafer.space IPs and the DC-DC
+# wrappers around the croc logic. Their views are in work/chip_macros.ndm (make chip_macros_ndm, DCDC_GDS_DIR).
+set CHIP_FLOORPLAN      [expr {[info exists ::env(CHIP_FLOORPLAN)] && $::env(CHIP_FLOORPLAN)}]
+if { [info exists ::env(WS_IP_DIR)] } { set WS_IP_DIR $::env(WS_IP_DIR) } else { set WS_IP_DIR "$::env(HOME)/Documents/waferspace_manquehue/ip" }
+set CHIP_WS_IPS         {gf180mcu_ws_ip__qrcode_id gf180mcu_ws_ip__shuttle_id gf180mcu_ws_ip__project_id gf180mcu_ws_ip__logo gf180mcu_ws_ip__marker}
+set CHIP_DCDC_MACROS    {8_segs_wrapper DB_VCO_wrapper 8seg_DB_routing}
+# The chip has its own top (rtl/chip/chip_top.sv, scripts/chip/gen_chip_top.py) and its own library
+# CROC_HIER: path of the croc_soc logic in the top (empty for the macro, i_croc/ under chip_top)
+set CROC_HIER           ""
+if {$CHIP_FLOORPLAN} {
+    set TOP_MODULE      "chip_top"
+    set DESIGN_NAME     $TOP_MODULE
+    set DESIGN_LIBRARY  "chip.dlib"
+    set CROC_HIER       "i_croc/"
+    # IO library with the related supply pins of the pad pins (make chip_macros_ndm, scripts/chip/create_io_ndm.tcl)
+    set io_ndm [lsearch -glob $REFERENCE_LIBRARY *gf180mcu_fd_io.ndm]
+    set REFERENCE_LIBRARY [lreplace $REFERENCE_LIBRARY $io_ndm $io_ndm [file normalize [file dirname [info script]]/../../work/gf180mcu_fd_io.ndm]]
+}
 
 # -----------------------------------------------------------------------------
 # 4. Flow Constraints

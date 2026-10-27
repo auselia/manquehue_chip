@@ -34,6 +34,10 @@ close $fp
 
 # 2. Analyze the design (the -F flag still handles the file paths and +defines natively)
 analyze -format sverilog -vcs "-F ../flists/croc.flist"
+# Chip floorplan: the pad ring top around croc_soc. The pad cells link to gf180mcu_fd_io.
+if {$CHIP_FLOORPLAN} {
+    analyze -format sverilog ../rtl/chip/chip_top.sv
+}
 
 # Elaborate the top module (croc_chip) defined in setup.tcl
 elaborate $TOP_MODULE
@@ -41,9 +45,12 @@ set_top_module
 
 # Dedicated scan ports (the RTL has none). dft_scan.tcl declares them as SI/SE/SO and
 # mode_func.tcl ties scan_se_i to 0, so they must exist before the constraints are read.
+# The chip has scan pads instead (rtl/chip/chip_top.sv), connected when the chain is inserted at chip level.
+if {!$CHIP_FLOORPLAN} {
 create_port -direction in  scan_si_i
 create_port -direction in  scan_se_i
 create_port -direction out scan_so_o
+}
 
 ###########################################################
 # Technology setup

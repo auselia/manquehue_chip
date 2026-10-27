@@ -23,7 +23,7 @@ has one supply.*
 | `flists/` | file lists for FC, simulation and FPGA |
 | `scripts/` | FC steps `01_read_rtl` to `06_finish`, then `common/` (macro and chip), `chip/` (chip mode), `waferspace/` (macro into the wafer.space template), `dft/`, `signoff/`, `sim/`, `utils/`, `fpga/` |
 | `sim/` | test benches, models, firmware (`sw/`), FFT reference, experiments |
-| `docs/` | checks, DFT and ATPG, SPI specification, tester procedure |
+| `docs/` | the architecture diagram |
 | `work/`, `outputs/` | FC library and logs, exported runs (not in git) |
 
 ## Tools
@@ -83,8 +83,7 @@ make sim-spi              # SPI block test bench
 make help                 # every target and option
 ```
 
-`docs/checks.md` tells what each check does and where it writes the results. `sim/GLS.md` describes the gate-level
-simulation.
+`sim/GLS.md` describes the gate-level simulation.
 
 ## Credits
 

@@ -4,8 +4,8 @@
 # Description: Chip views (CHIP_FLOORPLAN=1): GDS with every layout merged, DEF, utilization
 ###############################################################################
 
-# Layouts merged into the chip GDS. The IO cells and the SRAM come from the official PDK (IO_GDS_DIR, SRAM_GDS_DIR),
-# the standard cells from the Synopsys copy in ${PDK_DIR}/gds (identical to the PDK ones).
+# Layouts merged into the chip GDS. The IO cells and the SRAM come from the official PDK (IO_GDS_DIR, SRAM_GDS_DIR).
+# The standard cells come from the Synopsys copy in ${PDK_DIR}/gds, which is identical to the PDK one.
 proc chip_gds_files {} {
     global PDK_DIR SRAM_GDS_DIR IO_GDS_DIR WS_IP_DIR CHIP_WS_IPS CHIP_DCDC_MACROS
     set gds_files [lsearch -all -inline -not -regexp [glob ${PDK_DIR}/gds/*.gds] {gf180mcu_fd_ip_sram__|gf180mcu_fd_io__}]

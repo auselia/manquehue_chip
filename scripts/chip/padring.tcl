@@ -30,7 +30,7 @@ foreach line [split [read $f] "\n"] {
 close $f
 
 # Side and position of a pad: the lower-left coordinate along its side (y on west/east, x on south/north)
-# W/E: 100 um pitch from 423.5; S/N: 104 um pitch from 410.5 (the AC3E padframe rule). Pads are 75 um wide.
+# W/E: 100 um pitch from 423.5, S/N: 104 um pitch from 410.5 (the AC3E padframe rule). Pads are 75 um wide.
 proc pad_side_loc {n} {
     if {$n <= 43} { return [list left   [expr {4623.5 - 100.0 * ($n - 1)}]] }
     if {$n <= 54} { return [list bottom [expr {410.5 + 104.0 * ($n - 44)}]] }

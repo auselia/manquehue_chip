@@ -49,8 +49,8 @@ proc remove_orphan_taps {ref_filter distance what} {
 }
 remove_orphan_taps "ref_name =~ *filltie*" $TAP_DEVICE_DISTANCE "taps"
 
-# DF.13 / DF.14 for the taps that stay: the endcaps (an N-well tap and a substrate tap each, they cannot be removed)
-# and the filltie cells. The deck measures from the tap diffusion to a MOS diffusion in a 15 um box. Cell boxes are
+# DF.13 / DF.14 for the taps that stay: the endcaps and the filltie cells. An endcap is an N-well tap and a substrate
+# tap, and it cannot be removed. The deck measures from the tap diffusion to a MOS diffusion in a 15 um box. Cell boxes are
 # larger than their diffusions, so a decap cell 14 um away can be out of reach. A tap with no device cell within
 # TAP_DEVICE_SURE gets decap fillers around it at full utilization.
 set TAP_DEVICE_SURE   12.0
@@ -84,8 +84,9 @@ if {$CHIP_FLOORPLAN} {
     chip_float_dcdc_pins
 }
 
-# Second pass: remove_stdcell_fillers_with_violation can take away the decaps that a tap or an endcap counted on (next
-# to the SRAMs, where the routing over the row rejects every filler). What has no device left within 15 um goes.
+# Second pass: remove_stdcell_fillers_with_violation can take away the decaps that a tap or an endcap counted on. That
+# happens next to the SRAMs, where the routing over the row rejects every filler. What has no device left within 15 um
+# goes.
 remove_orphan_taps "ref_name =~ *filltie* || ref_name =~ *endcap*" $TAP_DEVICE_DISTANCE "taps or endcaps left after the fillers"
 connect_pg_net -automatic
 
@@ -162,8 +163,8 @@ pg_via_eco_remove_close_stripe_vias
 set GDS_OUT   [file join $RUN_DIR "${TOP_MODULE}.gds"]
 set VLOG_OUT  [file join $RUN_DIR "${TOP_MODULE}.v"]
 
-# The fillcap cells stay in the netlist (unlike fill, filltie and endcap, which have no devices): they are
-# VDD-VSS capacitors, and without them LVS finds about 2,970 layout instances with no schematic match.
+# The fillcap cells stay in the netlist, unlike fill, filltie and endcap, which have no devices. The fillcap cells are
+# VDD-VSS capacitors: without them LVS finds about 2,970 layout instances with no schematic match.
 write_verilog -include all \
     -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
     $VLOG_OUT
@@ -172,13 +173,13 @@ write_verilog -include all \
 set BB_OUT [file join $RUN_DIR "${TOP_MODULE}_bb.v"]
 puts [exec python3 [file dirname [info script]]/common/write_blackbox.py $VLOG_OUT $BB_OUT $TOP_MODULE]
 
-# The parent flow (LibreLane Magic.StreamOut) reads the macro's bounding box from a PR
-# boundary shape in the GDS top cell, which write_gds does not emit for the top block.
+# The parent flow (LibreLane Magic.StreamOut) reads the bounding box of the macro from a PR boundary shape in the GDS
+# top cell. write_gds does not write that shape for the top block.
 create_shape -shape_type rect -layer PR_bndry -boundary [get_attribute [current_block] boundary_bbox]
 
-# The SRAM layouts come from the official PDK, not from the Synopsys-prepared copy in ${PDK_DIR}/gds: that
-# copy has 5 extra diffusion contacts per SRAM, which gives 268 Magic DRC errors in the chip run
-# (MV Diffusion contact width, CO.1 + 2 * CO.6). With the official SRAM GDS Magic reports none of them.
+# The SRAM layouts come from the official PDK, not from the Synopsys-prepared copy in ${PDK_DIR}/gds. That copy has
+# 5 extra diffusion contacts per SRAM, which give 268 Magic DRC errors in the chip run (MV Diffusion contact width,
+# CO.1 + 2 * CO.6). With the official SRAM GDS Magic reports none of them.
 # The standard cells in the Synopsys copy are identical to the official ones (checked by XOR).
 set GDS_FILE_LIST [lsearch -all -inline -not -glob [glob ${PDK_DIR}/gds/*.gds] *gf180mcu_fd_ip_sram__*]
 lappend GDS_FILE_LIST {*}[glob ${SRAM_GDS_DIR}/gf180mcu_fd_ip_sram__*.gds]
@@ -193,7 +194,7 @@ set LEF_OUT [file join $RUN_DIR "${TOP_MODULE}.lef"]
 create_frame -block_core_margin [list [list Metal4 $PG_PIN_BAND] [list Metal5 $PG_PIN_BAND]]
 write_lef -design [current_block] -include cell $LEF_OUT
 
-# write_lef declares an OVERLAP layer and uses it in the OBS; LibreLane's Magic cannot parse it.
+# write_lef declares an OVERLAP layer and uses it in the OBS. LibreLane's Magic cannot parse it.
 set lef_fh [open $LEF_OUT r]
 set lef_text [read $lef_fh]
 close $lef_fh

@@ -40,7 +40,7 @@ if not fails:
     sys.exit(0)
 
 if tmax_out:
-    # pattern-based failure file of TestMAX ATPG: pattern_num output_port [cell_position]; pattern k is the one whose
+    # pattern-based failure file of TestMAX ATPG: pattern_num output_port [cell_position]. Pattern k is the one whose
     # capture is unloaded in load/unload k+1, the cell position is the shift cycle j of the unload
     with open(tmax_out, "w") as fo:
         seen = set()

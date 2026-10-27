@@ -5,7 +5,7 @@ usage: fix_inputs.py <netlist.v> <protocol.stil> <out dir> <scan length>
 
 Netlist (what the tool complained about, in this order):
   - one comment line of 80 000 characters in the header (limit is 50 000)      -> comment lines dropped
-  - power pins .VDD/.VSS on standard cells; the PDK simulation models have none  -> connections dropped
+  - power pins .VDD/.VSS on standard cells: the PDK simulation models have none  -> connections dropped
   - fillcap decoupling cells (only power pins, no logic, no model)               -> instances dropped
 Protocol (`write_test_protocol` writes only the capture procedures, "Minimal STIL"):
   - no ScanStructures and no load_unload, so the tool sees every scan flop as nonscan  -> both added

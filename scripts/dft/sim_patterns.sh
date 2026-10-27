@@ -1,10 +1,10 @@
 #!/bin/bash
 # Apply the ATPG patterns to the gate-level netlist in Icarus and compare every expected output.
-# usage: sim_patterns.sh <run dir> [jobs] [npat]   (jobs: parallel chunks, default 1; npat: only the first n patterns)
+# usage: sim_patterns.sh <run dir> [jobs] [npat]   (jobs: parallel chunks, default 1, npat: only the first n patterns)
 #   <run dir> holds croc_soc_atpg.v (fix_inputs.py), cells_atpg.v, primitives_atpg.v, sram_blackbox.v and
 #   patterns_stuck.stil (TestMAX ATPG). npat limits the number of patterns (default: all of them).
 # The SRAM is the black box of the ATPG run: its outputs are unknown and the patterns mask what depends on them.
-# Flop delay 0.5 ns as in sim/GLS.md; the cell library has no timescale and Icarus would round the delay to 0.
+# Flop delay 0.5 ns as in sim/GLS.md. The cell library has no timescale, and Icarus rounds the delay to 0 without it.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 D=$(readlink -f "${1:?run dir}"); JOBS=${2:-1}

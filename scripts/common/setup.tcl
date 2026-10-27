@@ -13,13 +13,13 @@ set DESIGN_LIBRARY      "design.dlib"
 
 set CLOCK_PORT_NAME     "clk_i" 
 set CLOCK_PERIOD        50.0
-# CLOCK_PERIOD is what the optimizer implements. The design is signed off at SPEC_PERIOD (AUS-9): the optimizer
-# stops about 1.4 ns short of any period it is given, so a netlist implemented at 50 ns closes at 55 ns.
+# CLOCK_PERIOD is what the optimizer implements. The design is signed off at SPEC_PERIOD (AUS-9). The optimizer
+# stops about 1.4 ns short of any period it gets, so a netlist implemented at 50 ns closes at 55 ns.
 set SPEC_PERIOD         55.0
 
 # Top-level power pins: {layer llx lly urx ury} in um per net, for an outline W x H. They are the straight parts of
-# the PG rings (power_grid.tcl: VDD 13 to 23 um, VSS 1 to 11 um inside the outline), without the 30 um corner
-# via arrays. Computed from the outline because the height follows the cell area. 06_finish.tcl checks each pin.
+# the PG rings, without the 30 um corner via arrays (power_grid.tcl: VDD 13 to 23 um, VSS 1 to 11 um inside the
+# outline). Computed from the outline because the height follows the cell area. 06_finish.tcl checks each pin.
 proc pg_pins {W H} {
   return [list \
     VDD [list [list Metal5 43 13 [expr {$W - 43}] 23] \

@@ -113,9 +113,9 @@ set pad_ports {
     clk_i clk_i
 }
 
-# Side numbers run clockwise from the left edge (1 left, 2 top, 3 right, 4 bottom). -offset is measured from where
-# the edge starts when going clockwise: the left edge from the bottom, the right edge from the top, the bottom edge
-# from the right.
+# Side numbers run clockwise from the left edge (1 left, 2 top, 3 right, 4 bottom). -offset counts from where the
+# edge starts, going clockwise. The left edge starts at the bottom, the right edge at the top, the bottom edge at the
+# right.
 set pin_offsets [dict create]
 foreach p $chip_pads {
     lassign $p n sig cell
@@ -171,7 +171,7 @@ create_keepout_margin -type hard -outer {10 10 10 10} $all_macros
 # Places the macros in the floorplan
 create_placement -floorplan
 
-# Locks the macros in place so their coordinates don't change
+# Locks the macros in place so their coordinates do not change
 set_fixed_objects [get_flat_cells -filter "is_hard_macro"]
 
 set blocked_layers {Metal1 Metal2 Metal3 Metal4 Metal5}
@@ -194,7 +194,7 @@ foreach_in_collection macro $all_macros {
     set new_urx [expr {$urx - 17}]
     set new_ury [expr {$ury - 17}]
 
-    # Ensure the macro is large enough so the math doesn't invert the box
+    # The macro must be large enough, or the shrink inverts the box
     if {($new_urx > $new_llx) && ($new_ury > $new_lly)} {
         
         set new_boundary [list [list $new_llx $new_lly] [list $new_urx $new_ury]]

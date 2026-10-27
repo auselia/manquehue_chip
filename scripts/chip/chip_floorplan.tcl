@@ -40,8 +40,8 @@ puts "INFO: croc core area [get_attribute [current_block] core_area_bbox]"
 # Pads and breakers (padring.tcl reads scripts/chip/padring.txt, also read by gen_chip_top.py for the netlist top)
 source [file dirname [info script]]/padring.tcl
 
-# Orientation per side, as the LibreLane pad ring places them (DEF FW, W, N, FS): the DC-DC wrappers connect to
-# the pads by abutment and are drawn for this orientation
+# Orientation per side, as the LibreLane pad ring places them (DEF FW, W, N, FS). The DC-DC wrappers connect to
+# the pads by abutment, and they are drawn for this orientation.
 set side_orient {left MXR90 right R90 bottom R0 top MX}
 
 # Expected lower-left corner of a cell of width w on a side at position loc
@@ -164,14 +164,14 @@ set_fixed_objects [get_cells [dict keys $ring_cells]]
 set_fixed_objects [get_cells corner_*]
 
 # Every top-level port is the bond pad of its pad: its terminal is the PAD (ASIG5V) pin, so the port net needs no
-# routing (by default the terminals sit on the die edge and the router runs the pad nets through the ring).
+# routing. By default the terminals sit on the die edge, and the router runs the pad nets through the ring.
 set n_term 0
 foreach_in_collection port [get_ports *] {
     set pin [get_pins -quiet -of [get_nets -quiet -of $port] -filter "name == PAD || name == ASIG5V"]
     if {[sizeof_collection $pin] != 1} { error "ERROR: port [get_object_name $port] is not on one pad pin" }
     set old [get_terminals -quiet -of $port]
     if {[sizeof_collection $old]} { remove_terminals $old }
-    # the bond pad: the pin shape on the top layer (Metal5; ASIG5V also has a Metal2 shape on the core side)
+    # the bond pad: the pin shape on the top layer, Metal5 (ASIG5V also has a Metal2 shape on the core side)
     set layer [lindex [lsort [get_attribute $pin layer_name]] end]
     set shape [get_shapes -quiet -of_objects $pin -filter "layer_name == $layer"]
     set box [expr {[sizeof_collection $shape] ? [get_attribute [index_collection $shape 0] bbox] : [get_attribute $pin bbox]}]
@@ -181,8 +181,8 @@ foreach_in_collection port [get_ports *] {
 }
 puts "INFO: $n_term port terminals on their pad pins"
 
-# IO fillers in every gap between corners, pads and breakers, from the table positions (create_io_filler_cells uses
-# the lib bbox, 0.16 um wider than the pad, and misplaces them). Widths 10, 5, 1 and 0.1 um (fillnc) fill every gap
+# IO fillers in every gap between corners, pads and breakers, from the table positions. create_io_filler_cells uses
+# the lib bbox, 0.16 um wider than the pad, and misplaces them. Widths 10, 5, 1 and 0.1 um (fillnc) fill every gap
 # exactly (the end gaps are 42.5 um).
 set fill_cells {100 gf180mcu_fd_io__fill10 50 gf180mcu_fd_io__fill5 10 gf180mcu_fd_io__fill1 1 gf180mcu_fd_io__fillnc}
 set n_fill 0

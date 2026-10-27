@@ -49,8 +49,8 @@ set_pg_strategy main_ring_strategy -core -pattern {{pattern: main_ring_pattern} 
 # ---> COMPILE STEP 1
 compile_pg -strategies main_ring_strategy
 
-# Chip floorplan: straps from the inner-edge pins of the CROC power pads (Metal2 on DVDD/DVSS, Metal3 on the
-# rotated west and east pads) to the ring of the same net: VDD to the inner ring, VSS to the outer one
+# Chip floorplan: straps from the inner-edge pins of the CROC power pads to the ring of the same net. The pins are
+# on Metal2 (DVDD/DVSS), on Metal3 for the rotated west and east pads. VDD goes to the inner ring, VSS to the outer.
 if {$CHIP_FLOORPLAN} {
     # The strap vias are large arrays: V2.2b/V3.2b/V4.2b want the 0.36 um cut spacing (PG_VIA_CUT_SPACING)
     set_pg_via_master_rule via_master_pad_v2 -contact_code Via2_HH -cut_spacing $PG_VIA_CUT_SPACING

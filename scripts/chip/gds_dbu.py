@@ -1,5 +1,5 @@
 # klayout -b -r gds_dbu.py -rd input=<gds> -rd output=<gds>
-# FC write_gds stores the database unit as 0.0009999999999999998 um; the wafer.space precheck needs exactly 0.001.
+# FC write_gds stores the database unit as 0.0009999999999999998 um. The wafer.space precheck needs exactly 0.001.
 # Only the stored unit changes: the coordinates are the same integers (1 nm).
 import pya
 ly = pya.Layout()

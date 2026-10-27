@@ -4,8 +4,8 @@
 # Description: Supply pins of the pad ring (CHIP_FLOORPLAN=1)
 ###############################################################################
 # VSS runs around the whole ring (the breakers do not cut it, every dvss pad ties DVSS to VSS): DVSS and VSS go to
-# VSS on every IO cell. DVDD and VDD go to the supply net of the ring segment (seg lines of scripts/chip/padring.txt):
-# VDD in the CROC segment, one net per DC-DC supply. The DC-DC nets are not routed: the pads and the DC-DC wrappers
+# VSS on every IO cell. DVDD and VDD go to the supply net of the ring segment (seg lines of scripts/chip/padring.txt).
+# That is VDD in the CROC segment and one net per DC-DC supply. The DC-DC nets are not routed: the pads and the DC-DC wrappers
 # connect by abutment. They name the segments for LVS. connect_pg_net -automatic (also inside clock_opt) puts every IO
 # cell on VDD again, so 04, 05 and 06 call this after it.
 
@@ -86,8 +86,8 @@ proc chip_connect_pads {} {
 }
 
 # The core-side inputs of the DC-DC pads stay open: the DC-DC wrappers drive them by abutment. compile_fusion ties
-# every floating input to a constant (and placement makes tie cells of it), dont_touch or not, so the steps call
-# this after each compile_fusion, clock_opt and route_opt. Tie cells left without a load are removed.
+# every floating input to a constant, dont_touch or not, and placement makes tie cells of it. So the steps call this
+# after each compile_fusion, clock_opt and route_opt. Tie cells left without a load are removed.
 proc chip_float_dcdc_pins {} {
     set dcdc [remove_from_collection [get_cells pad_* -filter "ref_name =~ gf180mcu_fd_io__*"] [chip_croc_io]]
     set pins [get_pins -quiet -of $dcdc -filter "direction == in && name != PAD && name != ASIG5V"]

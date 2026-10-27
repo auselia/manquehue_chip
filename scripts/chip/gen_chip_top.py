@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write rtl/chip/chip_top.sv: the netlist top of the chip floorplan (CHIP_FLOORPLAN=1).
 
-usage: scripts/chip/gen_chip_top.py   (from the repository root; make chip_top)
+usage: scripts/chip/gen_chip_top.py   (from the repository root, or make chip_top)
 
 Input: scripts/chip/padring.txt, the pad ring that scripts/chip/chip_floorplan.tcl places. One instance per pad
 (pad_<signal>) and per breaker, and croc_soc (i_croc):

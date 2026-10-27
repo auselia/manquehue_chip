@@ -9,6 +9,8 @@
 #        GLS_CXX    g++ with -fcoroutines (Verilator --timing); system g++ 8.5 on Rocky has none
 #        GLS_RUN    netlist run folder, default outputs/latest
 #        EXPECTED_LAG  scan cells in the chain (run_gls_all.sh reads it from the run), default 3964 (dft_drc: "Chain 1 ... scan_cells")
+# The chain polarity comes from the netlist (scan_chain_trace.py): an odd number of inverters between the cells
+# returns the stream inverted. The traced length must equal EXPECTED_LAG.
 #        FLOPDELAY  output delay of the sequential cell models, default 0.5ns
 #        JOBS       compile parallelism, default 8
 # Run it inside an environment that has verilator (the template's nix-shell on Rocky).
@@ -47,6 +49,14 @@ print("sequential UDP outputs delayed:", n[0])
 PY
 sed "s/^  cen_dly        = 0;/  cen_dly        = 1;/" "$S/gf180mcu_fd_ip_sram__sram512x8m8wm1.v" > sram.v
 
+TRACE=$(python3 "$REPO/scripts/sim/scan_chain_trace.py" "$RUN/croc_soc.v")
+echo "scan chain in the netlist: $TRACE"
+TRACED=$(echo "$TRACE" | sed -n 's/.*cells=\([0-9]*\).*/\1/p')
+INV=$(( $(echo "$TRACE" | sed -n 's/.*inversions=\([0-9]*\).*/\1/p') % 2 ))
+if [ "$TRACED" != "${EXPECTED_LAG:-3964}" ]; then
+  echo "traced chain has $TRACED cells, expected ${EXPECTED_LAG:-3964}"; echo "FAILED"; exit 1
+fi
+
 cat > files.f <<EOT
 +define+USE_POWER_PINS
 +define+FUNCTIONAL
@@ -70,7 +80,7 @@ for args in "" "+trstn_low" "+rstn_low"; do
   tag=$(echo "$args" | tr -d "+"); tag=${tag:-normal}
   echo "== run: ${args:-defaults}"
   set +e
-  stdbuf -oL ./obj_dir/Vscan +expected_lag=${EXPECTED_LAG:-3964} $args 2>&1 | tee "run_${tag}.log" | grep -E "SCAN_SHIFT|Error|error"
+  stdbuf -oL ./obj_dir/Vscan +expected_lag=${EXPECTED_LAG:-3964} +expected_inv=$INV $args 2>&1 | tee "run_${tag}.log" | grep -E "SCAN_SHIFT|Error|error"
   rc_run=${PIPESTATUS[0]}
   set -e
   if [ "$tag" = rstn_low ]; then continue; fi

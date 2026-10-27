@@ -4,13 +4,15 @@
 // waveforms declared to the DFT tool (set_dft_signal -type ScanClock in scripts/common/dft_scan.tcl:
 // clk_i rises at 50 ns and falls at 70 ns, jtag_tck_i rises at 75 ns and falls at 90 ns, 100 ns
 // period) and pushes a pseudo-random bit stream through scan_si_i. A working chain returns the same
-// stream on scan_so_o, delayed by exactly the number of scan cells. The test finds that delay and
-// requires it to be EXPECTED_LAG with zero mismatches over the whole stream.
+// stream on scan_so_o, delayed by exactly the number of scan cells, inverted if the chain has an odd number of
+// inverters (+expected_inv=1, from scripts/sim/scan_chain_trace.py). The test finds that delay and requires it to be
+// EXPECTED_LAG with zero mismatches over the whole stream, with the expected polarity.
 //
 // +rst_low drives rst_ni and jtag_trst_ni low during the shift: the asynchronous resets must stay
 // held inactive by the AutoFix gate (testmode_i), so the stream must come out unchanged.
 //
-// usage (run scripts/sim/run_gls_scan.sh): Vscan [+rst_low | +rstn_low | +trstn_low] [+expected_lag=N] [+nbits=N]
+// usage (run scripts/sim/run_gls_scan.sh): Vscan [+rst_low | +rstn_low | +trstn_low] [+expected_lag=N]
+//        [+expected_inv=0|1] [+nbits=N]
 // +rstn_low drives only rst_ni low, +trstn_low only jtag_trst_ni.
 `timescale 1ns/1ps
 
@@ -44,17 +46,12 @@ module tb_scan_shift;
     .qspi_sd_i     ( 4'b0         ),
     .qspi_sd_en_o  ( qspi_sd_en_o ),
     .qspi_csn_o    ( qspi_csn_o   ),
-    .adc_sclk_o    (              ),
-    .adc_csn_o     (              ),
-    .adc_sdo_i     ( 1'b0         ),
-    .adc_wake_n_i  ( 1'b1         ),
-    .adc_big_n_i   ( 1'b1         ),
-    .adc_wake_clr_o(              ),
-    .adc_cap_en_o  (              ),
-    .rf_sclk_o     (              ),
-    .rf_mosi_o     (              ),
-    .rf_miso_i     ( 1'b0         ),
-    .rf_csn_o      (              ),
+    .spi_sck_o     (              ),
+    .spi_sd_o      (              ),
+    .spi_sd_i      ( 1'b0         ),
+    .spi_cs0_o     (              ),
+    .spi_cs1_o     (              ),
+    .afe_irq_i     ( 1'b1         ),
     .rf_dio0_i     ( 1'b0         ),
     .rf_rstn_o     (              ),
     .gpio_i        ( 2'b0         ),
@@ -65,7 +62,7 @@ module tb_scan_shift;
     .scan_so_o     ( scan_so_o    )
   );
 
-  int unsigned nbits, expected_lag;
+  int unsigned nbits, expected_lag, expected_inv;
   bit rst_low;
   bit stream_in  [];
   bit stream_out [];
@@ -91,6 +88,7 @@ module tb_scan_shift;
   initial begin
     if (!$value$plusargs("nbits=%d", nbits)) nbits = DefaultBits;
     if (!$value$plusargs("expected_lag=%d", expected_lag)) expected_lag = DefaultLag;
+    if (!$value$plusargs("expected_inv=%d", expected_inv)) expected_inv = 0;
     rst_low = $test$plusargs("rst_low");
     stream_in  = new[nbits];
     stream_out = new[nbits];
@@ -130,11 +128,11 @@ module tb_scan_shift;
         int unsigned miss;
         miss = 0;
         for (int unsigned j = first; j < nbits; j++)
-          if (stream_out[j] !== stream_in[j - lag + 1]) miss++;
+          if (stream_out[j] !== (stream_in[j - lag + 1] ^ bit'(expected_inv))) miss++;
         if (miss < best_miss) begin best_miss = miss; best_lag = lag; end
       end
-      $display("SCAN_SHIFT rst_low=%0d bits=%0d compared=%0d best_lag=%0d mismatches=%0d expected_lag=%0d",
-               rst_low, nbits, nbits - first, best_lag, best_miss, expected_lag);
+      $display("SCAN_SHIFT rst_low=%0d bits=%0d compared=%0d best_lag=%0d mismatches=%0d expected_lag=%0d inverted=%0d",
+               rst_low, nbits, nbits - first, best_lag, best_miss, expected_lag, expected_inv);
       if (best_lag == expected_lag && best_miss == 0) $display("SCAN_SHIFT_RESULT PASS");
       else                                             $display("SCAN_SHIFT_RESULT FAIL");
     end

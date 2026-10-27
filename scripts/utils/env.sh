@@ -20,7 +20,7 @@ PRECHECK_DIR=${PRECHECK_DIR:-$HOME/Documents/gf180mcu-precheck}
 PRECHECK_PYTHONPATH=${PRECHECK_PYTHONPATH:-/nix/store/mxgvi3js4wjqh7azybkj4zx3fixh2cvb-python3.13-qrcode-8.2/lib/python3.13/site-packages}
 SLOT=${SLOT:-0p5x1}
 JOBS=${JOBS:-9}                                               # parallel simulations (pattern replay, March test)
-NPAT=${NPAT:-573}                                             # patterns replayed in the gate-level simulation
+NPAT=${NPAT:-100000}                                          # patterns replayed in the gate-level simulation (default: all)
 IVERILOG_BIN=${IVERILOG_BIN:-$(ls -d /nix/store/*-iverilog-*/bin 2>/dev/null | head -1)}
 [ -n "$IVERILOG_BIN" ] && PATH=$IVERILOG_BIN:$PATH
 export SNPSLMD_LICENSE_FILE PDK_ROOT PATH

@@ -27,7 +27,9 @@ fi
 
 # 2. inputs
 RUN=$RUN OUT=$O "$HERE/prepare_inputs.sh" > "$O/prepare_inputs.log" 2>&1
-python3 "$HERE/fix_inputs.py" "$O/croc_soc_atpg.v" "$O/croc_soc.stil" "$O" > "$O/fix_inputs.log" 2>&1
+# chain length: the chain that Fusion Compiler traced at synthesis (TestMAX traces it again in step 3)
+LEN=$(sed -n "s/.*successfully traced with \([0-9]*\) scan_cells.*/\1/p" "$RUN/logs/synthesis.log" | tail -1)
+python3 "$HERE/fix_inputs.py" "$O/croc_soc_atpg.v" "$O/croc_soc.stil" "$O" $LEN > "$O/fix_inputs.log" 2>&1
 cp "$HERE/atpg.tcl" "$O/"
 
 # 3. ATPG

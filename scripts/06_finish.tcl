@@ -25,20 +25,24 @@ create_stdcell_fillers -lib_cells $DCAP_CELLS -type_utilization [list $DCAP_CELL
 connect_pg_net -automatic
 
 # DF.12 / DF.13: every tap needs a transistor within 15 um. Remove the taps that have none.
+# A hard macro (SRAM) does not count: its box reaches the tap, but its own diffusion can be farther than 15 um.
 set TAP_DEVICE_DISTANCE 15.0
-set orphan_taps {}
-foreach_in_collection tap [get_cells -physical_context -filter "ref_name =~ *filltie*"] {
-  set bbox [get_attribute $tap bbox]
-  set area [list [list [expr {[lindex $bbox 0 0] - $TAP_DEVICE_DISTANCE}] [expr {[lindex $bbox 0 1] - $TAP_DEVICE_DISTANCE}]] \
-                 [list [expr {[lindex $bbox 1 0] + $TAP_DEVICE_DISTANCE}] [expr {[lindex $bbox 1 1] + $TAP_DEVICE_DISTANCE}]]]
-  set nearby [get_objects_by_location -classes cell -intersect $area -quiet]
-  if {[sizeof_collection $nearby] > 0} {
-    set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_*"]
+proc remove_orphan_taps {ref_filter distance what} {
+  set orphan_taps {}
+  foreach_in_collection tap [get_cells -physical_context -filter $ref_filter] {
+    set bbox [get_attribute $tap bbox]
+    set area [list [list [expr {[lindex $bbox 0 0] - $distance}] [expr {[lindex $bbox 0 1] - $distance}]] \
+                   [list [expr {[lindex $bbox 1 0] + $distance}] [expr {[lindex $bbox 1 1] + $distance}]]]
+    set nearby [get_objects_by_location -classes cell -intersect $area -quiet]
+    if {[sizeof_collection $nearby] > 0} {
+      set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_* && !is_hard_macro"]
+    }
+    if {[sizeof_collection $nearby] == 0} { lappend orphan_taps $tap }
   }
-  if {[sizeof_collection $nearby] == 0} { lappend orphan_taps $tap }
+  puts "INFO: removing [llength $orphan_taps] $what with no device within $distance um"
+  if {[llength $orphan_taps] > 0} { remove_cells [add_to_collection {} $orphan_taps] }
 }
-puts "INFO: removing [llength $orphan_taps] taps with no device within $TAP_DEVICE_DISTANCE um"
-if {[llength $orphan_taps] > 0} { remove_cells [add_to_collection {} $orphan_taps] }
+remove_orphan_taps "ref_name =~ *filltie*" $TAP_DEVICE_DISTANCE "taps"
 
 # DF.13 / DF.14 for the taps that stay: the endcaps (an N-well tap and a substrate tap each, they cannot be removed)
 # and the filltie cells. The deck measures from the tap diffusion to a MOS diffusion in a 15 um box. Cell boxes are
@@ -55,7 +59,7 @@ foreach_in_collection ec [get_cells -physical_context -filter "ref_name =~ *endc
                  [list [expr {[lindex $bbox 1 0] + $TAP_DEVICE_SURE}] [expr {[lindex $bbox 1 1] - 1.0}]]]
   set nearby [get_objects_by_location -classes cell -intersect $area -quiet]
   if {[sizeof_collection $nearby] > 0} {
-    set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_*"]
+    set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_* && !is_hard_macro"]
   }
   if {[sizeof_collection $nearby] > 0} { continue }
   incr lonely_endcaps
@@ -68,6 +72,11 @@ connect_pg_net -automatic
 
 remove_stdcell_fillers_with_violation
 create_stdcell_fillers -lib_cells $FILL_CELLS
+connect_pg_net -automatic
+
+# Second pass: remove_stdcell_fillers_with_violation can take away the decaps that a tap or an endcap counted on (next
+# to the SRAMs, where the routing over the row rejects every filler). What has no device left within 15 um goes.
+remove_orphan_taps "ref_name =~ *filltie* || ref_name =~ *endcap*" $TAP_DEVICE_DISTANCE "taps or endcaps left after the fillers"
 connect_pg_net -automatic
 
 route_detail -incremental true
@@ -120,6 +129,10 @@ if {[file isdirectory reports]} {
 source [file dirname [info script]]/common/drc_eco.tcl
 drc_eco_reroute $RUN_DIR
 
+# Stripe vias that Magic merges with a macro pin connection (scripts/common/pg_via_eco.tcl).
+source [file dirname [info script]]/common/pg_via_eco.tcl
+pg_via_eco_remove_close_stripe_vias
+
 set GDS_OUT   [file join $RUN_DIR "${TOP_MODULE}.gds"]
 set VLOG_OUT  [file join $RUN_DIR "${TOP_MODULE}.v"]
 
@@ -128,6 +141,10 @@ set VLOG_OUT  [file join $RUN_DIR "${TOP_MODULE}.v"]
 write_verilog -include all \
     -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
     $VLOG_OUT
+
+# Blackbox stub (ports only) for the chip-level flow, from the netlist of this run.
+set BB_OUT [file join $RUN_DIR "${TOP_MODULE}_bb.v"]
+puts [exec python3 [file dirname [info script]]/common/write_blackbox.py $VLOG_OUT $BB_OUT $TOP_MODULE]
 
 # The parent flow (LibreLane Magic.StreamOut) reads the macro's bounding box from a PR
 # boundary shape in the GDS top cell, which write_gds does not emit for the top block.
@@ -167,6 +184,7 @@ exec ln -sfn $RUN_NAME $LATEST_LINK
 
 puts "INFO: Wrote GDS      -> $GDS_OUT"
 puts "INFO: Wrote netlist  -> $VLOG_OUT"
+puts "INFO: Wrote stub     -> $BB_OUT"
 puts "INFO: Wrote LEF      -> $LEF_OUT"
 puts "INFO: latest run     -> outputs/latest -> ${RUN_NAME}/"
 

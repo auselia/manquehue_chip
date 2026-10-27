@@ -8,6 +8,9 @@
 //
 // Testbench: tb_croc_soc with +adc_tone=36 (a tone at FFT bin 36) and +rf_airtime_ns (LoRa time on air of the
 // packet). sim/sw/flash/check_ae_node.py checks every packet against the golden model of the FFT.
+// The ADC and the radio share one SPI bus. Before each radio SPI access the firmware stops the reader (RUN = 0, wait
+// until it is idle) and starts it again after. Waiting for TxDone reads an rf_spi register only, so the reader runs
+// while the packet is on the air. ADC_STATUS.BUS_WAIT must stay 0.
 // Packet (little endian): 0 'A', 1 sequence, 2 PEAK_BIN, 3 STATUS[5:2] (SAT, PREV_VALID, BAND_OK, DECAY),
 // 4..7 first buffer word (samples 0 and 1, a test aid to find the block), 8 PEAK_POW, 12 BAND_ENERGY,
 // 16 TOTAL_ENERGY, 20 TD_ENERGY.
@@ -54,6 +57,7 @@
 #define A_FULL1    (1u << 2)
 #define A_OVERRUN  (1u << 3)
 #define A_BUSERR   (1u << 4)
+#define A_BUSWAIT  (1u << 7)
 
 // AE-FFT
 #define F_CTRL     0x00
@@ -119,6 +123,15 @@ static void put32(uint8_t *p, uint32_t v) {
     p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
 }
 
+// stop the ADC reader before a radio SPI access (shared bus), start it again after
+static void adc_pause(void) {
+    uint32_t t = mcycle();
+    SPI(ADC_CTRL) = A_EN | A_TRIG_LOW | A_IDLE(2);
+    while (SPI(ADC_STATUS) & A_RUNNING)
+        if (mcycle() - t > TIMEOUT) { fail |= 1u << 6; break; }
+}
+static void adc_resume(void) { SPI(ADC_CTRL) = A_EN | A_RUN | A_TRIG_LOW | A_IDLE(2); }
+
 static uint8_t pkt[25];                                    // 0x80 (FIFO write) + 24 payload bytes
 
 int main() {
@@ -180,13 +193,17 @@ int main() {
         if (seq > 0) {
             while (!(SPI(RF_IRQ_ST) & IRQ_DIO0))
                 if (mcycle() - t2 > TIMEOUT) { fail |= 1u << 2; break; }
+        }
+        uint32_t t3 = mcycle();
+        adc_pause();
+        if (seq > 0) {
             rf_reg(0x12, 0x08);
             SPI(RF_IRQ_ST) = IRQ_DIO0;
         }
-        uint32_t t3 = mcycle();
         rf_reg(0x0D, 0x80);                                // FifoAddrPtr = TX base
         rf_xfer(pkt, 0, 25);
         rf_reg(0x01, 0x83);                                // LoRa, TX
+        adc_resume();
         uint32_t t4 = mcycle();
 
         put("B"); put_hex(seq); put(" W"); put_hex(t1 - t0); put(" F"); put_hex(t2 - t1);
@@ -196,12 +213,13 @@ int main() {
     uint32_t t5 = mcycle();
     while (!(SPI(RF_IRQ_ST) & IRQ_DIO0))
         if (mcycle() - t5 > TIMEOUT) { fail |= 1u << 2; break; }
+    adc_pause();                                           // RUN = 0, and the bus is free for the last radio access
     rf_reg(0x12, 0x08);
     SPI(RF_IRQ_ST) = IRQ_DIO0;
 
-    SPI(ADC_CTRL) = A_EN | A_TRIG_LOW | A_IDLE(2);         // RUN = 0
     uint32_t st = SPI(ADC_STATUS);
     if (st & A_BUSERR) fail |= 1u << 4;
+    if (st & A_BUSWAIT) fail |= 1u << 7;                   // an ADC frame waited for the radio
     if (SPI(RF_ERR) != 0u) fail |= 1u << 5;
     put("ADC status "); put_hex(st); put("\n");
 

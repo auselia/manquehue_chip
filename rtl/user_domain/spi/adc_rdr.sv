@@ -16,6 +16,9 @@
 //   - SDO_NEG: SDO is captured by a falling-edge flop of clk_i, half a clock later (more setup margin, the hold margin
 //     is the ADC's own hold time plus the board delay). This is the only falling-edge flop of the block.
 //   - SCLK_HALF: SCLK is a flop toggling at clk/2, no forwarded clock (fallback, half the sample rate).
+//   - shared bus: while the radio master requests or owns the SPI bus (bus_hold_i), no frame starts. A frame that
+//     is due then waits and sets STATUS[7] BUS_WAIT. While the radio owns the bus (rf_own_i), SCLK is the radio
+//     SCLK (rf_sclk_i). obi_spi grants the bus only between frames, with both chip selects high.
 //   - testmode_i: SCLK is held high.
 // Configuration (frame length, IDLE, SDO_NEG, SCLK_HALF) is taken at the start of every frame.
 //
@@ -24,14 +27,14 @@
 //                       [5] SW_RST (W1, self-clearing) [11:8] IDLE (2..15, default 3) [12] SDO_NEG [14] TRIG_ACTIVE_LOW
 //                       (default 1) [15] SCLK_HALF
 //   1 ADC_STATUS  R/W1C [0] RUNNING (RO) [1] BUF0_FULL [2] BUF1_FULL [3] OVERRUN [4] BUS_ERROR [5] DONE [6] WAKE
-//                       [8] ACTIVE_BUF (RO)
+//                       [7] BUS_WAIT (a frame waited for the radio) [8] ACTIVE_BUF (RO)
 //   2 ADC_BUF0    RW    byte address of buffer 0, word aligned
 //   3 ADC_BUF1    RW    byte address of buffer 1, word aligned
 //   4 ADC_NSAMP   RW    samples per buffer, even, 2..1024 (default 128), clamped on write
 //   5 ADC_IRQ_EN  RW    [0] BUF_FULL [1] OVERRUN [2] DONE [3] WAKE
 //   6 ADC_LAST    RO    most recent sample, sign-extended to 32 bit
 //   7 ADC_COUNT   RO    samples taken since RUN was set, saturating at 65535
-//   8 ADC_PINS    RW    [0] WAKE_CLR output [1] CAP_EN output (reset 1) [8] WAKE_N input (RO) [9] BIG_N input (RO)
+//   8 ADC_PINS    RO    [8] WAKE_N input (AFE_IRQ pad)
 //   9 ADC_TRIG    RW    [11:0] POST (samples stored after the trigger, even, 0..2048, clamped on write; 0 = complete
 //                       the buffer being written) [16] START (no conversions before the trigger)
 //  10 ADC_TPOS    RO    [11:0] position of the first word stored after the trigger, as a sample index in the ring
@@ -80,13 +83,16 @@ module adc_rdr #(
 
   output logic        irq_o,
 
-  output logic        sclk_o,
+  // shared SPI bus (obi_spi): hold off new frames, radio SCLK while the radio owns the bus
+  input  logic        bus_hold_i,
+  input  logic        rf_own_i,
+  input  logic        rf_sclk_i,
+  output logic        frame_active_o,
+
+  output logic        sclk_o,      // SCLK pad
   output logic        csn_o,
   input  logic        sdo_i,
-  input  logic        wake_n_i,
-  input  logic        big_n_i,
-  output logic        wake_clr_o,
-  output logic        cap_en_o
+  input  logic        wake_n_i
 );
 
   // ------------------------------------------------------------------------------------------------ registers
@@ -97,18 +103,17 @@ module adc_rdr #(
   logic        en_q, run_q, trig_mode_q, sdo_neg_q, trig_low_q, half_q;
   logic [3:0]  idle_q;
   logic [1:0]  full_q;
-  logic        overrun_q, bus_err_q, done_q, wake_q;
+  logic        overrun_q, bus_err_q, done_q, wake_q, bus_wait_q;
   logic [31:2] buf_q [2];
   logic [10:1] nsamp_q;               // samples per buffer / 2 = words per buffer, 1..512
   logic [3:0]  irq_en_q;
   logic [15:0] last_q, count_q;
-  logic        wake_clr_q, cap_en_q;
   logic        active_buf_q, running;
   logic [11:1] post_q;                // POST in words, 0..1024
   logic        start_q;
   logic [11:1] tpos_q;                // ADC_TPOS in words
   logic        tpos_vld_q, trig_seen_q;
-  logic        wake_s, big_s;         // synchronised pad inputs
+  logic        wake_s;                // synchronised pad input
 
   logic [31:0] wmask, wmerge;
   assign wmask = {{8{reg_be_i[3]}}, {8{reg_be_i[2]}}, {8{reg_be_i[1]}}, {8{reg_be_i[0]}}};
@@ -119,14 +124,14 @@ module adc_rdr #(
     unique case (reg_addr_i)
       RegCtrl:   reg_rdata_o = {16'b0, half_q, trig_low_q, 1'b0, sdo_neg_q, idle_q, 5'b0,
                                 trig_mode_q, run_q, en_q};
-      RegStatus: reg_rdata_o = {23'b0, active_buf_q, 1'b0, wake_q, done_q, bus_err_q, overrun_q, full_q, running};
+      RegStatus: reg_rdata_o = {23'b0, active_buf_q, bus_wait_q, wake_q, done_q, bus_err_q, overrun_q, full_q, running};
       RegBuf0:   reg_rdata_o = {buf_q[0], 2'b00};
       RegBuf1:   reg_rdata_o = {buf_q[1], 2'b00};
       RegNsamp:  reg_rdata_o = {21'b0, nsamp_q, 1'b0};
       RegIrqEn:  reg_rdata_o = {28'b0, irq_en_q};
       RegLast:   reg_rdata_o = {{16{last_q[15]}}, last_q};
       RegCount:  reg_rdata_o = {16'b0, count_q};
-      RegPins:   reg_rdata_o = {22'b0, big_s, wake_s, 6'b0, cap_en_q, wake_clr_q};
+      RegPins:   reg_rdata_o = {23'b0, wake_s, 8'b0};
       RegTrig:   reg_rdata_o = {15'b0, start_q, 4'b0, post_q, 1'b0};
       RegTpos:   reg_rdata_o = {15'b0, tpos_vld_q, 4'b0, tpos_q, 1'b0};
       default:   reg_rdata_o = '0;
@@ -144,8 +149,8 @@ module adc_rdr #(
   assign cal_req = wr_ctrl & wmerge[4];
   assign sw_rst  = wr_ctrl & wmerge[5];
 
-  logic [6:1]  w1c;                   // flag bits written 1 to ADC_STATUS
-  assign w1c = wr_status ? (reg_wdata_i[6:1] & wmask[6:1]) : '0;
+  logic [7:1]  w1c;                   // flag bits written 1 to ADC_STATUS
+  assign w1c = wr_status ? (reg_wdata_i[7:1] & wmask[7:1]) : '0;
 
   logic run_start, run_clear_hw;
   assign run_start = wr_ctrl & wmerge[1] & wmerge[0] & ~run_q & ~sw_rst;
@@ -153,8 +158,6 @@ module adc_rdr #(
   // ------------------------------------------------------------------------------------------------ pad inputs
   sync #(.STAGES(2), .ResetValue(1'b1)) i_sync_wake (
     .clk_i, .rst_ni, .serial_i ( wake_n_i ), .serial_o ( wake_s ));
-  sync #(.STAGES(2), .ResetValue(1'b1)) i_sync_big (
-    .clk_i, .rst_ni, .serial_i ( big_n_i  ), .serial_o ( big_s  ));
 
   logic trig_lvl, trig_lvl_q, wake_evt;
   assign trig_lvl = trig_low_q ? ~wake_s : wake_s;
@@ -187,8 +190,11 @@ module adc_rdr #(
   assign period_end = tick & (c_q == c_end);
   // START: no frames before the trigger of a triggered capture
   assign work       = cal_pend_q | recal_pend_q | (run_q & ~(start_q & trig_mode_q & ~trig_seen_q));
-  // a frame starts when the engine is idle, or at the end of a period, if there is work
-  assign start_frame = en_q & work & (~fr_active_q | period_end);
+  // a frame starts when the engine is idle, or at the end of a period, if there is work and the radio does not
+  // hold the bus
+  logic frame_due;
+  assign frame_due   = en_q & work & (~fr_active_q | period_end);
+  assign start_frame = frame_due & ~bus_hold_i;
   assign c_n        = start_frame ? 7'd0 : c_q + 7'd1;
 
   assign cap_lo = fneg_q ? 7'd2  : 7'd1;
@@ -261,15 +267,18 @@ module adc_rdr #(
 
   assign running = run_q | fr_active_q;
 
-  // SCLK: gated clock, inverted (idles high), or the SCLK_HALF flop, held high in test mode
-  logic gclk, sclk_fwd, sclk_sel;
+  // SCLK: gated clock, inverted (idles high), or the SCLK_HALF flop, or the radio SCLK while the radio owns the bus,
+  // held high in test mode
+  logic gclk, sclk_fwd, sclk_sel, sclk_bus;
   obi_spi_clk_gate i_sclk_gate (
     .clk_i, .en_i ( gate_en_q ), .test_en_i ( 1'b0 ), .clk_o ( gclk ));
   tc_clk_inverter i_sclk_inv ( .clk_i ( gclk ), .clk_o ( sclk_fwd ));
   tc_clk_mux2 i_sclk_mux ( .clk0_i ( sclk_fwd ), .clk1_i ( sclk_half_q ), .clk_sel_i ( fhalf_q ), .clk_o ( sclk_sel ));
   // (a mux and not tc_clk_or2: the GF180 tech cells have no tc_clk_or2)
-  tc_clk_mux2 i_sclk_tm  ( .clk0_i ( sclk_sel ), .clk1_i ( 1'b1 ), .clk_sel_i ( testmode_i ), .clk_o ( sclk_o ));
-  assign csn_o = csn_q;
+  tc_clk_mux2 i_sclk_own ( .clk0_i ( sclk_sel ), .clk1_i ( rf_sclk_i ), .clk_sel_i ( rf_own_i ), .clk_o ( sclk_bus ));
+  tc_clk_mux2 i_sclk_tm  ( .clk0_i ( sclk_bus ), .clk1_i ( 1'b1 ), .clk_sel_i ( testmode_i ), .clk_o ( sclk_o ));
+  assign csn_o          = csn_q;
+  assign frame_active_o = fr_active_q;
 
   // ------------------------------------------------------------------------------------------------ sample packer
   typedef struct packed {
@@ -414,9 +423,9 @@ module adc_rdr #(
     if (!rst_ni) begin
       en_q <= 1'b0;  run_q <= 1'b0;  trig_mode_q <= 1'b0;  idle_q <= 4'd3;  sdo_neg_q <= 1'b0;
       trig_low_q <= 1'b1;  half_q <= 1'b0;  post_q <= '0;  start_q <= 1'b0;
-      full_q <= '0;  overrun_q <= 1'b0;  bus_err_q <= 1'b0;  done_q <= 1'b0;  wake_q <= 1'b0;
+      full_q <= '0;  overrun_q <= 1'b0;  bus_err_q <= 1'b0;  done_q <= 1'b0;  wake_q <= 1'b0;  bus_wait_q <= 1'b0;
       buf_q[0] <= '0;  buf_q[1] <= '0;  nsamp_q <= 10'd64;  irq_en_q <= '0;
-      last_q <= '0;  count_q <= '0;  wake_clr_q <= 1'b0;  cap_en_q <= 1'b1;  trig_lvl_q <= 1'b0;
+      last_q <= '0;  count_q <= '0;  trig_lvl_q <= 1'b0;
     end else begin
       trig_lvl_q <= trig_lvl;
 
@@ -438,8 +447,9 @@ module adc_rdr #(
       bus_err_q <= bus_err_q & ~w1c[4];
       done_q    <= done_q & ~w1c[5];
       wake_q    <= wake_q & ~w1c[6];
+      bus_wait_q <= bus_wait_q & ~w1c[7];
       if (sw_rst) begin
-        full_q <= '0;  overrun_q <= 1'b0;  bus_err_q <= 1'b0;  done_q <= 1'b0;  wake_q <= 1'b0;
+        full_q <= '0;  overrun_q <= 1'b0;  bus_err_q <= 1'b0;  done_q <= 1'b0;  wake_q <= 1'b0;  bus_wait_q <= 1'b0;
       end
       if (set_full_resp) full_q[resp_sel] <= 1'b1;
       // last word of a triggered capture dropped (staging FIFO full): the capture still ends
@@ -452,8 +462,9 @@ module adc_rdr #(
       if (word_valid && ((first_word && ~trig_mode_q && full_q[active_buf_q]) || st_full)) overrun_q <= 1'b1;
       if (mgr_rsp_i.rvalid && mgr_rsp_i.r.err) bus_err_q <= 1'b1;
       if (wake_evt) wake_q <= 1'b1;
+      if (frame_due && bus_hold_i && !reset_engine) bus_wait_q <= 1'b1;
 
-      // buffers, sample count, irq enables, pins
+      // buffers, sample count, irq enables
       if (reg_wr_i && reg_addr_i == RegBuf0) buf_q[0] <= wmerge[31:2];
       if (reg_wr_i && reg_addr_i == RegBuf1) buf_q[1] <= wmerge[31:2];
       if (reg_wr_i && reg_addr_i == RegNsamp)
@@ -462,10 +473,6 @@ module adc_rdr #(
       if (reg_wr_i && reg_addr_i == RegTrig) begin
         post_q  <= (wmerge[11:1] > 11'd1024) ? 11'd1024 : wmerge[11:1];
         start_q <= wmerge[16];
-      end
-      if (reg_wr_i && reg_addr_i == RegPins) begin
-        wake_clr_q <= wmerge[0];
-        cap_en_q   <= wmerge[1];
       end
 
       if (smp_valid) last_q <= smp;
@@ -479,7 +486,5 @@ module adc_rdr #(
 
   logic unused;
   assign unused = ^{st_usage, if_usage};
-  assign wake_clr_o = wake_clr_q;
-  assign cap_en_o   = cap_en_q;
 
 endmodule

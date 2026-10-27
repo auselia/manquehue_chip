@@ -12,7 +12,8 @@ The Croc SoC talks to two parts. The **ADS7057** ADC (14 bit, SPI, AE sensor thr
 |---|---|
 | OBI native, no TL-UL bridge | The bridge cannot do byte writes, one access at a time, extra area and integrity logic |
 | Two separate blocks on one OBI slave: a small SPI master for the radio and an ADC reader | The ADC needs about 900 kS/s with no CPU in the loop, the radio needs 1 to 10 MHz and software control |
-| Dedicated pads, no pad sharing | The branch shares UART, GPIO and status pads through a pinmux. A transfer silences the UART |
+| Dedicated pads, no pinmux with other blocks | The branch shares UART, GPIO and status pads through a pinmux. A transfer silences the UART |
+| One SPI bus for the ADC and the radio (8 pads) | The AC3E padframe has few CROC pads. The two devices share SCLK and the data lines, each has its own CS |
 | Small FIFOs (8 bytes) for the radio, none for the ADC | The OpenTitan FIFOs (72 + 64 words) are about 4,300 flops, more than the 3,964 flops of the whole SoC |
 | ADC samples go straight to SRAM buffers through the user manager port | No CPU load, matches the FFT input format |
 | No interrupt controller of its own | Two of the four user interrupt lines |
@@ -33,7 +34,11 @@ The Croc SoC talks to two parts. The **ADS7057** ADC (14 bit, SPI, AE sensor thr
      | master   |         |          |
      +--+-+-+-+-+         +--+-+-+---+
         | | | |               | | |
-     SCLK MOSI MISO CSN    SCLK CSN SDO     (+ DIO0, RSTN, TRIG)
+     SCLK MOSI MISO CS1    SCLK CS0 SDO     (+ DIO0, RSTN, AFE_IRQ)
+        |   |   |             |       |
+        +---+---+---- bus owner and SCLK mux (obi_spi) ----+
+            |
+     spi_sck_o  spi_sd_o  spi_sd_i (SDO and MISO)  spi_cs0_o  spi_cs1_o
 ```
 
 ## 3. Placement
@@ -61,26 +66,35 @@ The ADC reader and the FFT both write the SRAM. `user_mgr_obi_req_o` is tied to 
 
 ### Pads
 
-Thirteen new signals. The 0p5x1 slot has 44 bidirectional pads and 19 are used, so there is room (32 of 44).
+Eight signals. Pad numbers are those of the AC3E padframe (`04_chip_top/padframe/padframe.yaml` of
+TO-GF180MCU-AC3E-2026_V1, proposal `2026-10-19_croc_shared_spi`).
 
-| Pad (template `bidir[]`) | Signal | Direction | Note |
+| Pad | Signal | Direction | Note |
 |---|---|---|---|
-| 19 | `adc_sclk_o` | out | forwarded system clock, see section 6 |
-| 20 | `adc_csn_o` | out | |
-| 21 | `adc_sdo_i` | in | ADC data out |
-| 22 | `adc_wake_n_i` | in | WAKE_N of the AFE board: latched window comparator, active low (the trigger) |
-| 23 | `adc_big_n_i` | in | BIG_N of the AFE board: large event flag, optional |
-| 24 | `adc_wake_clr_o` | out | clears the WAKE_N latch |
-| 25 | `adc_cap_en_o` | out | CAP_EN of the AFE board: switches the capture chain supply, optional |
-| 26 | `rf_sclk_o` | out | |
-| 27 | `rf_mosi_o` | out | |
-| 28 | `rf_miso_i` | in | |
-| 29 | `rf_csn_o` | out | |
-| 30 | `rf_dio0_i` | in | radio done or RX interrupt, optional |
-| 31 | `rf_rstn_o` | out | radio reset |
+| 47 | `spi_sck_o` | out | shared SCLK: the forwarded system clock for the ADC (section 6), the radio SCLK while the radio owns the bus |
+| 44 | `spi_sd_o` | out | radio MOSI (the ADC has no data input) |
+| 43 | `spi_sd_i` | in | ADC SDO and radio MISO, each high impedance while its CS is high |
+| 46 | `spi_cs0_o` | out | ADC chip select |
+| 45 | `spi_cs1_o` | out | radio chip select (NSS) |
+| 42 | `afe_irq_i` | in | WAKE_N of the AFE board: window comparator, active low (the trigger) |
+| 36 | `rf_dio0_i` | in | radio done or RX interrupt |
+| 35 | `rf_rstn_o` | out | radio reset |
 
-Template changes: `src/chip_core.sv` (mapping, `bidir_oe` for the outputs, spare pads pull-down), the two slot yaml files
-(pad lists), and a new chip-level pad table in `TEST_PROCEDURE.md`. The macro `croc_soc` gets thirteen new ports.
+The AFE board v3 has no WAKE_N latch and its capture chain is always on, so the WAKE_CLR, CAP_EN and BIG_N lines of
+the earlier pad list are gone.
+
+### Shared bus
+
+- The ADC owns the bus by default. A radio command (RF_CMD) first waits with CS1 high and SCLK at CPOL.
+- While the radio requests the bus, no new ADC frame starts. The radio gets the bus when the ADC frame in progress has
+  ended (at most one frame, about 1.1 us). SCLK then comes from the radio master.
+- The radio keeps the bus until CS1 rises, so KEEP_CS keeps it too. The ADC gets the bus back one clock later and its
+  next frame starts one clock after that.
+- The SCLK owner changes only while both chip selects are high. Both devices ignore SCLK while their CS is high.
+- An ADC frame that is due while the radio has the bus waits and sets ADC_STATUS.BUS_WAIT. After the pause the first
+  result is stale and is discarded, as after any pause.
+- Firmware rule: no radio transfers while a capture runs. In the wake-mode flow (capture, FFT, packet) the bus is never
+  shared in time. BUS_WAIT shows a violation, and the hardware keeps every frame complete.
 
 ## 4. Radio SPI master (`rf_spi`, offsets 0x000 to 0x0FF)
 
@@ -158,14 +172,14 @@ The FFT block wants at least 800 kS/s, the events need more than 550 kS/s (peaks
 | Offset | Name | Access | Fields |
 |---|---|---|---|
 | 0x100 | ADC_CTRL | RW | [0] EN, [1] RUN (1 = start, 0 = stop after the current frame), [2] TRIGGERED (capture one buffer after a trigger instead of free running), [3] SW_TRIG (write 1, self-clearing, same effect as WAKE_N going low), [4] CAL (send a 64-clock frame, self-clearing), [5] SW_RST (self-clearing), [11:8] IDLE (clocks, min 2, default 3), [12] SDO_NEG (1 = sample SDO on the falling edge of `clk_i`, for a slow board, off by default), [14] TRIG_ACTIVE_LOW (default 1: the AFE signal nWAKE is active low), [15] SCLK_HALF (1 = SCLK is clk/2, fallback) |
-| 0x104 | ADC_STATUS | R/W1C | [0] RUNNING, [1] BUF0_FULL, [2] BUF1_FULL, [3] OVERRUN (a buffer was still full when it had to be written), [4] BUS_ERROR (an OBI write got an error response), [5] DONE (triggered capture finished), [8] ACTIVE_BUF (RO, buffer being written) |
+| 0x104 | ADC_STATUS | R/W1C | [0] RUNNING, [1] BUF0_FULL, [2] BUF1_FULL, [3] OVERRUN (a buffer was still full when it had to be written), [4] BUS_ERROR (an OBI write got an error response), [5] DONE (triggered capture finished), [6] WAKE (WAKE_N went low), [7] BUS_WAIT (a frame waited for the radio), [8] ACTIVE_BUF (RO, buffer being written) |
 | 0x108 | ADC_BUF0 | RW | byte address of buffer 0 (word aligned, inside the SRAM) |
 | 0x10C | ADC_BUF1 | RW | byte address of buffer 1 |
 | 0x110 | ADC_NSAMP | RW | samples per buffer, even, 2 to 1024 (default 128) |
 | 0x114 | ADC_IRQ_EN | RW | [0] BUF_FULL, [1] OVERRUN, [2] DONE, [3] WAKE (WAKE_N went low) |
 | 0x118 | ADC_LAST | RO | most recent sample, sign-extended to 32 bit |
 | 0x11C | ADC_COUNT | RO | samples stored since RUN (saturating) |
-| 0x120 | ADC_PINS | RW | [0] WAKE_CLR output level (0 = latch cleared, set 1 to arm), [1] CAP_EN output level (reset 1), [8] WAKE_N input level (RO), [9] BIG_N input level (RO) |
+| 0x120 | ADC_PINS | RO | [8] WAKE_N input level (`afe_irq_i`) |
 | 0x124 | ADC_TRIG | RW | [11:0] POST (samples stored after the trigger, even, 0 to 2048, clamped on write; 0 = complete the buffer being written), [16] START (no conversions before the trigger) |
 | 0x128 | ADC_TPOS | RO | [11:0] position of the first word stored after the trigger, as a sample index in the ring of buffer 0 (0 to NSAMP-1) and buffer 1 (NSAMP to 2 NSAMP-1), [16] VALID |
 
@@ -193,7 +207,7 @@ Two samples per 32-bit word, first sample in bits [15:0], second in bits [31:16]
   the length (256 for two blocks).
 - The reader writes one 32-bit word per two samples with an OBI write of byte enable 1111. It holds two words in a staging
   register, so a manager stall of up to about 80 clocks (two words at 866 kS/s) loses nothing. A longer stall sets OVERRUN.
-- The ADC inputs (`adc_sdo_i`, `adc_wake_n_i`, `adc_big_n_i`) are double-synchronised where they are not sampled directly. SDO is
+- The ADC inputs (`spi_sd_i`, `afe_irq_i`) are double-synchronised where they are not sampled directly. SDO is
   captured by a rising-edge flop of the system clock, which is exactly the SCLK falling edge, half a period after the launch. The path
   from the port is the critical one: SCLK launch (clock falling edge) + 10 ns (ADC) + pad, translator and trace must fit in half a
   period plus the clock latency difference. The flow experiment (`sim/experiments/fwd_clock`) gives +5.3 ns of slack in the
@@ -213,8 +227,10 @@ allows 45 to 55 %, so the duty cycle of the clock at the port must stay within 5
 Consequences (checked in the flow experiment of section 8, step 2, results in `sim/experiments/fwd_clock/README.md`):
 
 - The gate output feeds a pad, not flops. CTS treats the port as a clock sink. The SDC needs `create_generated_clock` on
-  `adc_sclk_o`, output delays for CS relative to it (CS must fall 7 ns before the first SCLK falling edge and rise 8 ns after the
-  last rising edge, both met by one clock of margin) and an input delay for `adc_sdo_i`.
+  `spi_sck_o`, output delays for CS0 relative to it (CS must fall 7 ns before the first SCLK falling edge and rise 8 ns after the
+  last rising edge, both met by one clock of margin) and an input delay for `spi_sd_i`.
+- A clock mux before the pad selects the radio SCLK (a flop of `clk_i`) while the radio owns the bus. The radio MISO on
+  `spi_sd_i` is captured by `clk_i` flops, so the ADC input delay covers it.
 - In scan mode the gate is forced by `testmode_i` so the pad is quiet and the chain is not affected.
 - No negative-edge flops anywhere in the block. Scan, lock-up latches and the existing DFT flow stay as they are.
 - Fallback if forwarding does not close: `SCLK_HALF`, about 480 kS/s at 18.18 MHz.

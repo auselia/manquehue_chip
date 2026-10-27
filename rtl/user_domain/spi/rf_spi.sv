@@ -9,6 +9,9 @@
 // periods (at least one) before the first SCLK edge and rises CS_SETUP half periods after the last one, unless
 // KEEP_CS. MISO is sampled by clk_i at the clock edge that makes the SCLK sampling edge: half an SCLK period after
 // the radio launched it.
+// Shared bus: the radio shares SCLK and the data lines with the ADS7057 reader (obi_spi). A command first waits in
+// StWait, with CS high and SCLK at CPOL, until obi_spi grants the bus (bus_gnt_i). The master requests the bus from
+// the command until CS rises again, so KEEP_CS keeps the bus. BUSY covers the wait.
 // Flow control: before each byte the master waits with SCLK idle and CS low while the TX FIFO is empty or the RX FIFO
 // is full, so a transfer longer than the 8-byte FIFOs loses nothing (the 256-byte radio FIFO included).
 //
@@ -40,6 +43,10 @@ module rf_spi (
   output logic [31:0] reg_rdata_o,
 
   output logic        irq_o,
+
+  // shared SPI bus (obi_spi)
+  output logic        bus_req_o,
+  input  logic        bus_gnt_i,
 
   output logic        sclk_o,
   output logic        mosi_o,
@@ -133,7 +140,7 @@ module rf_spi (
     .clk_i, .rst_ni, .serial_i(dio0_i), .serial_o(dio0_s));
 
   // ------------------------------------------------------------------------------------------------ transfer engine
-  typedef enum logic [1:0] { StIdle, StSetup, StByte, StHold } state_e;
+  typedef enum logic [2:0] { StIdle, StWait, StSetup, StByte, StHold } state_e;
   state_e      state_q;
   logic [11:0] left_q;                // bytes still to shift, the current one included
   logic        keep_q;
@@ -151,7 +158,7 @@ module rf_spi (
   // A timed phase runs in StSetup, StHold and between the edges of a byte. Before each byte the engine takes the
   // next TX byte, and waits (SCLK idle, divider held) while the TX FIFO is empty or the RX FIFO is full.
   logic running;
-  assign running = busy & ~((state_q == StByte) & need_byte_q);
+  assign running = busy & (state_q != StWait) & ~((state_q == StByte) & need_byte_q);
   assign tick    = running & (div_q == clkdiv_q);
   assign tx_pop  = (state_q == StByte) & need_byte_q & ~tx_empty & ~rx_full;
 
@@ -178,9 +185,11 @@ module rf_spi (
         StIdle: begin
           sclk_q <= cpol_q;
           if (start) begin
-            state_q <= StSetup;  half_q <= '0;  left_q <= cmd_w[11:0];  keep_q <= cmd_w[12];
-            csn_q   <= 1'b0;     mosi_q <= 1'b0;
+            state_q <= StWait;  left_q <= cmd_w[11:0];  keep_q <= cmd_w[12];  mosi_q <= 1'b0;
           end
+        end
+        StWait: if (bus_gnt_i) begin
+          state_q <= StSetup;  half_q <= '0;  csn_q <= 1'b0;
         end
         StSetup: if (tick) begin
           if (half_q == cs_half - 4'd1) begin state_q <= StByte; need_byte_q <= 1'b1; end
@@ -265,6 +274,7 @@ module rf_spi (
   assign mosi_o = en_q ? mosi_q : 1'b0;
   assign csn_o  = en_q ? csn_q : 1'b1;
   assign rstn_o = rstn_q;
+  assign bus_req_o = en_q & (busy | ~csn_q);
 
   // register bits without a field
   logic unused;

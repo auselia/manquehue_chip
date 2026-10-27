@@ -3,7 +3,10 @@
 //
 // OBI SPI block: radio SPI master (SX1276) at 0x000..0x0FF and ADS7057 reader at 0x100..0x1FF of a 4 KB window,
 // spec docs/spi_adc_spec.md.
-// Both sub-blocks are in: the radio master (rf_spi) on 0x000..0x0FF and the ADC reader (adc_rdr) on 0x100..0x1FF.
+// Both devices share one SPI bus: SCLK, data out (radio MOSI) and data in (ADC SDO, radio MISO), with CS0 for the
+// ADC and CS1 for the radio. The ADC owns the bus by default. When the radio master requests it, no new ADC frame
+// starts, and the radio gets the bus once the ADC frame in progress has ended. The radio keeps it until its CS rises.
+// The owner changes only while both chip selects are high.
 
 module obi_spi import obi_spi_pkg::*; #(
   /// OBI configuration of the subordinate port (SbrObiCfg)
@@ -60,6 +63,16 @@ module obi_spi import obi_spi_pkg::*; #(
 
   logic [SbrObiCfg.DataWidth-1:0] rf_rdata, adc_rdata;
   logic                           adc_irq, rf_irq;
+
+  // ---------------------------------------------------------------- bus owner
+  logic rf_req, rf_own_q, adc_frame, rf_sclk;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni)                         rf_own_q <= 1'b0;
+    else if (!rf_req)                    rf_own_q <= 1'b0;   // the radio CS is high: the ADC gets the bus back
+    else if (!rf_own_q && !adc_frame)    rf_own_q <= 1'b1;   // no ADC frame runs and none starts (rf_req holds it)
+  end
+  // The ADC is held while the radio requests or owns the bus. Its next frame starts one clock after rf_own_q
+  // cleared, so the SCLK mux is back on the ADC before CS0 falls.
   assign rdata = sel_adc ? adc_rdata : (sel_rf ? rf_rdata : '0);
 
   // ---------------------------------------------------------------- ADC reader
@@ -77,14 +90,15 @@ module obi_spi import obi_spi_pkg::*; #(
     .reg_rdata_o ( adc_rdata           ),
     .mgr_req_o   ( obi_mgr_req_o       ),
     .mgr_rsp_i   ( obi_mgr_rsp_i       ),
-    .irq_o       ( adc_irq             ),
-    .sclk_o      ( pads_o.adc_sclk     ),
-    .csn_o       ( pads_o.adc_csn      ),
-    .sdo_i       ( pads_i.adc_sdo      ),
-    .wake_n_i    ( pads_i.adc_wake_n   ),
-    .big_n_i     ( pads_i.adc_big_n    ),
-    .wake_clr_o  ( pads_o.adc_wake_clr ),
-    .cap_en_o    ( pads_o.adc_cap_en   )
+    .irq_o          ( adc_irq           ),
+    .bus_hold_i     ( rf_req | rf_own_q ),
+    .rf_own_i       ( rf_own_q          ),
+    .rf_sclk_i      ( rf_sclk           ),
+    .frame_active_o ( adc_frame         ),
+    .sclk_o         ( pads_o.sck        ),
+    .csn_o          ( pads_o.cs0_n      ),
+    .sdo_i          ( pads_i.sd_i       ),
+    .wake_n_i       ( pads_i.afe_irq_n  )
   );
 
   // ---------------------------------------------------------------- radio master
@@ -99,10 +113,12 @@ module obi_spi import obi_spi_pkg::*; #(
     .reg_be_i    ( be                 ),
     .reg_rdata_o ( rf_rdata           ),
     .irq_o       ( rf_irq             ),
-    .sclk_o      ( pads_o.rf_sclk     ),
-    .mosi_o      ( pads_o.rf_mosi     ),
-    .miso_i      ( pads_i.rf_miso     ),
-    .csn_o       ( pads_o.rf_csn      ),
+    .bus_req_o   ( rf_req             ),
+    .bus_gnt_i   ( rf_own_q           ),
+    .sclk_o      ( rf_sclk            ),
+    .mosi_o      ( pads_o.sd_o        ),
+    .miso_i      ( pads_i.sd_i        ),
+    .csn_o       ( pads_o.cs1_n       ),
     .dio0_i      ( pads_i.rf_dio0     ),
     .rstn_o      ( pads_o.rf_rstn     )
   );

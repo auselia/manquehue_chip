@@ -24,8 +24,8 @@ int main() {
 
     if (REG32(ADC_CTRL)  != 0x4300u) fail |= 1u << 0;   // TRIG_ACTIVE_LOW, IDLE 3
     if (REG32(ADC_NSAMP) != 128u)    fail |= 1u << 1;
-    if (REG32(ADC_PINS)  != 0x302u)  fail |= 1u << 2;   // CAP_EN 1, WAKE_N and BIG_N inputs high
-    if (REG32(0x000)     != 0u)      fail |= 1u << 3;   // radio block: not yet in, reads 0
+    if (REG32(ADC_PINS)  != 0x100u)  fail |= 1u << 2;   // WAKE_N input high
+    if (REG32(0x000)     != 0x11800u) fail |= 1u << 3;  // RF_CTRL reset: CLKDIV 24, CS_SETUP 1
 
     REG32(ADC_BUF0) = 0x10000403u;                       // low two bits are forced to 0
     if (REG32(ADC_BUF0) != 0x10000400u) fail |= 1u << 4;

@@ -135,20 +135,26 @@ module tb_croc_soc #(
     .qspi_sd_en_o  ( qspi_sd_en_o ),
     .qspi_csn_o    ( qspi_csn_o   ),
 
-    .adc_sclk_o     ( adc_sclk    ),
-    .adc_csn_o      ( adc_csn     ),
-    .adc_sdo_i      ( adc_sdo_in  ),
-    .adc_wake_n_i   ( adc_wake_n  ),
-    .adc_big_n_i    ( 1'b1        ),
-    .adc_wake_clr_o (             ),
-    .adc_cap_en_o   (             ),
-    .rf_sclk_o      ( rf_sclk     ),
-    .rf_mosi_o      ( rf_mosi     ),
-    .rf_miso_i      ( rf_miso_in  ),
-    .rf_csn_o       ( rf_csn      ),
-    .rf_dio0_i      ( rf_dio0     ),
-    .rf_rstn_o      ( rf_rstn     )
+    .spi_sck_o     ( spi_sck      ),
+    .spi_sd_o      ( spi_sd_o     ),
+    .spi_sd_i      ( spi_sd_in    ),
+    .spi_cs0_o     ( adc_csn      ),
+    .spi_cs1_o     ( rf_csn       ),
+    .afe_irq_i     ( adc_wake_n   ),
+    .rf_dio0_i     ( rf_dio0      ),
+    .rf_rstn_o     ( rf_rstn      )
   );
+
+  // Shared SPI bus: one SCLK and one data-in wire for both models. Each model drives the data wire only while its
+  // CS is low (high impedance otherwise), so the wire is what the selected device drives, 0 when none does.
+  wire  spi_sck, spi_sd_o, spi_sd;
+  logic spi_sd_in;
+  assign spi_sd_in = (spi_sd === 1'b1);
+  int unsigned spi_both_cs_low = 0;
+  always @(adc_csn or rf_csn) if (rst_n && adc_csn === 1'b0 && rf_csn === 1'b0) begin
+    spi_both_cs_low++;
+    $display("@%t | [SPI] ERROR: both chip selects low", $time);
+  end
 
   // ADS7057 model on the ADC pins (sim/models/ads7057_model.v). The sample taken at CS fall k is
   // (1237 * k + 5000) mod 16384, so two consecutive samples differ by 1237 mod 2^14 (sim/sw/spi_adc checks this).
@@ -158,15 +164,13 @@ module tb_croc_soc #(
   // and +adc_wake_frame=<n>: WAKE_N goes low at CS fall n for 20 frames (sim/sw/flash/ae_cav.c, check_ae_cav.py).
   // +adc_timebase=1: the stream runs in time instead, one sample per 20 clocks (a frame at IDLE 2) from the first CS
   // fall, and WAKE_N goes low at stream sample n. For a reader that takes no samples before the trigger (ADC_TRIG.START).
-  wire         adc_sclk, adc_csn, adc_sdo;
-  logic        adc_sdo_in;
+  wire         adc_csn;
   logic [13:0] adc_ain = 14'd5000;
   int unsigned adc_falls = 0;
-  assign adc_sdo_in = (adc_sdo === 1'b1);
   ads7057_model i_adc_model (
     .cs_n     ( adc_csn  ),
-    .sclk     ( adc_sclk ),
-    .sdo      ( adc_sdo  ),
+    .sclk     ( spi_sck  ),
+    .sdo      ( spi_sd   ),
     .ain_code ( adc_ain  )
   );
   always @(negedge adc_csn) adc_falls++;
@@ -214,16 +218,14 @@ module tb_croc_soc #(
                i_adc_model.tacq_violations, i_adc_model.tsu_violations, i_adc_model.tph_violations);
   end
 
-  // SX1276 model on the radio pins (sim/models/sx1276_model.v, SPI mode 0). MISO is high impedance while NSS is
-  // high and reads 0 then. The model has no reset input: rf_rstn is only printed.
-  wire  rf_sclk, rf_mosi, rf_miso, rf_csn, rf_dio0, rf_rstn;
-  logic rf_miso_in;
-  assign rf_miso_in = (rf_miso === 1'b1);
+  // SX1276 model on the shared bus (sim/models/sx1276_model.v, SPI mode 0), CS1. MISO is high impedance while NSS
+  // is high. The model has no reset input: rf_rstn is only printed.
+  wire  rf_csn, rf_dio0, rf_rstn;
   sx1276_model i_rf_model (
-    .nss_n ( rf_csn  ),
-    .sclk  ( rf_sclk ),
-    .mosi  ( rf_mosi ),
-    .miso  ( rf_miso ),
+    .nss_n ( rf_csn   ),
+    .sclk  ( spi_sck  ),
+    .mosi  ( spi_sd_o ),
+    .miso  ( spi_sd   ),
     .dio0  ( rf_dio0 )
   );
   always @(posedge rf_rstn) $display("@%t | [RF] radio out of reset", $time);

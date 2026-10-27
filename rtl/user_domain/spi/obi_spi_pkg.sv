@@ -1,7 +1,7 @@
 // Copyright 2026 Auselia.
 // SPDX-License-Identifier: SHL-0.51
 //
-// Package of the OBI SPI block (radio SPI master and ADS7057 reader), spec docs/spi_adc_spec.md.
+// Package of the OBI SPI block (radio SPI master and ADS7057 reader on one shared bus), spec docs/spi_adc_spec.md.
 // The register map is not frozen (spec review, AUS-16). This package holds only what does not depend on it:
 // the window layout and the pad signals with their idle levels.
 
@@ -16,24 +16,19 @@ package obi_spi_pkg;
   localparam logic [WindowBits-1:0] AdcBase = 12'h100;
   localparam logic [WindowBits-1:0] MapEnd  = 12'h200;
 
-  /// Pad outputs of the block (spec section 3, pads 19 to 31)
+  /// Pad outputs of the block: one SPI bus shared by the ADS7057 (CS0) and the SX1276 (CS1), plus the radio reset
   typedef struct packed {
-    logic adc_sclk;     // forwarded system clock, idles high
-    logic adc_csn;      // ADC chip select, active low
-    logic adc_wake_clr; // clears the WAKE_N latch of the AFE board
-    logic adc_cap_en;   // capture chain supply of the AFE board
-    logic rf_sclk;      // radio SPI clock, idles at CPOL (0 after reset)
-    logic rf_mosi;
-    logic rf_csn;       // radio chip select, active low
+    logic sck;          // ADC: forwarded system clock, idles high. Radio: rf_spi SCLK while the radio owns the bus
+    logic sd_o;         // radio MOSI (the ADC has no data input)
+    logic cs0_n;        // ADC chip select, active low
+    logic cs1_n;        // radio chip select, active low
     logic rf_rstn;      // radio reset, active low
   } spi_pads_out_t;
 
   /// Pad inputs of the block
   typedef struct packed {
-    logic adc_sdo;      // ADC data out
-    logic adc_wake_n;   // latched window comparator of the AFE board, active low
-    logic adc_big_n;    // large event flag of the AFE board, active low
-    logic rf_miso;
+    logic sd_i;         // ADC SDO and radio MISO (each is high-Z while its CS is high)
+    logic afe_irq_n;    // window comparator of the AFE board (WAKE_N), active low
     logic rf_dio0;      // radio done or RX interrupt
   } spi_pads_in_t;
 
@@ -41,14 +36,11 @@ package obi_spi_pkg;
   /// not by the block itself, hence the waiver for the lint of the block alone.
   /* verilator lint_off UNUSEDPARAM */
   localparam spi_pads_out_t PadsOutIdle = '{
-    adc_sclk:     1'b1,
-    adc_csn:      1'b1,
-    adc_wake_clr: 1'b0,
-    adc_cap_en:   1'b1,
-    rf_sclk:      1'b0,
-    rf_mosi:      1'b0,
-    rf_csn:       1'b1,
-    rf_rstn:      1'b0
+    sck:     1'b1,
+    sd_o:    1'b0,
+    cs0_n:   1'b1,
+    cs1_n:   1'b1,
+    rf_rstn: 1'b0
   };
   /* verilator lint_on UNUSEDPARAM */
 
@@ -56,11 +48,9 @@ package obi_spi_pkg;
   /// Unused in the block itself, hence the waiver for the lint of the block alone.
   /* verilator lint_off UNUSEDPARAM */
   localparam spi_pads_in_t PadsInIdle = '{
-    adc_sdo:    1'b0,
-    adc_wake_n: 1'b1,
-    adc_big_n:  1'b1,
-    rf_miso:    1'b0,
-    rf_dio0:    1'b0
+    sd_i:      1'b0,
+    afe_irq_n: 1'b1,
+    rf_dio0:   1'b0
   };
   /* verilator lint_on UNUSEDPARAM */
 

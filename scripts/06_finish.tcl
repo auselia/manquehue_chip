@@ -9,6 +9,11 @@
 
 source [file dirname [info script]]/common/open_lib.tcl
 open_block route
+# Chip floorplan: the chip GDS list for the DRC ECOs, the pad supplies and the open DC-DC pad inputs
+if {$CHIP_FLOORPLAN} {
+    source [file dirname [info script]]/common/chip_export.tcl
+    source [file dirname [info script]]/common/chip_pg_pads.tcl
+}
 
 # Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.
 source [file dirname [info script]]/common/drc_eco.tcl
@@ -73,6 +78,11 @@ connect_pg_net -automatic
 remove_stdcell_fillers_with_violation
 create_stdcell_fillers -lib_cells $FILL_CELLS
 connect_pg_net -automatic
+# connect_pg_net -automatic puts every IO cell on VDD and may tie the DC-DC pad inputs
+if {$CHIP_FLOORPLAN} {
+    chip_connect_pads
+    chip_float_dcdc_pins
+}
 
 # Second pass: remove_stdcell_fillers_with_violation can take away the decaps that a tap or an endcap counted on (next
 # to the SRAMs, where the routing over the row rejects every filler). What has no device left within 15 um goes.
@@ -82,6 +92,22 @@ connect_pg_net -automatic
 route_detail -incremental true
 
 change_names -rules verilog
+
+# Chip floorplan: the DRC reroute ECO and the chip views. The rest of this script is for the croc_soc macro (power
+# pins, LEF, outputs/latest, PrimeTime inputs).
+if {$CHIP_FLOORPLAN} {
+    set CHIP_DIR [file normalize ../outputs/chip_final]
+    drc_eco_reroute $CHIP_DIR
+    chip_connect_pads
+    chip_float_dcdc_pins
+    write_verilog -include all \
+        -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
+        $CHIP_DIR/$TOP_MODULE.v
+    write_chip_views $CHIP_DIR $TOP_MODULE
+    redirect -file $CHIP_DIR/check_lvs.rpt { check_lvs -checks {open short} -max_errors 5000 }
+    save_block -as finish
+    return
+}
 
 ###################################
 # Top-level power pins

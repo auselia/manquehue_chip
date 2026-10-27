@@ -19,6 +19,7 @@ proc drc_eco_reroute {run_dir} {
   file mkdir $eco_dir
   set helper $DRC_ECO_HELPER
   set gds_list [glob ${PDK_DIR}/gds/*.gds]
+  if {$::CHIP_FLOORPLAN} { set gds_list [chip_gds_files] }
   set site_w [get_attribute [index_collection [get_site_defs] 0] width]
   set prev [list]
 
@@ -135,6 +136,7 @@ proc drc_eco_move_cells {eco_dir rules} {
 
   file mkdir $eco_dir
   set gds_list [glob ${PDK_DIR}/gds/*.gds]
+  if {$::CHIP_FLOORPLAN} { set gds_list [chip_gds_files] }
   set site_w [get_attribute [index_collection [get_site_defs] 0] width]
 
   for {set pass 1} {$pass <= $DRC_ECO_MAX_PASSES} {incr pass} {

@@ -19,10 +19,12 @@ for step in order:
     d = dict(kv)
     rows.append((step, d.get("status", "?"), d.get("date", "")))
     body.append(f"### {step}\n\n" + "\n".join(f"- {k}: {v}" for k, v in kv if k not in ("run",)) + "\n")
-ok = all(r[1] == "PASS" for r in rows)
+ran = [r for r in rows if r[1] != "not run"]
+ok = bool(ran) and all(r[1] == "PASS" for r in ran)
 out = [f"# Report card of {os.path.basename(run)}, repository commit {commit}", "", f"Run: `{run}`", "", "| Step | Status | Date |", "|---|---|---|"]
 out += [f"| {s} | {st} | {d} |" for s, st, d in rows]
-out += ["", f"**{'ALL PASS' if ok else 'NOT ALL PASS'}**", ""] + body
+skipped = [r[0] for r in rows if r[1] == "not run"]
+out += ["", f"**{'ALL PASS' if ok else 'NOT ALL PASS'}**" + (f" (not run: {', '.join(skipped)})" if skipped else ""), ""] + body
 path = f"{run}/report.md"
 open(path, "w").write("\n".join(out))
 print("\n".join(out[:12 + len(rows)]))

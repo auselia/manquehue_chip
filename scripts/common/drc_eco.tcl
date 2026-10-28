@@ -138,6 +138,8 @@ proc drc_eco_move_cells {eco_dir rules} {
   set gds_list [glob ${PDK_DIR}/gds/*.gds]
   if {$::CHIP_FLOORPLAN} { set gds_list [chip_gds_files] }
   set site_w [get_attribute [index_collection [get_site_defs] 0] width]
+  # A marker that comes back gets the next cell under it, moved the other way: legalization can put the same cell back.
+  set tries [dict create]
 
   for {set pass 1} {$pass <= $DRC_ECO_MAX_PASSES} {incr pass} {
     set gds   [file join $eco_dir place_pass${pass}.gds]
@@ -170,19 +172,76 @@ proc drc_eco_move_cells {eco_dir rules} {
         puts "WARNING: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} has no logic cell under it"
         continue
       }
-      set c [index_collection [sort_collection $cells area] 0]
+      set key [format "%.2f_%.2f" $x0 $y0]
+      set k [expr {[dict exists $tries $key] ? [dict get $tries $key] : 0}]
+      dict set tries $key [expr {$k + 1}]
+      # The marker came back after a move: a hard placement blockage over it, 2 sites wider on each side, makes
+      # legalization move every cell under it out.
+      if {$k >= 1} {
+        set w [expr {2 * $site_w}]
+        set blk [list [list [expr {$x0 - $w}] [expr {$y0 - $d}]] [list [expr {$x1 + $w}] [expr {$y1 + $d}]]]
+        create_placement_blockage -type hard -boundary $blk -name drc_eco_blk_${pass}_[llength $moved]
+        puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} came back, placement blockage over it"
+        foreach_in_collection c $cells { lappend moved [get_object_name $c] }
+        continue
+      }
+      set sorted [sort_collection $cells area]
+      set c [index_collection $sorted [expr {$k % [sizeof_collection $sorted]}]]
       set name [get_object_name $c]
       if {$name in $moved} { continue }
-      puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1}, moving $name ([get_attribute $c ref_name]) by 2 sites"
-      move_objects -delta [list [expr {2 * $site_w}] 0] $c
+      set dir [expr {$k % 2 == 0 ? 1 : -1}]
+      puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1}, moving $name ([get_attribute $c ref_name]) by [expr {2 * $dir}] sites"
+      move_objects -delta [list [expr {2 * $dir * $site_w}] 0] $c
       lappend moved $name
     }
     if {[llength $moved] == 0} {
       puts "WARNING: placement DRC ECO pass $pass: [llength $markers] violation(s), no cell to move, stopping"
       return
     }
+    set moved [lsort -unique $moved]
     legalize_placement -cells [get_cells $moved]
     route_eco
   }
   puts "WARNING: placement DRC ECO: violations remain after $DRC_ECO_MAX_PASSES pass(es), see $eco_dir"
+}
+
+# DF.13 / DF.14 after the fillers: a decap filler (fillcap) can have a PMOS in the N-well farther than 15 um from an
+# N-well tap. Every fillcap under such a marker is removed, and plain fillers (no devices) fill its place.
+proc drc_eco_swap_fillcaps {eco_dir} {
+  global TOP_MODULE PDK_DIR ICC2GDS_LAYERMAP KLAYOUT_BIN DRC_DECK DRC_ECO_MAX_PASSES DRC_ECO_HELPER FILL_CELLS
+
+  file mkdir $eco_dir
+  set gds_list [glob ${PDK_DIR}/gds/*.gds]
+  if {$::CHIP_FLOORPLAN} { set gds_list [chip_gds_files] }
+
+  for {set pass 1} {$pass <= $DRC_ECO_MAX_PASSES} {incr pass} {
+    set gds   [file join $eco_dir fill_pass${pass}.gds]
+    set lyrdb [file join $eco_dir fill_pass${pass}.lyrdb]
+    write_gds -units 1000 -merge_files $gds_list -merge_gds_top_cell $TOP_MODULE \
+        -layer_map ${ICC2GDS_LAYERMAP} -long_names $gds
+    catch {exec $KLAYOUT_BIN -b -r $DRC_DECK -rd input=$gds -rd report=$lyrdb -rd variant=D \
+        -rd run_mode=deep -rd decks=comp > [file join $eco_dir fill_pass${pass}.log] 2>@1}
+    file delete $gds
+
+    set boxes [list]
+    foreach m [split [string trim [exec python3 $DRC_ECO_HELPER $lyrdb $TOP_MODULE]] "\n"] {
+      if {$m eq ""} { continue }
+      lassign $m x0 y0 x1 y1 rule
+      if {![string match "DF.13_*" $rule] && ![string match "DF.14_*" $rule]} { continue }
+      set d 0.1
+      set area [list [list [expr {$x0 - $d}] [expr {$y0 - $d}]] [list [expr {$x1 + $d}] [expr {$y1 + $d}]]]
+      foreach_in_collection c [get_cells -quiet -intersect $area -filter "ref_name =~ *fillcap*"] {
+        lappend boxes [get_attribute $c boundary_bbox]
+        puts "INFO: filler DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1}, [get_object_name $c] becomes plain fillers"
+        remove_cells $c
+      }
+    }
+    if {[llength $boxes] == 0} {
+      puts "INFO: filler DRC ECO pass $pass: no DF.13 / DF.14 marker on a decap filler"
+      return
+    }
+    create_stdcell_fillers -lib_cells $FILL_CELLS -bboxes $boxes -prefix fillcap_swap
+    connect_pg_net -automatic
+  }
+  puts "WARNING: filler DRC ECO: markers remain after $DRC_ECO_MAX_PASSES pass(es), see $eco_dir"
 }

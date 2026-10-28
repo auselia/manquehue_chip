@@ -90,6 +90,13 @@ if {$CHIP_FLOORPLAN} {
 remove_orphan_taps "ref_name =~ *filltie* || ref_name =~ *endcap*" $TAP_DEVICE_DISTANCE "taps or endcaps left after the fillers"
 connect_pg_net -automatic
 
+# DF.13 / DF.14 that the fillers make: the decap fillers under a marker become plain fillers
+drc_eco_swap_fillcaps [file join [pwd] drc_eco_fill]
+if {$CHIP_FLOORPLAN} {
+    chip_connect_pads
+    chip_float_dcdc_pins
+}
+
 route_detail -incremental true
 
 change_names -rules verilog

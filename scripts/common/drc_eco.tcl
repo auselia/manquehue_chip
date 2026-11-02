@@ -11,6 +11,8 @@
 
 set DRC_ECO_HELPER [file normalize [file join [file dirname [info script]] .. utils drc_markers.py]]
 
+# Only standard cells move: never a pad (gf180mcu_fd_io__*) or any fixed cell. A marker at a pad is a pad-ring or
+# abutment problem (for example a DC-DC wrapper against the pads), not one a cell move can fix.
 proc drc_eco_reroute {run_dir} {
   global TOP_MODULE PDK_DIR ICC2GDS_LAYERMAP KLAYOUT_BIN DRC_DECK DRC_ECO_DECKS DRC_ECO_MAX_PASSES DRC_ECO_HELPER
   global DCAP_CELLS FILL_CELLS
@@ -45,7 +47,7 @@ proc drc_eco_reroute {run_dir} {
       set d 0.1
       set area [list [list [expr {$x0 - $d}] [expr {$y0 - $d}]] [list [expr {$x1 + $d}] [expr {$y1 + $d}]]]
       set cells [get_cells -hierarchical -intersect $area -quiet \
-          -filter "is_hard_macro == false && ref_name !~ *fill* && ref_name !~ *endcap*"]
+          -filter "is_hard_macro == false && physical_status != fixed && ref_name !~ gf180mcu_fd_io__* && ref_name !~ *fill* && ref_name !~ *endcap*"]
       if {[sizeof_collection $cells] == 0} {
         puts "WARNING: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats and has no logic cell under it"
         continue
@@ -167,7 +169,7 @@ proc drc_eco_move_cells {eco_dir rules} {
       set d 0.1
       set area [list [list [expr {$x0 - $d}] [expr {$y0 - $d}]] [list [expr {$x1 + $d}] [expr {$y1 + $d}]]]
       set cells [get_cells -hierarchical -intersect $area -quiet \
-          -filter "is_hard_macro == false && ref_name !~ *fill* && ref_name !~ *endcap*"]
+          -filter "is_hard_macro == false && physical_status != fixed && ref_name !~ gf180mcu_fd_io__* && ref_name !~ *fill* && ref_name !~ *endcap*"]
       if {[sizeof_collection $cells] == 0} {
         puts "WARNING: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} has no logic cell under it"
         continue
@@ -177,7 +179,17 @@ proc drc_eco_move_cells {eco_dir rules} {
       dict set tries $key [expr {$k + 1}]
       # The marker came back after a move: a hard placement blockage over it, 2 sites wider on each side, makes
       # legalization move every cell under it out.
-      if {$k >= 1} {
+      # The marker came back once or twice: every cell under it moves 4 and then 6 sites, the other way each time.
+      if {$k == 1 || $k == 2} {
+        set dir [expr {$k % 2 == 0 ? 1 : -1}]
+        foreach_in_collection c $cells {
+          move_objects -delta [list [expr {(2 + 2 * $k) * $dir * $site_w}] 0] $c
+          lappend moved [get_object_name $c]
+        }
+        puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} came back, all cells under it moved by [expr {(2 + 2 * $k) * $dir}] sites"
+        continue
+      }
+      if {$k >= 3} {
         set w [expr {2 * $site_w}]
         set blk [list [list [expr {$x0 - $w}] [expr {$y0 - $d}]] [list [expr {$x1 + $w}] [expr {$y1 + $d}]]]
         create_placement_blockage -type hard -boundary $blk -name drc_eco_blk_${pass}_[llength $moved]
@@ -199,7 +211,18 @@ proc drc_eco_move_cells {eco_dir rules} {
       return
     }
     set moved [lsort -unique $moved]
-    legalize_placement -cells [get_cells $moved]
+    # A blockage can leave a cell with no legal site near it (LGL-055), and that error stops the script. Then the
+    # blockages of this pass go away and the cells are legalized again. If that fails too, the ECO stops here and
+    # the markers stay for the report: the flow goes on.
+    if {[catch {legalize_placement -cells [get_cells $moved]} err]} {
+      puts "WARNING: placement DRC ECO pass $pass: legalization failed with the blockage ($err), blockage removed"
+      set blk [get_placement_blockages -quiet drc_eco_blk_${pass}_*]
+      if {[sizeof_collection $blk] > 0} { catch {remove_placement_blockages $blk} }
+      if {[catch {legalize_placement -cells [get_cells $moved]} err]} {
+        puts "WARNING: placement DRC ECO pass $pass: legalization failed again ($err), ECO stopped, see $eco_dir"
+        return
+      }
+    }
     route_eco
   }
   puts "WARNING: placement DRC ECO: violations remain after $DRC_ECO_MAX_PASSES pass(es), see $eco_dir"

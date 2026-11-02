@@ -113,6 +113,10 @@ module tb_macro;
   reg [31:0] rdata, dmstat;
   reg [31:0] prog [0:NWORDS-1];
   integer k;
+`ifdef SDF_FILE
+  // gate-level simulation with timing (run_macro_gls_sdf.sh): the delays of PrimeTime
+  initial $sdf_annotate(`SDF_FILE, dut);
+`endif
   initial begin
     $timeformat(-9, 0, " ns", 10);
     if ($test$plusargs("tm0")) begin tm_drv = 1; tm_val = 0; end   // drive testmode_i low instead of leaving the pad open

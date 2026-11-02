@@ -42,4 +42,14 @@ summary scan_shift "${R:-no result}"; [ "$R" = "ALL PASS" ] || ST=FAIL
 nixrun "PROG_HEX=$HEX $HERE/run_macro_gls.sh none $RUN/croc_soc.v $O/icarus_macro" > "$O/icarus_macro.log" 2>&1 || true
 P=$(grep -h "PASS: GLS OK" "$O/icarus_macro.log" | head -1)
 summary icarus_macro_boot "${P:-no PASS}"; [ -n "$P" ] || ST=FAIL
+
+# e. the same boot with the delays of PrimeTime at the typical corner (SDF of make sta-pt)
+SDF=$(ls $RUN/sta_pt/croc_soc.typical.sdf 2>/dev/null | head -1)
+if [ -n "$SDF" ]; then
+  nixrun "SDF=$SDF PROG_HEX=$HEX $HERE/run_macro_gls.sh none $RUN/croc_soc.v $O/icarus_macro_sdf" > "$O/icarus_macro_sdf.log" 2>&1 || true
+  P=$(grep -h "PASS: GLS OK" "$O/icarus_macro_sdf.log" | head -1)
+  summary icarus_macro_boot_sdf "${P:-no PASS}"; [ -n "$P" ] || ST=FAIL
+else
+  summary icarus_macro_boot_sdf "not run (no SDF, run make sta-pt)"
+fi
 summary status $ST

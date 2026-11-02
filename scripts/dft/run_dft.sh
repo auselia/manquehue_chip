@@ -1,13 +1,14 @@
 #!/bin/bash
 # Scan test chain of a run: protocol, ATPG, pattern replay on the gate-level netlist, SRAM March test.
-# usage: scripts/dft/run_dft.sh      (env: RUN, JOBS, NPAT, and NPAT=20 gives a quick run)
+# usage: scripts/dft/run_dft.sh      (env: RUN, JOBS, NPAT, DFT_REPLAY=parallel|serial, and NPAT=20 gives a quick run)
 #
 # 1. protocol: Fusion Compiler `write_test_protocol` on the finished block (needs work/design.dlib of this checkout),
 #    else the committed baseline protocol scripts/dft/croc_soc.stil (same chain definition, valid while the scan
 #    configuration is unchanged)
 # 2. inputs for TestMAX ATPG from the run netlist (prepare_inputs.sh, fix_inputs.py)
 # 3. ATPG (tmax -shell -tcl atpg.tcl): chain trace, coverage, patterns
-# 4. replay of NPAT patterns on the netlist (sim_patterns.sh, Icarus), 0 mismatches required
+# 4. replay of NPAT patterns on the netlist (sim_patterns.sh, Icarus), 0 mismatches required. DFT_REPLAY=parallel
+#    (default) loads the chain by force in about a minute, DFT_REPLAY=serial shifts it (hours, full sign-off)
 # 5. March C- of the SRAM through JTAG (scripts/sim/run_sram_march.sh), fault-free case must pass
 set -e
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -46,7 +47,7 @@ if [ -n "$PAT" ]; then
   JOBS=$JOBS "$HERE/sim_patterns.sh" "$O" "$JOBS" "$N" > "$O/replay.log" 2>&1 || true
   PASSED=$(sed -n 's/^chunks passed: \([0-9]*\) of \([0-9]*\)/\1 of \2/p' "$O/replay.log" | tail -1)
   MIS=$(grep -h "MISMATCH\|FAIL kind" "$O"/sim_*.log 2>/dev/null | wc -l)
-  summary replay "$N of $PAT patterns, chunks passed: ${PASSED:-n/a}, mismatches: $MIS"
+  summary replay "$N of $PAT patterns, ${DFT_REPLAY:-parallel} load, chunks passed: ${PASSED:-n/a}, mismatches: $MIS"
   [ "$MIS" = 0 ] && [ -n "$PASSED" ] && [ "${PASSED% of *}" = "${PASSED#* of }" ] || ST=FAIL
 fi
 

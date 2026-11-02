@@ -21,6 +21,7 @@ PRECHECK_PYTHONPATH=${PRECHECK_PYTHONPATH:-/nix/store/mxgvi3js4wjqh7azybkj4zx3fi
 SLOT=${SLOT:-0p5x1}
 JOBS=${JOBS:-9}                                               # parallel simulations (pattern replay, March test)
 NPAT=${NPAT:-100000}                                          # patterns replayed in the gate-level simulation (default: all)
+DFT_REPLAY=${DFT_REPLAY:-parallel}                            # parallel: chain loaded by force (seconds), serial: shifted (hours)
 IVERILOG_BIN=${IVERILOG_BIN:-$(ls -d /nix/store/*-iverilog-*/bin 2>/dev/null | head -1)}
 [ -n "$IVERILOG_BIN" ] && PATH=$IVERILOG_BIN:$PATH
 export SNPSLMD_LICENSE_FILE PDK_ROOT PATH

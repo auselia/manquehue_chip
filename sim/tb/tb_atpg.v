@@ -4,9 +4,17 @@
 // test bench follows the port list of the netlist.
 // plusargs: +first=<k> +npat=<n> applies patterns k .. k+n-1 (default all); the unload of pattern k-1 is not compared,
 // because the chunk starts from a loaded chain. Chunks are independent, so they can run in parallel.
+// With +define+PARALLEL (tb_atpg_cells.vh from scan_cells_vh.py) the chain is not shifted: one clock with scan_se_i = 1
+// loads every cell through a force on its state flop, and the unload is read from the Q pins after the capture. This
+// checks the capture of every pattern in a few cycles. It does not check the shift path, so the serial mode stays for
+// the full sign-off (scan_shift and the serial replay).
 `timescale 1ns/1ps
 module tb_atpg;
 `include "tb_atpg_pins.vh"
+`ifdef PARALLEL
+`include "tb_atpg_cells.vh"
+  reg [0:LEN-1] u, d;
+`endif
 
   reg [0:LEN-1] si [0:NPAT], so_exp [0:NPAT], so_mask [0:NPAT];
   reg [NPI-1:0] pi [0:NPAT-1], pi_pulse [0:NPAT-1];
@@ -69,6 +77,30 @@ module tb_atpg;
     v = {NPI{1'b0}};  v[PI_RST_NI] = 1;  v[PI_TESTMODE_I] = 1;
     cycle(v, {NPI{1'b0}}, {NPO{1'b0}}, {NPO{1'b0}}, "test_setup", 0);
     cycle(v, {NPI{1'b0}}, {NPO{1'b0}}, {NPO{1'b0}}, "test_setup", 1);
+`ifdef PARALLEL
+    for (pat = first; pat < first + npat; pat = pat + 1) begin
+      v = st;  v[PI_SCAN_SE_I] = 1;  v[PI_CLK_I] = 0;  v[PI_JTAG_TCK_I] = 0;  v[PI_TESTMODE_I] = 1;  v[PI_RST_NI] = 1;
+      cycle(v, {NPI{1'b0}}, {NPO{1'b0}}, {NPO{1'b0}}, "load_unload start", pat);
+      // parallel load: every scan input forced to its load value, one clock pulse with scan_se_i = 1
+      par_force(si[pat]);
+      p = {NPI{1'b0}};  p[PI_CLK_I] = 1;  p[PI_JTAG_TCK_I] = 1;
+      cycle(v, p, {NPO{1'b0}}, {NPO{1'b0}}, "parallel load", pat);
+      par_release;
+      cycle(pi[pat], pi_pulse[pat], po_exp[pat], po_mask[pat], "capture", pat);
+      // parallel unload: the Q pins against the unload of this pattern (the scan_so_o string of the next load)
+      par_read(u);
+      d = (u ^ so_exp[pat + 1]) & so_mask[pat + 1];
+      for (j = 0; j < LEN; j = j + 1) compared = compared + so_mask[pat + 1][j];
+      if (d !== {LEN{1'b0}}) begin
+        errors = errors + 1;
+        for (j = 0; j < LEN; j = j + 1)
+          if (d[j] !== 1'b0 && nprint < maxprint) begin
+            nprint = nprint + 1;
+            $display("FAIL kind=unload pat=%0d j=%0d bit=0 exp=%b got=%b t=%0t", pat, j, so_exp[pat + 1][j], u[j], $time);
+          end
+      end
+    end
+`else
     for (pat = first; pat <= first + npat; pat = pat + 1) begin
       // load_unload: scan_se_i = 1, then LEN shifts with both clocks pulsed; compares scan_so_o (bit 0 of po)
       v = st;  v[PI_SCAN_SE_I] = 1;  v[PI_CLK_I] = 0;  v[PI_JTAG_TCK_I] = 0;  v[PI_TESTMODE_I] = 1;  v[PI_RST_NI] = 1;
@@ -83,6 +115,7 @@ module tb_atpg;
         cycle(pi[pat], pi_pulse[pat], po_exp[pat], po_mask[pat], "capture", pat);
       end
     end
+`endif
     if (errors == 0) $display("%0t  PASS: %0d patterns applied, %0d output values compared, 0 mismatches", $time, npat, compared);
     else $display("%0t  FAIL: %0d mismatches in %0d patterns (%0d values compared)", $time, errors, npat, compared);
     $finish;

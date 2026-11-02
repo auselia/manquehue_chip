@@ -25,4 +25,6 @@ report_summaries
 report_faults -summary
 write_faults faults_untested.txt -class {UD AU} -replace
 write_patterns patterns_stuck.stil -format stil -replace
+# chain order and cell names for the parallel-load test bench (scan_cells_vh.py)
+report_scan_cells -all > scan_cells.rpt
 exit

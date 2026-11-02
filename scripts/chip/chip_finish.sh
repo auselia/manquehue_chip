@@ -36,3 +36,5 @@ for g in $GS; do
         > "$O/precheck_$g.log" 2>&1 || true
     if grep -q "Precheck successfully completed" "$O/precheck_$g.log"; then echo "precheck $g: PASS"; else echo "precheck $g: FAIL (precheck_$g.log)"; fi
 done
+# summary of the chip checks for make report (outputs/chip_finish/summary.txt)
+"$HERE/chip_precheck_summary.sh"

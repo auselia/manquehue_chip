@@ -15,8 +15,13 @@ link_design
 read_sdc $SDC_FILE
 read_parasitics -format SPEF $SPEF_FILE
 update_timing -full
+# The shift path ends at SI of a scan flop, or at D of a plain flop in the chain (its scan multiplexer is outside
+# the cell, or it is a shift register stage). Every D of a plain flop is timed: the ones outside the chain also clock
+# during the shift, so a hold violation there is worth knowing too.
 set si [get_pins -hierarchical */SI]
-puts "RESULT corner=$CORNER SI_pins=[sizeof_collection $si]"
+set dplain [get_pins -quiet -of_objects [get_cells -hierarchical -filter "ref_name =~ *__dff*"] -filter "lib_pin_name == D"]
+puts "RESULT corner=$CORNER SI_pins=[sizeof_collection $si] plain_D_pins=[sizeof_collection $dplain]"
+set si [add_to_collection $si $dplain]
 foreach {kind dt} {hold min setup max} {
   set all  [get_timing_paths -delay_type $dt -to $si -max_paths 100000 -nworst 1 -slack_lesser_than 1000]
   set viol [get_timing_paths -delay_type $dt -to $si -max_paths 100000 -nworst 1 -slack_lesser_than 0]

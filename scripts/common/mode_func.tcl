@@ -24,11 +24,7 @@ set IO_DELAY_FRAC    0.20   ;# fraction of period for delay outside the macro: p
 set EXT_INPUT_TRAN   0.3    ;# ns, input-pad Y slew into the macro (TODO: read from IO liberty)
 set EXT_LOAD         0.2    ;# pF, pad A-pin cap + macro-to-pad wire (TODO: read from IO liberty)
 
-# Design rule constraints.
-set MAX_TRAN_DATA    1.5
-set MAX_TRAN_CLK     0.5
-set MAX_CAP          0.3
-set MAX_FANOUT       20
+# Design rule constraints: per scenario in design_rules.tcl (section 11).
 
 
 ################################################################################
@@ -161,6 +157,9 @@ set_false_path -from [get_ports fetch_en_i]
 # WAKE_N of the AFE board (afe_irq_i) lands in a 2-FF synchronizer (adc_rdr).
 set_false_path -from [get_ports afe_irq_i]
 
+# The ADC SCLK mux has no real clock gating check (sclk_gating.tcl).
+source [file dirname [info script]]/sclk_gating.tcl
+
 # This cuts only the path from the port to the first flop. Recovery and removal from the i_rstgen synchronizer to
 # the reset pins of the flops stay timed against `clock`.
 
@@ -205,6 +204,27 @@ set_output_delay -mode func -clock adc_sclk             -min -8.0 -add_delay    
 # here: the default capture is the critical one).
 set_input_delay  -mode func -clock adc_sclk -max [expr {10.0 + 3.0 + 5.0 + 1.0}]     [get_ports spi_sd_i]
 set_input_delay  -mode func -clock adc_sclk -min [expr {2.5 + 1.0 + 3.0}] -add_delay [get_ports spi_sd_i]
+# The firmware sets SDO_NEG (ADC CTRL bit 12): SDO goes into a falling-edge flop of clk_i (sdo_neg_cap_q), half a
+# clock later than the default capture. The round trip through the SCLK and SDO pads does not fit in the default
+# half period at the slow corner (-1.76 ns at chip level). The default path, straight into the shift register, is
+# not used: no path to it from the SDO pad. The path into sdo_neg_cap_q stays timed.
+set ADC_SH_FLOPS [get_cells -quiet -hierarchical -filter "is_sequential == true && full_name =~ *adc_rdr*sh_q*"]
+if {[sizeof_collection $ADC_SH_FLOPS] > 0} {
+  set_false_path -from [get_clocks adc_sclk] -through [get_ports spi_sd_i] -to $ADC_SH_FLOPS
+}
+# spi_sd_i is a shared MISO: the ADS7057 SDO and the radio MISO. The radio samples it only while it owns the bus, with its
+# own SCLK (a clk_i flop, 10 MHz at most), never with the ADC SCLK. So the ADC timing does not apply to the radio
+# receive flops: no path from adc_sclk to them. The radio MISO is a clk_i input with the board budget.
+set RF_SPI_FLOPS [get_cells -quiet -hierarchical -filter "is_sequential == true && full_name =~ *rf_spi*"]
+if {[sizeof_collection $RF_SPI_FLOPS] > 0} {
+  set_false_path -from [get_clocks adc_sclk] -to $RF_SPI_FLOPS
+}
+set_input_delay  -mode func -clock clock $IO_DELAY -add_delay [get_ports spi_sd_i]
+# and the ADC flops (adc_rdr) take spi_sd_i only against adc_sclk: no clk_i-relative path to them
+set ADC_RDR_FLOPS [get_cells -quiet -hierarchical -filter "is_sequential == true && full_name =~ *adc_rdr*"]
+if {[sizeof_collection $ADC_RDR_FLOPS] > 0} {
+  set_false_path -from [get_clocks clock] -through [get_ports spi_sd_i] -to $ADC_RDR_FLOPS
+}
 
 
 ################################################################################
@@ -228,10 +248,9 @@ current_scenario $previous_scenario
 # 11. Design rule constraints
 ################################################################################
 
-set_max_transition  $MAX_TRAN_DATA [current_design]
-set_max_transition  $MAX_TRAN_CLK  [get_clocks *] -clock_path
-set_max_capacitance $MAX_CAP       [current_design]
-set_max_fanout      $MAX_FANOUT    [current_design]
+# Per scenario, from the library limits (design_rules.tcl). The clock tree has the CTS targets of 04_cts.tcl.
+source [file dirname [info script]]/design_rules.tcl
+design_rules
 
 
 # report_constraint -all_violators

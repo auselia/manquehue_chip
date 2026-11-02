@@ -32,6 +32,9 @@ foreach s [get_attribute [get_scenarios] -name name] {
   current_scenario $s
   set_clock_uncertainty -hold 0.25 [get_clocks clock]
   set_clock_uncertainty -hold 0.5  [get_clocks jtag_tck]
+  # the extra hold margin at the SRAM clock pins of 04_cts.tcl is for implementation only
+  set sram_clk [get_pins -quiet -of_objects [get_cells -quiet -hierarchical -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] -filter "is_clock_pin == true"]
+  if {[sizeof_collection $sram_clk] > 0} { catch {remove_clock_uncertainty -hold $sram_clk} }
 }
 
 # The constraints depend on the mode, not the corner: typical as a fixed choice.

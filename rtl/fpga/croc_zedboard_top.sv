@@ -18,6 +18,8 @@
 //   UART          -> Pmod JB (tx on JB1, rx on JB2)
 //   QSPI          -> Pmod JC (clk/csn on JC1_P/JC1_N/JC2_P/JC2_N,
 //                              sd[3:0] on JC3_P/JC3_N/JC4_P/JC4_N)
+//   SPI bus       -> Pmod JD (SCK, MOSI, MISO on JD1..JD3, shared by the SX1276 radio and the ADS7057 ADC as on the
+//                             chip). JD4 radio NSS, JD7 radio RESET, JD8 radio DIO0, JD9 ADC CS, JD10 AFE WAKE_N
 //   GPIO[1:0]     -> LD0/LD1 (croc_soc's GpioCount default is now 2 -- wire
 //                             these as outputs in software, e.g. for blink.c)
 //   status_o      -> LD2 (bonus "core busy" indicator, not requested but
@@ -44,6 +46,16 @@ module croc_zedboard_top (
   output wire       qspi_clk_o,
   output wire [2:0] qspi_csn_o,
   inout  wire [3:0] qspi_sd_io,
+
+  // Shared SPI bus, SX1276 radio and ADS7057 ADC -- Pmod JD
+  output wire spi_sck_o,     // JD1: SCLK of the radio and of the ADC
+  output wire spi_sd_o,      // JD2: radio MOSI
+  input  wire spi_sd_i,      // JD3: radio MISO and ADC SDO
+  output wire spi_cs1_o,     // JD4: radio NSS, active low
+  output wire rf_rstn_o,     // JD7: radio RESET, active low
+  input  wire rf_dio0_i,     // JD8: radio DIO0 (TxDone, RxDone)
+  output wire spi_cs0_o,     // JD9: ADC CS, active low (ADC board from next week)
+  input  wire afe_irq_i,     // JD10: AFE WAKE_N, active low (pull-up: no AFE board means no wake)
 
   // GPIO -- LEDs (croc_soc's GpioCount is 2, so only two pins available)
   inout  wire [1:0] led_io,  // LD0, LD1
@@ -139,6 +151,25 @@ module croc_zedboard_top (
   end
 
   // ---------------------------------------------------------------------
+  // Reference clock: about 32.768 kHz (20 MHz / 610), as the crystal of the chip's ref_clk_i pad. croc_soc samples
+  // ref_clk_i with clk_i in a synchronizer (CLINT mtime). Driving it with clk_20mhz itself made the clock the data
+  // of that synchronizer (a hold violation, and an unreliable mtime).
+  // ---------------------------------------------------------------------
+  logic [8:0] ref_cnt_q;
+  logic       ref_clk_q;
+  always_ff @(posedge clk_20mhz or negedge rst_ni) begin
+    if (!rst_ni) begin
+      ref_cnt_q <= '0;
+      ref_clk_q <= 1'b0;
+    end else if (ref_cnt_q == 9'd304) begin
+      ref_cnt_q <= '0;
+      ref_clk_q <= ~ref_clk_q;
+    end else begin
+      ref_cnt_q <= ref_cnt_q + 9'd1;
+    end
+  end
+
+  // ---------------------------------------------------------------------
   // croc_soc
   // ---------------------------------------------------------------------
   logic status;
@@ -149,7 +180,7 @@ module croc_zedboard_top (
   ) i_croc_soc (
     .clk_i          ( clk_20mhz    ),
     .rst_ni         ( rst_ni       ),
-    .ref_clk_i      ( clk_20mhz    ),  // not used as a clock in this netlist today
+    .ref_clk_i      ( ref_clk_q    ),  // about 32.768 kHz, see above
     .testmode_i     ( 1'b0         ),
     .status_o       ( status       ),
 
@@ -167,6 +198,15 @@ module croc_zedboard_top (
     .qspi_sd_i      ( qspi_sd_i    ),
     .qspi_sd_en_o   ( qspi_sd_en   ),
     .qspi_csn_o     ( qspi_csn_o   ),
+
+    .spi_sck_o      ( spi_sck_o    ),
+    .spi_sd_o       ( spi_sd_o     ),
+    .spi_sd_i       ( spi_sd_i     ),
+    .spi_cs0_o      ( spi_cs0_o    ),
+    .spi_cs1_o      ( spi_cs1_o    ),
+    .afe_irq_i      ( afe_irq_i    ),
+    .rf_dio0_i      ( rf_dio0_i    ),
+    .rf_rstn_o      ( rf_rstn_o    ),
 
     .gpio_i         ( gpio_i       ),
     .gpio_o         ( gpio_o       ),

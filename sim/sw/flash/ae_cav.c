@@ -50,6 +50,7 @@
 #define A_TRIGGERED (1u << 2)
 #define A_IDLE(n)   ((uint32_t)(n) << 8)
 #define A_TRIG_LOW  (1u << 14)
+#define A_SDO_NEG  (1u << 12)   // SDO into the falling-edge flop: needed for the pad round trip
 #define A_DONE      (1u << 5)
 #define A_BUSERR    (1u << 4)
 #define A_BUSWAIT   (1u << 7)
@@ -158,7 +159,7 @@ int main() {
     SPI(ADC_BUF1)  = BUF1;
     SPI(ADC_NSAMP) = 128;
     SPI(ADC_TRIG)  = MODE ? ((1u << 16) | 256u) : (128u - PRE);
-    SPI(ADC_CTRL)  = A_EN | A_RUN | A_TRIGGERED | A_TRIG_LOW | A_IDLE(2);
+    SPI(ADC_CTRL)  = A_EN | A_RUN | A_TRIGGERED | A_TRIG_LOW | A_SDO_NEG | A_IDLE(2);
 
     uint32_t st, t0 = mcycle();
     while (!((st = SPI(ADC_STATUS)) & A_DONE))

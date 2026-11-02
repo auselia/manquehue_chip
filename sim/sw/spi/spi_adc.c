@@ -19,6 +19,7 @@
 #define CTRL_RUN      (1u << 1)
 #define CTRL_IDLE(n)  ((uint32_t)(n) << 8)
 #define CTRL_TRIG_LOW (1u << 14)
+#define CTRL_SDO_NEG  (1u << 12)   // SDO into the falling-edge flop: needed for the pad round trip
 #define ST_RUNNING    (1u << 0)
 #define ST_FULL0      (1u << 1)
 #define ST_FULL1      (1u << 2)
@@ -64,20 +65,20 @@ int main() {
     REG32(ADC_BUF0)  = BUF0;
     REG32(ADC_BUF1)  = BUF1;
     REG32(ADC_NSAMP) = NSAMP;
-    REG32(ADC_CTRL)  = CTRL_EN | CTRL_RUN | CTRL_TRIG_LOW | CTRL_IDLE(3);
+    REG32(ADC_CTRL)  = CTRL_EN | CTRL_RUN | CTRL_TRIG_LOW | CTRL_SDO_NEG | CTRL_IDLE(3);
 
     if (!wait_status(ST_FULL0)) fail |= 1u << 0;
     if (!run_ok(b0, NSAMP, 0, 0)) fail |= 1u << 1;
     if (!wait_status(ST_FULL1)) fail |= 1u << 2;
     if (!run_ok(b1, NSAMP, b0[NSAMP - 1], 1)) fail |= 1u << 3;
 
-    REG32(ADC_CTRL) = CTRL_EN | CTRL_TRIG_LOW | CTRL_IDLE(3);   // RUN = 0: stop after the current frame
+    REG32(ADC_CTRL) = CTRL_EN | CTRL_TRIG_LOW | CTRL_SDO_NEG | CTRL_IDLE(3);   // RUN = 0: stop after the current frame
     for (uint32_t t = 0; t < 10000u && (REG32(ADC_STATUS) & ST_RUNNING); t++) { }
     uint32_t st = REG32(ADC_STATUS);
     if (st & ST_RUNNING) fail |= 1u << 4;
     if (st & ST_BUSERR)  fail |= 1u << 5;
     if (REG32(ADC_COUNT) < 2u * NSAMP) fail |= 1u << 6;
-    REG32(ADC_CTRL) = CTRL_TRIG_LOW | CTRL_IDLE(3);             // EN = 0
+    REG32(ADC_CTRL) = CTRL_TRIG_LOW | CTRL_SDO_NEG | CTRL_IDLE(3);             // EN = 0
 
     puts_uart(fail ? "SPI ADC FAIL\n" : "SPI ADC OK\n");
     uart_write_flush();

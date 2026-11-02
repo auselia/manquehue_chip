@@ -97,6 +97,7 @@ module qqspi #(
   wire [31:0] wr_buffer;
 
   align_wdata align_wdata_i (
+      .flash      (~PSRAM_SPIFLASH),
       .wstrb      (wstrb),
       .wdata      (wdata),
       .byte_offset(byte_offset),
@@ -241,7 +242,12 @@ module qqspi #(
 
 endmodule
 
+// flash = 0 (PSRAM): byte lane 3 at the lowest address, as the PSRAM reads (no byte swap on read).
+// flash = 1: little endian, as the flash reads (read data are byte swapped): byte lane k at address offset k, the
+// lowest lane first on the wire. Without it a word store came back with its halves swapped and a byte store landed
+// 3 bytes off.
 module align_wdata (
+    input  wire        flash,
     input  wire [ 3:0] wstrb,
     input  wire [31:0] wdata,
     output reg  [ 1:0] byte_offset,
@@ -292,5 +298,16 @@ module align_wdata (
         wr_cycles   = 32;
       end
     endcase
+    if (flash) begin
+      case (wstrb)
+        4'b0001: begin byte_offset = 0; wr_buffer[31:24] = wdata[7:0];   end
+        4'b0010: begin byte_offset = 1; wr_buffer[31:24] = wdata[15:8];  end
+        4'b0100: begin byte_offset = 2; wr_buffer[31:24] = wdata[23:16]; end
+        4'b1000: begin byte_offset = 3; wr_buffer[31:24] = wdata[31:24]; end
+        4'b0011: begin byte_offset = 0; wr_buffer[31:16] = {wdata[7:0], wdata[15:8]};   end
+        4'b1100: begin byte_offset = 2; wr_buffer[31:16] = {wdata[23:16], wdata[31:24]}; end
+        default: begin byte_offset = 0; wr_buffer = {wdata[7:0], wdata[15:8], wdata[23:16], wdata[31:24]}; end
+      endcase
+    end
   end
 endmodule

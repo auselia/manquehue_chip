@@ -52,6 +52,7 @@
 #define A_RUN      (1u << 1)
 #define A_IDLE(n)  ((uint32_t)(n) << 8)
 #define A_TRIG_LOW (1u << 14)
+#define A_SDO_NEG  (1u << 12)   // SDO into the falling-edge flop: needed for the pad round trip
 #define A_RUNNING  (1u << 0)
 #define A_FULL0    (1u << 1)
 #define A_FULL1    (1u << 2)
@@ -126,11 +127,11 @@ static void put32(uint8_t *p, uint32_t v) {
 // stop the ADC reader before a radio SPI access (shared bus), start it again after
 static void adc_pause(void) {
     uint32_t t = mcycle();
-    SPI(ADC_CTRL) = A_EN | A_TRIG_LOW | A_IDLE(2);
+    SPI(ADC_CTRL) = A_EN | A_TRIG_LOW | A_SDO_NEG | A_IDLE(2);
     while (SPI(ADC_STATUS) & A_RUNNING)
         if (mcycle() - t > TIMEOUT) { fail |= 1u << 6; break; }
 }
-static void adc_resume(void) { SPI(ADC_CTRL) = A_EN | A_RUN | A_TRIG_LOW | A_IDLE(2); }
+static void adc_resume(void) { SPI(ADC_CTRL) = A_EN | A_RUN | A_TRIG_LOW | A_SDO_NEG | A_IDLE(2); }
 
 static uint8_t pkt[25];                                    // 0x80 (FIFO write) + 24 payload bytes
 
@@ -157,7 +158,7 @@ int main() {
     SPI(ADC_BUF0)  = BUF0;
     SPI(ADC_BUF1)  = BUF1;
     SPI(ADC_NSAMP) = 128;
-    SPI(ADC_CTRL)  = A_EN | A_RUN | A_TRIG_LOW | A_IDLE(2);
+    SPI(ADC_CTRL)  = A_EN | A_RUN | A_TRIG_LOW | A_SDO_NEG | A_IDLE(2);
 
     for (uint32_t seq = 0; seq < NBLK; seq++) {
         uint32_t t0 = mcycle(), st;

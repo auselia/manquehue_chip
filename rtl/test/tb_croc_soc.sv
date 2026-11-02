@@ -99,8 +99,27 @@ module tb_croc_soc #(
     .sio_o  ( flash_sio_o                ),
     .sio_oe ( flash_sio_oe               )
   );
-  // each data line carries what the flash drives, else what the SoC drives (0 when nobody drives)
-  assign qspi_sd_i = (flash_sio_o & flash_sio_oe) | (qspi_sd_o & qspi_sd_en_o & ~flash_sio_oe);
+  // PSRAM (sim/models/spi_psram_model.v, APS6404L) on chip selects 1 and 2, as on the TinyTapeout QSPI Pmod.
+  // +psram0=<hex> / +psram1=<hex> load an image.
+  wire [3:0] psram0_sio_o, psram0_sio_oe, psram1_sio_o, psram1_sio_oe;
+  spi_psram_model #( .Name ( "psram0" ) ) i_psram0 (
+    .csn    ( qspi_csn_o[1]              ),
+    .sclk   ( qspi_clk_o                 ),
+    .sio_i  ( qspi_sd_o & qspi_sd_en_o   ),
+    .sio_o  ( psram0_sio_o               ),
+    .sio_oe ( psram0_sio_oe              )
+  );
+  spi_psram_model #( .Name ( "psram1" ) ) i_psram1 (
+    .csn    ( qspi_csn_o[2]              ),
+    .sclk   ( qspi_clk_o                 ),
+    .sio_i  ( qspi_sd_o & qspi_sd_en_o   ),
+    .sio_o  ( psram1_sio_o               ),
+    .sio_oe ( psram1_sio_oe              )
+  );
+  // each data line carries what a memory drives, else what the SoC drives (0 when nobody drives)
+  wire [3:0] mem_sio_oe = flash_sio_oe | psram0_sio_oe | psram1_sio_oe;
+  wire [3:0] mem_sio_o  = (flash_sio_o & flash_sio_oe) | (psram0_sio_o & psram0_sio_oe) | (psram1_sio_o & psram1_sio_oe);
+  assign qspi_sd_i = mem_sio_o | (qspi_sd_o & qspi_sd_en_o & ~mem_sio_oe);
 
   ////////////
   //  DUT   //

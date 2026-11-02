@@ -35,6 +35,7 @@
 ../rtl/test/croc_vip.sv
 ../sim/models/ads7057_model.v
 ../sim/models/spi_flash_model.v
+../sim/models/spi_psram_model.v
 ../sim/models/sx1276_model.v
 ../rtl/test/tb_croc_soc.sv
 
@@ -194,6 +195,7 @@
 // ---- obi_qspi ----
 ../rtl/obi_qspi/qqspi.v
 ../rtl/obi_qspi/obi_qspi.sv
+../rtl/obi_qspi/qspi_cmd.sv
 
 // ---- obi_spi (radio master, ADS7057 reader) ----
 ../rtl/user_domain/spi/obi_spi_pkg.sv

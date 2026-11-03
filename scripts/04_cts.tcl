@@ -21,11 +21,6 @@ foreach s [get_attribute [get_scenarios] -name name] {
   # extra 0.1 ns hold margin while implementing (mode_func.tcl: 0.25 / 0.5). common/export_signoff.tcl restores it
   set_clock_uncertainty -hold 0.35 [get_clocks clock]
   set_clock_uncertainty -hold 0.6  [get_clocks jtag_tck]
-  # the shift paths: 0.35 ns over sign-off (mode_scan.tcl: 0.25 / 0.5). With 0.1 ns, PrimeTime found 0.04 ns left.
-  if {[string match scan_* $s]} {
-    set_clock_uncertainty -hold 0.6  [get_clocks clock]
-    set_clock_uncertainty -hold 0.85 [get_clocks jtag_tck]
-  }
 }
 
 # SRAM inputs: PrimeTime finds about 0.1 ns less hold slack there than Fusion Compiler (0.17 ns violation at fast).

@@ -17,6 +17,7 @@ if {$CHIP_FLOORPLAN} {
 
 # Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.
 source [file dirname [info script]]/common/drc_eco.tcl
+if {!$CHIP_FLOORPLAN} { hand_eco }
 drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
 
 ###################################

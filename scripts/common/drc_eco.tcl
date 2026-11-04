@@ -268,3 +268,36 @@ proc drc_eco_swap_fillcaps {eco_dir} {
   }
   puts "WARNING: filler DRC ECO: markers remain after $DRC_ECO_MAX_PASSES pass(es), see $eco_dir"
 }
+
+###############################################################################
+# Hand ECO of the macro on the routed block, before the fillers. Nets over the library limits in PrimeTime get a buffer
+# after their driver, so the weak driver sees one small load. Cells under a marker that the automatic ECOs cannot clear
+# move far enough to leave the neighbouring cell. Names and positions are from the build of the run in the comments.
+###############################################################################
+proc hand_eco {} {
+  # croc_soc_20261104_093609: N49310 7.87 ns, N49082 7.25 ns at slow (limit 7.0)
+  set new [list]
+  foreach drv {A63704/ZN A63546/ZN} {
+    set p [get_pins $drv]
+    set bb [get_attribute [get_cells -of_objects $p] boundary_bbox]
+    add_buffer -new_cell_names eco_drv_[string map {/ _} $drv] -lib_cell [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__buf_4] $p
+    set c [get_cells eco_drv_[string map {/ _} $drv]*]
+    set_cell_location -coordinates [lindex $bb 0] $c
+    lappend new [get_object_name $c]
+    puts "INFO: hand ECO: buffer [get_object_name $c] after $drv"
+  }
+  # DF.6 under the register at (624, 1013), CO.6a at (30, 379)
+  # The row of A65851 is full, so it goes back to its own place: a blockage over the marker column keeps every cell out
+  # while the full legalization shifts the row.
+  create_placement_blockage -type hard -boundary {{623.7 1012.9} {624.8 1016.7}} -name hand_eco_df6
+  foreach {cell dx} {HFSINV_46451_73961 8.0} {
+    move_objects -delta [list $dx 0] [get_cells $cell]
+    lappend new $cell
+    puts "INFO: hand ECO: $cell moved by $dx um"
+  }
+  legalize_placement
+  remove_placement_blockages [get_placement_blockages hand_eco_df6]
+  lappend new A65851
+  foreach n $new { puts "INFO: hand ECO: $n at [get_attribute [get_cells $n] boundary_bbox]" }
+  route_eco
+}

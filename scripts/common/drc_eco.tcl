@@ -301,29 +301,34 @@ proc drc_eco_swap_fillcaps {eco_dir} {
 # move far enough to leave the neighbouring cell. Names and positions are from the build of the run in the comments.
 ###############################################################################
 proc hand_eco {} {
-  # croc_soc_20261104_093609: N49310 7.87 ns, N49082 7.25 ns at slow (limit 7.0)
+  # Route of croc_soc_20261104_181238. Names and coordinates are valid for that route only.
+  # Slow and fast transition over the library limit, on weak drivers with many loads.
   set new [list]
-  foreach drv {A63704/ZN A63546/ZN} {
-    set p [get_pins $drv]
-    set bb [get_attribute [get_cells -of_objects $p] boundary_bbox]
-    add_buffer -new_cell_names eco_drv_[string map {/ _} $drv] -lib_cell [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__buf_4] $p
-    set c [get_cells eco_drv_[string map {/ _} $drv]*]
+  set buf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__buf_4]
+  foreach drv {A63704/ZN A63752/ZN A59937/ZN ctmi_58336/Z} {
+    set tag eco_drv_[string map {/ _} $drv]
+    set bb [get_attribute [get_cells -of_objects [get_pins $drv]] boundary_bbox]
+    add_buffer -new_cell_names $tag -lib_cell $buf [get_pins $drv]
+    set c [get_cells ${tag}*]
     set_cell_location -coordinates [lindex $bb 0] $c
     lappend new [get_object_name $c]
-    puts "INFO: hand ECO: buffer [get_object_name $c] after $drv"
   }
-  # DF.6 under the register at (624, 1013), CO.6a at (30, 379)
-  # The row of A65851 is full, so it goes back to its own place: a blockage over the marker column keeps every cell out
-  # while the full legalization shifts the row.
-  create_placement_blockage -type hard -boundary {{623.7 1012.9} {624.8 1016.7}} -name hand_eco_df6
-  foreach {cell dx} {HFSINV_46451_73961 8.0} {
-    move_objects -delta [list $dx 0] [get_cells $cell]
-    lappend new $cell
-    puts "INFO: hand ECO: $cell moved by $dx um"
+  # SRAM CLK 1.64 ns against 1.55 ns at slow, from a long wire: a buffer next to each pin.
+  set clkbuf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__clkbuf_8]
+  foreach_in_collection m [get_cells -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] {
+    set p [get_pins [get_object_name $m]/CLK]
+    set tag eco_sramclk_[llength $new]
+    add_buffer -new_cell_names $tag -lib_cell $clkbuf $p
+    set c [get_cells ${tag}*]
+    lassign [get_attribute $p bbox] ll ur
+    set_cell_location -coordinates $ll $c
+    lappend new [get_object_name $c]
   }
+  # A full legalization: with -cells only, the new buffers went up to 340 um away, the rows near them are full.
   legalize_placement
-  remove_placement_blockages [get_placement_blockages hand_eco_df6]
-  lappend new A65851
-  foreach n $new { puts "INFO: hand ECO: $n at [get_attribute [get_cells $n] boundary_bbox]" }
+  foreach n $new {
+    set c [get_cells $n]
+    puts "INFO: hand ECO: $n ([get_attribute $c ref_name]) at [get_attribute $c origin]"
+  }
   route_eco
 }

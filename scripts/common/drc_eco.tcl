@@ -300,6 +300,15 @@ proc drc_eco_swap_fillcaps {eco_dir} {
 # after their driver, so the weak driver sees one small load. Cells under a marker that the automatic ECOs cannot clear
 # move far enough to leave the neighbouring cell. Names and positions are from the build of the run in the comments.
 ###############################################################################
+# A cell by its flat name from the sign-off netlist (i_croc_..._reg_17_), at any stage of the hierarchy.
+proc hand_eco_cell {flat} {
+  set key [string trimright [regsub -all {[^A-Za-z0-9]+} $flat _] _]
+  foreach_in_collection c [get_cells -hierarchical -filter "is_hard_macro == false"] {
+    if {[string trimright [regsub -all {[^A-Za-z0-9]+} [get_object_name $c] _] _] eq $key} { return $c }
+  }
+  error "hand ECO: no cell $flat"
+}
+
 proc hand_eco {} {
   # Route of croc_soc_20261104_181238. Names and coordinates are valid for that route only.
   # Slow and fast transition over the library limit, on weak drivers with many loads.
@@ -324,11 +333,51 @@ proc hand_eco {} {
     set_cell_location -coordinates $ll $c
     lappend new [get_object_name $c]
   }
+  # Scan hold at fast, -0.02 ns on two SI pins: a clkbuf_1 (about 0.17 ns) in front of each.
+  set dly [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__clkbuf_1]
+  foreach flop {i_user_i_fft_hwpe_i_core_gcnt_q_reg_1_ i_croc_i_dm_top_i_dm_top_i_dm_csrs_progbuf_q_reg_2__28_} {
+    set c [hand_eco_cell $flop]
+    set tag eco_scanhold_[llength $new]
+    add_buffer -new_cell_names $tag -lib_cell $dly [get_pins [get_object_name $c]/SI]
+    set b [get_cells ${tag}*]
+    set_cell_location -coordinates [lindex [get_attribute $c boundary_bbox] 0] $b
+    lappend new [get_object_name $b]
+  }
   # A full legalization: with -cells only, the new buffers went up to 340 um away, the rows near them are full.
   legalize_placement
   foreach n $new {
     set c [get_cells $n]
     puts "INFO: hand ECO: $n ([get_attribute $c ref_name]) at [get_attribute $c origin]"
+  }
+  # DF.6: COMP and poly corners of two cells 0.3995 um apart. One site clears each one, from a search on the GDS. No
+  # legalization after this: these sites are free and it could undo the move.
+  set site_w [get_attribute [index_collection [get_site_defs] 0] width]
+  # One move per marker, the first candidate that overlaps no other cell. Candidates come from a search on the GDS
+  # (each one clears the marker). Taps are placed already, the fillers come later. A33481 +1 site was clean, the
+  # flip-flop +1 moves overlapped a tap and an and2 (LVS mismatch), A65851 -1 gave a short at its left pin.
+  foreach {marker cands} {
+    m933 {A33481 1 A33481 2 A33481 3}
+    m624 {i_croc_i_dm_top_i_dm_top_i_dm_mem_rdata_q_reg_17_ 1 i_croc_i_dm_top_i_dm_top_i_dm_mem_rdata_q_reg_17_ -1
+          i_croc_i_dm_top_i_dm_top_i_dm_mem_rdata_q_reg_17_ -2 A65851 -1}
+    m748 {i_user_i_obi_qspi_addr_q_reg_11_ 1 i_user_i_obi_qspi_addr_q_reg_11_ -1 i_user_i_obi_qspi_addr_q_reg_11_ -2
+          A62732 -2 A62732 -1}
+  } {
+    set done 0
+    foreach {cell sites} $cands {
+      set c [hand_eco_cell $cell]
+      move_objects -delta [list [expr {$sites * $site_w}] 0] $c
+      lassign [get_attribute $c boundary_bbox] ll ur
+      set box [list [list [expr {[lindex $ll 0] + 0.05}] [expr {[lindex $ll 1] + 0.05}]] [list [expr {[lindex $ur 0] - 0.05}] [expr {[lindex $ur 1] - 0.05}]]]
+      set hit [remove_from_collection [get_cells -hierarchical -quiet -intersect $box -filter "is_hard_macro == false"] $c]
+      if {[sizeof_collection $hit] == 0} {
+        puts "INFO: hand ECO: $marker, [get_object_name $c] moved by $sites site(s), now at [get_attribute $c origin]"
+        set done 1
+        break
+      }
+      puts "INFO: hand ECO: $marker, [get_object_name $c] by $sites site(s) overlaps [get_object_name $hit], not used"
+      move_objects -delta [list [expr {-$sites * $site_w}] 0] $c
+    }
+    if {!$done} { puts "WARNING: hand ECO: $marker stays open, no free candidate" }
   }
   route_eco
 }

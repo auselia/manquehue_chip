@@ -18,8 +18,9 @@ if {$CHIP_FLOORPLAN} {
 # Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.
 source [file dirname [info script]]/common/drc_eco.tcl
 drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
-# hand_eco (common/drc_eco.tcl) names cells of one route: remove this call for any other route
-hand_eco
+# hand_eco (common/drc_eco.tcl) names cells of one macro route: remove this call for any other route. The chip
+# flow has its own route, so it does not call it.
+if {!$CHIP_FLOORPLAN} { hand_eco }
 
 ###################################
 # FILLER Cell Insertion

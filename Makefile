@@ -1052,6 +1052,10 @@ signoff:
 	$(MAKE) drc lvs sta-pt
 	$(REPO_DIR)/scripts/signoff/lec/run_lec.sh $(RUN_DIR)
 	RUN=$(RUN_DIR) scripts/signoff/sta/signoff_summary.sh
+# Chip-level LVS of outputs/chip_final (KLayout, pads, SRAMs and wafer.space IPs as black boxes): outputs/chip_lvs/
+chip-lvs:
+	scripts/chip/chip_lvs.sh
+
 chip-sta:
 	PT_HOME_DIR=$(PT_HOME_DIR) PT_SRAM_DB=$(abspath $(PT_SRAM_DB)) \
 	PT_SC_DB_slow=$(PT_SC_DB_slow) PT_SC_DB_typical=$(PT_SC_DB_typical) PT_SC_DB_fast=$(PT_SC_DB_fast) \

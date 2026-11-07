@@ -14,6 +14,7 @@
 proc design_rules {} {
   set prev [current_scenario]
   set sram_in [get_pins -quiet -of_objects [get_cells -quiet -hierarchical -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] -filter "direction == in && is_clock_pin == false"]
+  set pad_in [get_pins -quiet -of_objects [get_cells -quiet -hierarchical -filter "ref_name =~ gf180mcu_fd_io__*"] -filter "direction == in && name != PAD"]
   foreach_in_collection s [all_scenarios] {
     current_scenario $s
     set n [get_object_name $s]
@@ -21,6 +22,9 @@ proc design_rules {} {
     set_max_transition $tran [current_design]
     # the SRAM inputs have their own, tighter limit in the library (1.55 ns), and PrimeTime found them up to 2.24 ns
     if {[sizeof_collection $sram_in] > 0} { set_max_transition 1.4 $sram_in }
+    # the core-side inputs of the IO pads (A, OE, IE, ...) have a library limit of 1.0 ns, PrimeTime found them up to
+    # 1.23 ns at slow on the chip (7 Nov 2026)
+    if {[sizeof_collection $pad_in] > 0} { set_max_transition 0.9 $pad_in }
     catch {remove_max_capacitance [current_design]}
     catch {remove_max_fanout [current_design]}
   }

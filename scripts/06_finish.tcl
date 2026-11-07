@@ -115,6 +115,10 @@ if {$CHIP_FLOORPLAN} {
         -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
         $CHIP_DIR/$TOP_MODULE.v
     write_chip_views $CHIP_DIR $TOP_MODULE
+    # the shrunk_* routing blockages over the SRAMs (02_floorplan.tcl) are not layout: check_lvs reports each overlap
+    # with the SRAM metal as a short (336 on 7 Nov 2026). Routing is done, so they go before the check.
+    set rb [get_routing_blockages -quiet shrunk_*]
+    if {[sizeof_collection $rb] > 0} { remove_routing_blockages $rb }
     redirect -file $CHIP_DIR/check_lvs.rpt { check_lvs -checks {open short} -max_errors 5000 }
     save_block -as finish
     return

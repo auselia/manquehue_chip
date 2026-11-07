@@ -47,21 +47,29 @@ module croc_zedboard_top (
   output wire [2:0] qspi_csn_o,
   inout  wire [3:0] qspi_sd_io,
 
-  // Shared SPI bus, SX1276 radio and ADS7057 ADC -- Pmod JD
-  output wire spi_sck_o,     // JD1: SCLK of the radio and of the ADC
-  output wire spi_sd_o,      // JD2: radio MOSI
-  input  wire spi_sd_i,      // JD3: radio MISO and ADC SDO
-  output wire spi_cs1_o,     // JD4: radio NSS, active low
-  output wire rf_rstn_o,     // JD7: radio RESET, active low
-  input  wire rf_dio0_i,     // JD8: radio DIO0 (TxDone, RxDone)
-  output wire spi_cs0_o,     // JD9: ADC CS, active low (ADC board from next week)
-  input  wire afe_irq_i,     // JD10: AFE WAKE_N, active low (pull-up: no AFE board means no wake)
+  // croc has one SPI master for the ADC and the radio (as on the chip). On the board they are on two Pmods: this top
+  // copies SCK to both and selects MISO by the ADC chip select.
+  // SX1276 radio -- Pmod JB3..JB10 (JB1/JB2 are the UART)
+  output wire rf_sck_o,      // JB3: radio SCK
+  output wire rf_mosi_o,     // JB4: radio MOSI
+  input  wire rf_miso_i,     // JB7: radio MISO
+  output wire rf_nss_o,      // JB8: radio NSS, active low
+  output wire rf_rstn_o,     // JB9: radio RESET, active low
+  input  wire rf_dio0_i,     // JB10: radio DIO0 (TxDone, RxDone)
+  // AFE v1 board (ADS7057) -- Pmod JD, plugged in upside down: board pin n is on JD pin (n + 6) mod 12
+  output wire adc_cs_o,      // JD7 (board pin 1): ADC CS, active low
+  input  wire adc_sdo_i,     // JD9 (board pin 3): ADC SDO
+  output wire adc_sclk_o,    // JD10 (board pin 4): ADC SCLK
+  input  wire afe_wake_ni,   // JD4 (board pin 10): WAKE_N, open drain, active low
+  input  wire afe_big_ni,    // JD1 (board pin 7): BIG_N, open drain, active low. Not a croc port: LED only
 
   // GPIO -- LEDs (croc_soc's GpioCount is 2, so only two pins available)
   inout  wire [1:0] led_io,  // LD0, LD1
 
   // Bonus core-alive indicator
-  output wire led2_o
+  output wire led2_o,
+  // LD3 clock locked and reset released, LD4 WAKE_N, LD5 BIG_N, LD6 radio DIO0, LD7 heartbeat
+  output wire [7:3] led_o
 );
 
   localparam int unsigned GpioCount = 2;
@@ -170,6 +178,31 @@ module croc_zedboard_top (
   end
 
   // ---------------------------------------------------------------------
+  // Shared SPI bus split over JD (ADC) and JB (radio)
+  // ---------------------------------------------------------------------
+  logic spi_sck, spi_sd_out, spi_sd_in, spi_cs0, spi_cs1;
+  assign adc_sclk_o = spi_sck;
+  assign adc_cs_o   = spi_cs0;
+  assign rf_sck_o   = spi_sck;
+  assign rf_mosi_o  = spi_sd_out;
+  assign rf_nss_o   = spi_cs1;
+  assign spi_sd_in  = !spi_cs0 ? adc_sdo_i : rf_miso_i;
+
+  // ---------------------------------------------------------------------
+  // Board LEDs: no croc ports, for bring-up only
+  // ---------------------------------------------------------------------
+  logic [23:0] beat_q;
+  always_ff @(posedge clk_20mhz or negedge rst_ni) begin
+    if (!rst_ni) beat_q <= '0;
+    else         beat_q <= beat_q + 24'd1;
+  end
+  assign led_o[3] = rst_ni;
+  assign led_o[4] = ~afe_wake_ni;
+  assign led_o[5] = ~afe_big_ni;
+  assign led_o[6] = rf_dio0_i;
+  assign led_o[7] = beat_q[23];   // about 0.6 s period at 20 MHz
+
+  // ---------------------------------------------------------------------
   // croc_soc
   // ---------------------------------------------------------------------
   logic status;
@@ -199,12 +232,12 @@ module croc_zedboard_top (
     .qspi_sd_en_o   ( qspi_sd_en   ),
     .qspi_csn_o     ( qspi_csn_o   ),
 
-    .spi_sck_o      ( spi_sck_o    ),
-    .spi_sd_o       ( spi_sd_o     ),
-    .spi_sd_i       ( spi_sd_i     ),
-    .spi_cs0_o      ( spi_cs0_o    ),
-    .spi_cs1_o      ( spi_cs1_o    ),
-    .afe_irq_i      ( afe_irq_i    ),
+    .spi_sck_o      ( spi_sck      ),
+    .spi_sd_o       ( spi_sd_out   ),
+    .spi_sd_i       ( spi_sd_in    ),
+    .spi_cs0_o      ( spi_cs0      ),
+    .spi_cs1_o      ( spi_cs1      ),
+    .afe_irq_i      ( afe_wake_ni  ),
     .rf_dio0_i      ( rf_dio0_i    ),
     .rf_rstn_o      ( rf_rstn_o    ),
 

@@ -21,6 +21,7 @@ drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
 # hand_eco (common/drc_eco.tcl) names cells of one macro route: remove this call for any other route. The chip
 # flow has its own route, so it does not call it.
 if {!$CHIP_FLOORPLAN} { hand_eco }
+if {$CHIP_FLOORPLAN} { chip_finish_buffers }
 
 ###################################
 # FILLER Cell Insertion

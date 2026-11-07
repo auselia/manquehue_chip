@@ -301,6 +301,49 @@ proc drc_eco_swap_fillcaps {eco_dir} {
 # move far enough to leave the neighbouring cell. Names and positions are from the build of the run in the comments.
 ###############################################################################
 # A cell by its flat name from the sign-off netlist (i_croc_..._reg_17_), at any stage of the hierarchy.
+# Chip flow, after the DRC ECO and before the fillers. Two kinds of long wire that the optimization does not fix:
+# - the SRAM CLK pins (library limit 1.55 ns, up to 1.82 ns at slow on the chip of 7 Nov 2026): a clkbuf_8 next to
+#   each pin, as hand_eco does on the macro route;
+# - the core-side inputs A, OE, IE of the IO pads (library limit 1.0 ns, up to 1.25 ns): the pads are IO cells,
+#   so compile_fusion does not fix their design rules. A buf_12 at the point of the core area closest to the pin:
+#   PrimeTime converts the slew between the thresholds of the standard cell and of the IO library, a buf_4 edge of
+#   0.81 ns became 1.12 ns at the pad pin over a 5 fF wire.
+# Names and coordinates come from the block, so this works on any chip route.
+proc chip_finish_buffers {} {
+  set new [list]
+  set clkbuf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__clkbuf_8]
+  foreach_in_collection m [get_cells -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] {
+    set p [get_pins [get_object_name $m]/CLK]
+    set tag eco_sramclk_[llength $new]
+    add_buffer -new_cell_names $tag -lib_cell $clkbuf $p
+    set c [get_cells ${tag}*]
+    set_cell_location -coordinates [lindex [get_attribute $p bbox] 0] $c
+    lappend new [get_object_name $c]
+  }
+  lassign [get_attribute [current_block] core_area_bbox] cll cur
+  set buf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__buf_12]
+  foreach_in_collection p [get_pins -quiet -of_objects [get_cells -quiet pad_* -filter "ref_name =~ gf180mcu_fd_io__*"] -filter "name == A || name == OE || name == IE"] {
+    set net [get_nets -quiet -of_objects $p]
+    if {[sizeof_collection $net] == 0} { continue }
+    set drv [get_pins -quiet -leaf -of_objects $net -filter "direction == out"]
+    if {[sizeof_collection $drv] == 0 || [string match *tie* [get_attribute [get_cells -of_objects $drv] ref_name]]} { continue }
+    lassign [lindex [get_attribute $p bbox] 0] x y
+    set x [expr {min(max($x, [lindex $cll 0] + 2.0), [lindex $cur 0] - 12.0)}]
+    set y [expr {min(max($y, [lindex $cll 1] + 2.0), [lindex $cur 1] - 6.0)}]
+    set tag eco_padin_[llength $new]
+    add_buffer -new_cell_names $tag -lib_cell $buf $p
+    set c [get_cells ${tag}*]
+    set_cell_location -coordinates [list $x $y] $c
+    lappend new [get_object_name $c]
+  }
+  legalize_placement
+  foreach n $new {
+    set c [get_cells $n]
+    puts "INFO: chip finish buffer $n ([get_attribute $c ref_name]) at [get_attribute $c origin]"
+  }
+  route_eco
+}
+
 proc hand_eco_cell {flat} {
   set key [string trimright [regsub -all {[^A-Za-z0-9]+} $flat _] _]
   foreach_in_collection c [get_cells -hierarchical -filter "is_hard_macro == false"] {

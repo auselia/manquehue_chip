@@ -29,7 +29,20 @@ proc chip_every_scenario {body} {
   }
 }
 set BOARD_DELAY_FRAC 0.10
-set BOARD_LOAD       5.0    ;# pF on each output pad: board trace, connector and receiver (assumption)
+# Load of each output pad = the input (or IO) capacitance of every device on that net, from the datasheets, plus
+# BOARD_WIRING for the trace. BOARD_WIRING: 3 pF for a PCB with the parts close by (default), 10 pF for a protoboard
+# with a jumper wire (env BOARD_WIRING). Datasheet values (max):
+#   W25Q128JV-DTR (rev C, 9.4): CIN 6 pF, COUT 8 pF.  APS6404L-3SQR (16.3, package): CIN 6 pF, COUT 8 pF.
+#   QSPI SD0..3 are IO pins on all three chips (8 pF each), SCK and the chip selects are inputs (6 pF).
+# Not specified in the datasheets (assumption 5 pF, a CMOS input): ADS7057 CS/SCLK, SX1276 SPI and NRESET,
+# FT2232H RXD, J-Link TDO. GPIO: 10 pF for an Arduino-class input. status_o: an LED with its resistor, 5 pF.
+set BOARD_WIRING [expr {[info exists ::env(BOARD_WIRING)] ? $::env(BOARD_WIRING) : 3.0}]
+set BOARD_RX {
+  qspi_sd0_io 24  qspi_sd1_io 24  qspi_sd2_io 24  qspi_sd3_io 24  qspi_clk_o 18
+  qspi_cs0_o 6  qspi_cs1_o 6  qspi_cs2_o 6
+  spi_sck_o 10  spi_sd_o 5  spi_cs0_o 5  spi_cs1_o 5  rf_rstn_o 5
+  uart_tx_o 5  jtag_tdo_o 5  gpio0_io 10  gpio1_io 10  status_o 5
+}
 set BOARD_TRAN       1.0    ;# ns, slew of the board signal at each input pad (the max_transition of the PAD pin)
 
 # 1. Clocks, on the pads. The clock tree after the pad is propagated from the SPEF.
@@ -147,7 +160,11 @@ set ALL_OUT [add_to_collection [add_to_collection [add_to_collection $FUNC_OUT $
     [get_ports {spi_sck_o spi_cs0_o qspi_clk_o}]]
 chip_every_scenario {
   set_input_transition $BOARD_TRAN $ALL_IN
-  set_load $BOARD_LOAD $ALL_OUT
+  foreach_in_collection p $ALL_OUT {
+    set n [get_object_name $p]
+    set rx [expr {[dict exists $BOARD_RX $n] ? [dict get $BOARD_RX $n] : 5.0}]
+    set_load [expr {$rx + $BOARD_WIRING}] $p
+  }
 }
 # design rules for implementation only (common/design_rules.tcl): sign-off checks the library limits
 if {[info commands all_scenarios] ne ""} {

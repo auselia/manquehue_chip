@@ -24,6 +24,7 @@ proc drc_eco_reroute {run_dir} {
   if {$::CHIP_FLOORPLAN} { set gds_list [chip_gds_files] }
   set site_w [get_attribute [index_collection [get_site_defs] 0] width]
   set prev [list]
+  set swapped [dict create]
 
   for {set pass 1} {$pass <= $DRC_ECO_MAX_PASSES} {incr pass} {
     set gds   [file join $eco_dir pass${pass}.gds]
@@ -75,7 +76,24 @@ proc drc_eco_reroute {run_dir} {
         if {[sizeof_collection $hit] == 0} { set dx $k; break }
       }
       if {$dx eq ""} {
-        puts "WARNING: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats, no free place for $name within 6 sites"
+        # no free place: another drive strength of the same function, not wider than the cell, so it stays in its
+        # place. Its pins have other metal 1 shapes, the router reaches them in another way (CO.6a on the chip of
+        # 7 Nov 2026: an inv_2 that rerouting and moving could not fix).
+        set ref [get_attribute $c ref_name]
+        set w [get_attribute $c width]
+        set alt ""
+        foreach lc [get_object_name [sort_collection [get_lib_cells */[regsub {_[0-9]+$} $ref _*]] area]] {
+          set lcn [file tail $lc]
+          if {$lcn eq $ref || [dict exists $swapped $name,$lcn]} { continue }
+          if {[get_attribute [get_lib_cells $lc] width] > $w + 0.001} { continue }
+          set alt $lc; dict set swapped $name,$lcn 1; break
+        }
+        if {$alt eq ""} {
+          puts "WARNING: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats, no free place and no other size for $name"
+        } else {
+          puts "INFO: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats, no free place: $name $ref -> [file tail $alt]"
+          size_cell $c $alt
+        }
       } else {
         puts "INFO: DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} repeats after the reroute, moving $name ([get_attribute $c ref_name]) by $dx sites"
         move_objects -delta [list [expr {$dx * $site_w}] 0] $c

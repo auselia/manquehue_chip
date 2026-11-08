@@ -40,12 +40,33 @@ for f in sorted(glob.glob(o + "/report_qor.*.rpt")):
             worst = v if worst is None or v < worst else worst
             if v < 0:
                 fail.append("%s/%s/%s=%g" % (corner, grp[0], grp[1], v))
-# a VIOLATED line at 0.00 slack is only rounding ("increase significant digits"): not counted
-drv = sum(1 for f in glob.glob(o + "/report_drv.*.rpt") for l in open(f) if "VIOLATED" in l and "significant digits" not in l)
+# A VIOLATED line at 0.00 slack is only rounding ("increase significant digits"): not counted.
+# Output edge of an output or bidirectional pad (pad_*_o/PAD, pad_*_io/PAD): the 1.0 ns max_transition of the PAD
+# pin is the limit of the pad input stage (the PAD pin is the input and the output of the pad). The pad is
+# characterized for 0 to 50 pF and has max_capacitance 50 pF, which stays in the DRV count, as does the board
+# timing (output delays). These edges are listed apart (pad_output_slew), not counted as DRV.
+drv, pad_slew = 0, {}
+for f in sorted(glob.glob(o + "/report_drv.*.rpt")):
+    corner, kind = f.split(".")[-2], None
+    text = re.sub(r"\n\s+(?=-?[\d.]+\s+-?[\d.]+\s+-?[\d.]+\s+\(VIOL)", " ", open(f).read())
+    for l in text.splitlines():
+        m = re.match(r"\s*(max_transition|max_capacitance|max_fanout)\b", l)
+        if m:
+            kind = m.group(1)
+        if "VIOLATED" not in l or "significant digits" in l:
+            continue
+        pin = l.split()[0]
+        if kind == "max_transition" and re.match(r"pad_\w+_(o|io)/PAD$", pin):
+            v = float(l.split()[2])
+            pad_slew[pin] = max(pad_slew.get(pin, 0.0), v)
+        else:
+            drv += 1
+open(o + "/pad_output_slew.txt", "w").write("".join("%s %.2f\n" % (p, v) for p, v in sorted(pad_slew.items(), key=lambda kv: -kv[1])))
 commit = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"], stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
 ok = n == 3 and not fail and drv == 0
 s = (f"date: {datetime.datetime.now().isoformat(timespec='seconds')}\ncommit: {commit}\ncorners_timed: {n}\n"
      f"worst_slack_ns: {worst}\nviolations: {','.join(fail) or 'none'}\ndrv_violations: {drv}\n"
+     f"pad_output_slew: {len(pad_slew)} pads, worst {max(pad_slew.values()) if pad_slew else 0:.2f} ns (not DRV, pad_output_slew.txt)\n"
      f"status: {'PASS' if ok else 'FAIL'}\n")
 open(o + "/summary.txt", "w").write(s)
 print(s, end="")

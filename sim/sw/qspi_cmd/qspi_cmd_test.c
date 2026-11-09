@@ -41,11 +41,9 @@ static void bad(int step, uint32_t v) { fail |= 1u << step; put("step "); put_he
 // one command on device cs: ntx bytes out of tx, then nrx bytes into rx (CS low for all of them)
 static void cmd(uint32_t cs, const uint8_t *tx, uint32_t ntx, uint8_t *rx, uint32_t nrx) {
     uint32_t n = ntx + nrx, i = 0, j = 0, t0 = mcycle();
-    // Flash (CS0) in SPI mode 3: the pins go back to obi_qspi in the cycle that CS rises, and its idle SCLK is 1. In
-    // mode 0 that is a rising SCLK edge together with the CS rise, the W25Q counts a 9th clock and drops every
-    // command it runs at CS rise (06, 04, 20, 02, 31, 66/99). Seen on the ZedBoard, 9 Nov 2026. The PSRAMs pass in
-    // mode 0.
-    QC(Q_CTRL) = (QC(Q_CTRL) & ~0xCu) | (cs == 0 ? 0xCu : 0u);
+    // All devices in SPI mode 0. qspi_cmd keeps the bus 2 clocks after CS rises, so the switch back to the idle SCLK
+    // of obi_qspi comes after the CS rise (the flash and PSRAM models check it).
+    QC(Q_CTRL) = QC(Q_CTRL) & ~0xCu;
     QC(Q_QCTRL) = (QC(Q_QCTRL) & ~3u) | cs;
     QC(Q_CMD) = n;
     while (j < n) {

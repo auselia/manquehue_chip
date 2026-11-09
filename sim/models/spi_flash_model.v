@@ -20,7 +20,8 @@ module spi_flash_model #(
   parameter int unsigned SizeBytes = 1 << 20,   // modelled part of the 16 MB flash
   parameter real         TcoNs     = 6.0,       // output valid after the SCLK falling edge
   parameter real         BusyNs    = 2000.0,    // page program and status write time (W25Q: 0.4 ms, shortened)
-  parameter real         EraseNs   = 5000.0     // erase time (W25Q: 45 ms for a sector, shortened)
+  parameter real         EraseNs   = 5000.0,    // erase time (W25Q: 45 ms for a sector, shortened)
+  parameter real         TcsNs     = 5.0        // tSHCH / tCHSH: no SCLK edge this close to a CS rise
 ) (
   input  wire       csn,
   input  wire       sclk,
@@ -59,6 +60,28 @@ module spi_flash_model #(
   assign #(TcoNs) sio_oe = oe_q;
 
   wire busy = sr1[0];
+
+  // Timing check: an SCLK edge less than TcsNs before or after a CS rise. A real device can count it as a clock of
+  // the command and drop the command (seen on the ZedBoard with the W25Q, 9 Nov 2026: qspi_cmd handover in mode 0).
+  // In RTL simulation both edges come in the same time step, so without this check the model accepts it.
+  realtime t_sclk = -1.0e9, t_csrise = -1.0e9;
+  integer  timing_errors = 0;
+  always @(sclk) if ($realtime > 0) begin
+    if (csn === 1'b1 && $realtime - t_csrise < TcsNs) begin
+      timing_errors = timing_errors + 1;
+      $display("[FLASH] TIMING ERROR @%0t: SCLK edge %0.1f ns after the CS rise", $time, $realtime - t_csrise);
+      $error("SCLK edge at the CS rise");
+    end
+    t_sclk = $realtime;
+  end
+  always @(posedge csn) if ($realtime > 0) begin
+    if ($realtime - t_sclk < TcsNs) begin
+      timing_errors = timing_errors + 1;
+      $display("[FLASH] TIMING ERROR @%0t: SCLK edge %0.1f ns before the CS rise", $time, $realtime - t_sclk);
+      $error("SCLK edge at the CS rise");
+    end
+    t_csrise = $realtime;
+  end
 
   always @(negedge csn) begin
     nclk  = 0;

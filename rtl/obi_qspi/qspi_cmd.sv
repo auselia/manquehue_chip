@@ -99,7 +99,7 @@ module qspi_cmd #(
   assign rdata = (addr == 4'd8) ? {26'b0, quad_q, 2'b00, cs_q} : spi_rdata;
 
   // SPI master (the radio master of the SPI block)
-  logic csn, rstn_unused;
+  logic csn, rstn_unused, rf_req;
   rf_spi i_spi (
     .clk_i,
     .rst_ni,
@@ -111,7 +111,7 @@ module qspi_cmd #(
     .reg_be_i    ( obi_req_i.a.be           ),
     .reg_rdata_o ( spi_rdata                ),
     .irq_o,
-    .bus_req_o,
+    .bus_req_o   ( rf_req                   ),
     .bus_gnt_i,
     .sclk_o,
     .mosi_o,
@@ -120,6 +120,17 @@ module qspi_cmd #(
     .dio0_i      ( 1'b0                     ),
     .rstn_o      ( rstn_unused              )
   );
+
+  // The bus request stays high 2 clocks after rf_spi drops it. rf_spi drops it in the cycle that CS rises, and then
+  // user_domain gives SCLK back to obi_qspi, whose idle SCLK is 1: in mode 0 that was a rising SCLK edge at the CS
+  // rise, and the W25Q dropped every command it runs at the CS rise (ZedBoard, 9 Nov 2026). With the hold, the
+  // switch comes 2 clocks after CS is high, where the devices ignore SCLK.
+  logic [1:0] req_hold_q;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) req_hold_q <= 2'b00;
+    else         req_hold_q <= {req_hold_q[0], rf_req};
+  end
+  assign bus_req_o = rf_req | (|req_hold_q);
 
   // the chip select of the device selected in QCTRL
   always_comb begin

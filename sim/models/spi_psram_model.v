@@ -20,6 +20,29 @@ module spi_psram_model #(
   output wire [3:0] sio_o,
   output wire [3:0] sio_oe
 );
+
+  // Timing check: an SCLK edge less than TcsNs before or after a CS rise (tCHD / tCSP of the APS6404L, rounded to
+  // 5 ns). A real device can count it as a clock of the command. In RTL simulation both edges come in the same time
+  // step, so without this check the model accepts it (qspi_cmd handover in mode 0, ZedBoard 9 Nov 2026).
+  localparam real TcsNs = 5.0;
+  realtime t_sclk = -1.0e9, t_csrise = -1.0e9;
+  integer  timing_errors = 0;
+  always @(sclk) if ($realtime > 0) begin
+    if (csn === 1'b1 && $realtime - t_csrise < TcsNs) begin
+      timing_errors = timing_errors + 1;
+      $display("[%s] TIMING ERROR @%0t: SCLK edge %0.1f ns after the CS rise", Name, $time, $realtime - t_csrise);
+      $error("SCLK edge at the CS rise");
+    end
+    t_sclk = $realtime;
+  end
+  always @(posedge csn) if ($realtime > 0) begin
+    if ($realtime - t_sclk < TcsNs) begin
+      timing_errors = timing_errors + 1;
+      $display("[%s] TIMING ERROR @%0t: SCLK edge %0.1f ns before the CS rise", Name, $time, $realtime - t_sclk);
+      $error("SCLK edge at the CS rise");
+    end
+    t_csrise = $realtime;
+  end
   reg [7:0]  mem [SizeBytes];
   reg [7:0]  cmd;
   reg [23:0] addr;

@@ -64,11 +64,20 @@ module tc_clk_mux2 (
   output logic clk_o
 );
 
-  BUFGMUX i_BUFGMUX (
-    .S  ( clk_sel_i ),
-    .I0 ( clk0_i    ),
-    .I1 ( clk1_i    ),
-    .O  ( clk_o     )
+  // BUFGCTRL with IGNORE0/IGNORE1 = 1: the select acts at once. A BUFGMUX waits for a falling edge of the clock it
+  // leaves, and croc switches the shared SPI SCLK (adc_rdr i_sclk_own) away from the ADC SCLK, which idles high:
+  // that edge never comes and the pad stays high (radio SCK stuck at 1 on the ZedBoard, 9 Nov 2026). The other
+  // users (JTAG test-mode mux, reset bypass) have static selects. FPGA only: the chip uses a plain mux cell.
+  BUFGCTRL i_BUFGMUX (
+    .O       ( clk_o      ),
+    .CE0     ( 1'b1       ),
+    .CE1     ( 1'b1       ),
+    .I0      ( clk0_i     ),
+    .I1      ( clk1_i     ),
+    .IGNORE0 ( 1'b1       ),
+    .IGNORE1 ( 1'b1       ),
+    .S0      ( ~clk_sel_i ),
+    .S1      ( clk_sel_i  )
   );
 
 endmodule

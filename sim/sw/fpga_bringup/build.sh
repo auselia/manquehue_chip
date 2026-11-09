@@ -16,7 +16,7 @@ NOLIBC=$(ls -d /nix/store/*-riscv32-none-elf-nolibc-gcc-15*/bin 2>/dev/null | he
 [ -n "$NOLIBC" ] && export PATH=$NOLIBC:$PATH
 XIP=0
 case $STEP in
-  s0_hello|s1_fft|s2b_flasher) SRC=$STEP.c ;;
+  s0_hello|s1_fft|s2b_flasher|s9_adc_reset) SRC=$STEP.c ;;
   s2_qspi)          SRC=../qspi_cmd/qspi_cmd_test.c ;;
   s3_adc|s4_lora|s7_event|s4_sx1262) SRC=$STEP.c; XIP=1 ;;
   s8_event_lora)    SRC=s7_event.c; XIP=1; set -- -DLORA "$@" ;;
@@ -61,6 +61,7 @@ ${PFX}objcopy -O verilog bin/$STEP.elf bin/$STEP.hex
 # for the others
 LIMIT=0x10000740
 [ $STEP = s1_fft ] && LIMIT=0x10000640
+[ $STEP = s9_adc_reset ] && LIMIT=0x10000638              # the cookie word at 0x1000063C
 END=$(${PFX}nm -n -S bin/$STEP.elf | awk '$3 ~ /^[tTdDbBrR]$/ {e = strtonum("0x" $1) + strtonum("0x" $2)} END {printf "%08x", e}')
 ${PFX}size bin/$STEP.elf
 [ $((16#$END)) -gt $(($LIMIT)) ] && { echo "ERROR: $STEP ends at 0x$END, above $LIMIT"; exit 1; }

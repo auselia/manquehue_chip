@@ -259,6 +259,8 @@ module tb_croc_soc #(
   /////////////////
 
   logic [31:0] tb_data;
+  string           binary2_path;
+  longint unsigned ndmreset_ns;
 
   initial begin
     $timeformat(-9, 0, "ns", 12); // 1: scale (ns=-9), 2: decimals, 3: suffix, 4: print-field width
@@ -289,6 +291,18 @@ module tb_croc_soc #(
 
       // resume core
       i_vip.jtag_resume();
+
+      // +ndmreset_ns=<t> +binary2=<hex>: a debug-module reset (ndmreset) t ns after the resume, then binary2 is
+      // loaded and run as above (reset test of the user domain, sim/sw/fpga_bringup/s9_adc_reset.c)
+      if ($value$plusargs("ndmreset_ns=%d", ndmreset_ns) && $value$plusargs("binary2=%s", binary2_path)) begin
+        #(ndmreset_ns * 1ns);
+        i_vip.jtag_ndmreset();
+        i_vip.jtag_load_hex(binary2_path);
+        $display("@%t | [CORE] Waking core via CLINT msip (binary2)", $time);
+        i_vip.jtag_write_reg32(ClintBaseAddr, 32'h1);
+        i_vip.jtag_halt();
+        i_vip.jtag_resume();
+      end
     end
 
     // wait for non-zero return value (written into core status register)

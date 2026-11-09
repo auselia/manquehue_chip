@@ -40,7 +40,8 @@ module croc_domain import croc_pkg::*; #(
   output mgr_obi_rsp_t user_mgr_obi_rsp_o,
 
   input  logic [NumExternalIrqs-1:0] interrupts_i,
-  output logic core_busy_o
+  output logic core_busy_o,
+  output logic ndmreset_o      // debug-module system reset (ndmreset), for the user domain
 );
 
   // -----------------
@@ -57,6 +58,7 @@ module croc_domain import croc_pkg::*; #(
   logic ndmreset;
   logic sys_rst_n;
   assign sys_rst_n = rst_ni & ~ndmreset;
+  assign ndmreset_o = ndmreset;
 
   // interrupts (irqs)
   logic clint_timer_irq;

@@ -146,6 +146,14 @@ module croc_vip #(
     $display("@%t | [JTAG] Resumed hart 0 ", $time);
   endtask
 
+  // Debug-module system reset (ndmreset), as OpenOCD "reset": everything except the debug module and the DTM
+  task automatic jtag_ndmreset;
+    jtag_write(dm::DMControl, dm::dmcontrol_t'{ndmreset: 1, dmactive: 1, default: '0});
+    repeat(20) @(posedge jtag_tck_o);
+    jtag_write(dm::DMControl, dm::dmcontrol_t'{dmactive: 1, default: '0});
+    $display("@%t | [JTAG] ndmreset pulse done", $time);
+  endtask
+
   // Read a 32 bit register
   task automatic jtag_read_reg32(
     input logic [31:0] addr,

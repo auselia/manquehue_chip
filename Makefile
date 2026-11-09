@@ -217,6 +217,8 @@ $(foreach file,$(TCL_FILES),\
   $(eval $(call MAKE_FC_RULE,$(file),$(base),$(DEPENDENCY)))\
   $(eval DEPENDENCY := $(WORK_DIR)/design.dlib/$(base))\
 )
+# A helper that only one step sources: a change in it reruns that step (and the steps after it).
+$(WORK_DIR)/design.dlib/finish: scripts/common/drc_eco.tcl
 
 # Re-export of the PrimeTime inputs (06_finish.tcl writes them already): SDC, sign-off SDC, scan SDC and SPEF from
 # the saved finish block into outputs/latest, without running finish again.

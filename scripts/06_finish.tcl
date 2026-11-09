@@ -18,10 +18,11 @@ if {$CHIP_FLOORPLAN} {
 # Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.
 source [file dirname [info script]]/common/drc_eco.tcl
 drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
-# hand_eco (common/drc_eco.tcl) names cells of one macro route: remove this call for any other route. The chip
-# flow has its own route, so it does not call it.
-if {!$CHIP_FLOORPLAN} { hand_eco }
-if {$CHIP_FLOORPLAN} { chip_finish_buffers }
+# SRAM CLK buffers (and, on the chip, the pad input buffers): found in the block, so any route gets them.
+# hand_eco (common/drc_eco.tcl) names the cells of one old macro route and is not called.
+chip_finish_buffers
+# Weak drivers over max transition or max capacitance: next drive strength (or a buf_4), then route_eco.
+finish_drv_fix
 
 ###################################
 # FILLER Cell Insertion

@@ -442,3 +442,73 @@ proc hand_eco {} {
   }
   route_eco
 }
+
+###############################################################################
+# Max transition and max capacitance after route_opt
+###############################################################################
+# route_opt leaves weak drivers over the limits (24 nets on the 8 Nov 2026 route, 25 -> 30 during route_opt), FC has
+# no fix_eco_drc. Found in the block, so any route gets the fix.
+# Nets over max transition or max capacitance in the scenarios that check them: the driver gets the next drive
+# strength of the same function (oai32_1 -> oai32_2), or a buf_4 when there is no larger one. Not with little hold slack.
+proc finish_drv_nets {} {
+  set nets [dict create]
+  foreach_in_collection s [get_scenarios -filter "active && name !~ scan_*"] {
+    redirect -variable rpt {report_constraints -all_violators -max_transition -max_capacitance -nosplit -scenarios $s}
+    foreach line [split $rpt \n] {
+      if {![string match *VIOLATED* $line]} { continue }
+      # A net is found from its pins (leaf names). Hierarchical net names with [] are no glob pattern, they are escaped.
+      set obj [expr {[string match "*PIN :*" $line] ? [lindex $line 2] : [lindex $line 0]}]
+      set n [get_nets -quiet -of_objects [get_pins -quiet [string map {[ \\[ ] \\]} $obj]]]
+      if {[sizeof_collection $n] == 0} { set n [get_nets -quiet [string map {[ \\[ ] \\]} $obj]] }
+      if {[sizeof_collection $n] == 0} { puts "INFO: DRV fix: no net found for $obj"; continue }
+      dict set nets [get_object_name $n] 1
+    }
+  }
+  return [dict keys $nets]
+}
+# Up to 3 passes: an upsized driver can still be too weak, it then gets the next size.
+proc finish_drv_fix {} {
+  set nets [finish_drv_nets]
+  for {set pass 1} {$pass <= 3 && [llength $nets]} {incr pass} {
+    puts "INFO: DRV fix pass $pass: [llength $nets] net(s) over max transition or max capacitance"
+    finish_drv_pass $nets $pass
+    set nets [finish_drv_nets]
+  }
+  foreach n $nets { puts "INFO: DRV fix: $n stays over the limits" }
+}
+proc finish_drv_pass {nets pass} {
+  set buf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__buf_4]
+  set new 0
+  foreach n $nets {
+    set drv [get_pins -quiet -leaf -of_objects [get_nets $n] -filter "direction == out"]
+    if {[sizeof_collection $drv] != 1} { puts "INFO: DRV fix: $n has no single cell driver, skipped"; continue }
+    set c [get_cells -of_objects $drv]
+    set ref [get_attribute $c ref_name]
+    if {[get_attribute $c is_hard_macro] || [string match *fd_io__* $ref] || [string match *tie* $ref]} { continue }
+    # A driver with little hold margin is left as it is. route_opt hold buffers (clkbuf_1) get their delay from the
+    # slow edge that the transition limit flags: sized to clkbuf_2 the path gave -0.12 ns hold at fast, with a buf_4
+    # after it -0.40 ns (8 and 9 Nov 2026). PrimeTime checks such a net against the library limit.
+    set hold [get_attribute -quiet $drv worst_min_slack]
+    set bigger ""
+    if {$hold ne "" && $hold < 0.5} {
+      puts "INFO: DRV fix: [get_object_name $drv] hold slack $hold ns, net $n left as it is"
+      continue
+    }
+    if {[regexp {^(.*)_([0-9]+)$} $ref -> base x]} {
+      foreach lc [get_object_name [get_lib_cells -quiet */${base}_*]] {
+        if {[regexp "^${base}_(\[0-9\]+)\$" [file tail $lc] -> y] && $y > $x && ($bigger eq "" || $y < $by)} { set bigger $lc; set by $y }
+      }
+    }
+    if {$bigger ne ""} {
+      size_cell $c [get_lib_cells $bigger]
+      puts "INFO: DRV fix: [get_object_name $c] $ref -> [file tail $bigger] (net $n)"
+    } else {
+      set tag eco_drv_${pass}_[incr new]
+      add_buffer -new_cell_names $tag -lib_cell $buf $drv
+      set_cell_location -coordinates [lindex [get_attribute $c boundary_bbox] 0] [get_cells ${tag}*]
+      puts "INFO: DRV fix: buf_4 $tag after [get_object_name $drv] ($ref, net $n)"
+    }
+  }
+  legalize_placement
+  route_eco
+}

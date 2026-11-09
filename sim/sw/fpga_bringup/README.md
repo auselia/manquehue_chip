@@ -174,7 +174,10 @@ croc stores words in the PSRAM most significant byte first. The `.psram.hex` for
   obi_qspi in the same cycle that CS rises, and the idle SCLK of obi_qspi is 1. In mode 0 that is a rising SCLK edge
   at the CS rise, the W25Q counts a 9th clock and drops every command it runs at CS rise (write enable, erase,
   program, status write, reset). Reads work. Step 2 and the flasher send flash commands in mode 3 (the PSRAMs pass in
-  mode 0). The RTL fix is open. The simulation flash model does not catch it.
+  mode 0). **Fixed in RTL (commit 3a3f537):** `qspi_cmd` keeps the bus 2 clocks after CS rises, and the flash and
+  PSRAM models now flag an SCLK edge within 5 ns of a CS rise (the check stops the unfixed RTL at the first command).
+  `qspi_cmd_test` passes in mode 0 in simulation. The board software stays in mode 3 until an FPGA build with the fix
+  is checked on the board.
 - **Flash ID:** the Pmod has a W25Q128JV-IM/JM, ID EF7018 (step 2 accepts EF4018 and EF7018).
 - **SRAM steps:** their crt0 does not clear .bss, so each step sets `fail = 0`. `load.sh` sets ra to the bootrom
   `_eoc` (0x0200_0100), or main returns to a stale ra and the step runs again.
@@ -252,6 +255,11 @@ FPGA it was a BUFGMUX, which waits for a falling edge of the clock it leaves. Th
 never came and the radio SCK stayed at 1 (MOSI, NSS and RESET worked). `tc_clk_xilinx.sv` now uses a BUFGCTRL with
 IGNORE0 and IGNORE1 set: the select acts at once. The chip uses a plain mux cell and does not have this problem.
 
-**ADC reader after a JTAG reset (open):** a reset while step 7 is armed (triggered capture running) left the ADC
-reader stuck (STATUS 0x08, COUNT 0xFFFF, all samples 0). Only a bitstream load cleared it. Do not reset croc while it
-is armed.
+**ADC reader after a JTAG reset (fixed in RTL, commit aa3e202):** a reset while step 7 was armed (triggered capture
+running) left the ADC reader stuck (STATUS 0x08, COUNT 0xFFFF, all samples 0) until a bitstream load. Cause: the user
+domain did not reset on the debug-module reset (ndmreset). It does now. Test: step 9 (`s9_adc_reset`, from the SRAM)
+arms a capture, then after the reset checks that the reader is idle and reads a block. Simulation: FAIL before the
+fix, STEP9 OK after. On the board: `./load.sh s9_adc_reset`, then load and run it again after an OpenOCD
+`reset halt` (needs an FPGA build with the fix). After a JTAG reset the PSRAM quad state of `qspi_cmd` is 0, while a
+PSRAM can still be in QPI mode (the same as after the external reset): software that uses quad mode must leave it
+before a reset.

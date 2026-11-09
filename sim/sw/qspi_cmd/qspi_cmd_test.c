@@ -41,6 +41,11 @@ static void bad(int step, uint32_t v) { fail |= 1u << step; put("step "); put_he
 // one command on device cs: ntx bytes out of tx, then nrx bytes into rx (CS low for all of them)
 static void cmd(uint32_t cs, const uint8_t *tx, uint32_t ntx, uint8_t *rx, uint32_t nrx) {
     uint32_t n = ntx + nrx, i = 0, j = 0, t0 = mcycle();
+    // Flash (CS0) in SPI mode 3: the pins go back to obi_qspi in the cycle that CS rises, and its idle SCLK is 1. In
+    // mode 0 that is a rising SCLK edge together with the CS rise, the W25Q counts a 9th clock and drops every
+    // command it runs at CS rise (06, 04, 20, 02, 31, 66/99). Seen on the ZedBoard, 9 Nov 2026. The PSRAMs pass in
+    // mode 0.
+    QC(Q_CTRL) = (QC(Q_CTRL) & ~0xCu) | (cs == 0 ? 0xCu : 0u);
     QC(Q_QCTRL) = (QC(Q_QCTRL) & ~3u) | cs;
     QC(Q_CMD) = n;
     while (j < n) {
@@ -67,6 +72,7 @@ static void wait_ready(void) {                             // read status 1 unti
 }
 
 int main() {
+    fail = 0;                                              // .bss is not cleared by the SRAM crt0: no stale value
     uart_init();
     uint8_t b[24], r[4];
     QC(Q_CTRL) = 1u | (1u << 8) | (1u << 16);              // EN, mode 0, CLKDIV 1 (SCLK = clk / 4), CS_SETUP 1
@@ -74,7 +80,7 @@ int main() {
     // 1. JEDEC ID
     b[0] = 0x9F; cmd(0, b, 1, r, 3);
     uint32_t id = (r[0] << 16) | (r[1] << 8) | r[2];
-    if (id != 0xEF4018u) bad(1, id);
+    if (id != 0xEF4018u && id != 0xEF7018u) bad(1, id);           // W25Q128JV-IQ or -IM/JM
 
     // 2. sector erase
     op(0x06);

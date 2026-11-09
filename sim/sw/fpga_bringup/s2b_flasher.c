@@ -48,9 +48,12 @@ static void wait_ready(void) {
 static void addr_cmd(uint8_t op, uint32_t a) { page[0] = op; page[1] = a >> 16; page[2] = a >> 8; page[3] = a; }
 
 int main() {
+    fail = 0;                                              // .bss is not cleared by the SRAM crt0: no stale value
     uart_init();
     put("STEP2b flasher\n");
-    QC(Q_CTRL) = 1u | (1u << 8) | (1u << 16);              // EN, mode 0, SCLK = clk / 4, CS_SETUP 1
+    // EN, SPI mode 3, SCLK = clk / 4, CS_SETUP 1. Mode 3: in mode 0 the pin handover to obi_qspi (idle SCLK 1) adds a
+    // rising SCLK edge at the CS rise, and the W25Q drops write enable, erase and program (ZedBoard, 9 Nov 2026).
+    QC(Q_CTRL) = 1u | (1u << 2) | (1u << 3) | (1u << 8) | (1u << 16);
     uint32_t len = W(PSRAM0);
     kv("length", len);
     if (len < 8u || len > 0x100000u || W(PSRAM0 + 4) != 0x434F5243u) {

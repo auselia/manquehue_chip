@@ -3,6 +3,7 @@
 // are not all the same (a stuck SDO reads all 0 with the pull-down). With -DRAMP (simulation, tb_croc_soc ADS7057
 // model) the samples must also step by 1237 mod 2^14.
 // LD4 shows WAKE_N, LD5 BIG_N: touch or drive the AFE input to see them.
+// -DDUMP=n: then n blocks of 128 samples printed in full, for adc_fit.py (sine fit) on the Mac.
 #include "bringup.h"
 int main() {
     uart_init();
@@ -30,6 +31,19 @@ int main() {
     check(3, mx != mn, "all samples equal");
 #ifdef RAMP
     check(4, !(fail & (1u << 4)), "ramp");
+#endif
+#ifdef DUMP
+    // -DDUMP=n: n more blocks, all 128 samples of each in hex (sign-extended 14-bit codes, 1.000 MSPS: 20 clocks per
+    // frame at 20 MHz), for adc_fit.py on the Mac. "cycles" is the time of adc_block, start to stop.
+    for (int b = 0; b < DUMP; b++) {
+        uint32_t t0 = mcycle();
+        int ok = adc_block();
+        uint32_t dt = mcycle() - t0;
+        if (!ok) { check(5, 0, "dump block"); break; }
+        kv("block", (uint32_t)b); kv("cycles", dt);
+        for (int i = 0; i < 128; i++) { put_hex(s[i]); put((i & 7) == 7 ? "\n" : " "); }
+    }
+    put("dump end\n");
 #endif
     return finish("STEP3");
 }

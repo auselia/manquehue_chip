@@ -1,6 +1,7 @@
 // Step 1, FFT standalone: a 128-sample tone at bin 36 in SRAM (no ADC), the FFT in place, PEAK_BIN must be 36.
 #include "bringup.h"
 int main() {
+    fail = 0;                                              // .bss is not cleared by the SRAM crt0: no stale value
     uart_init();
     put("STEP1 fft\n");
     // y[n] = 2 cos(w) y[n-1] - y[n-2] in Q14, amplitude 3000 codes (as fft_lora.c, no multiplier needed)

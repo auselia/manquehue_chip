@@ -18,7 +18,7 @@ XIP=0
 case $STEP in
   s0_hello|s1_fft|s2b_flasher) SRC=$STEP.c ;;
   s2_qspi)          SRC=../qspi_cmd/qspi_cmd_test.c ;;
-  s3_adc|s4_lora)   SRC=$STEP.c; XIP=1 ;;
+  s3_adc|s4_lora|s7_event) SRC=$STEP.c; XIP=1 ;;
   s5_adc_fft)       SRC=s56_adc_fft.c; XIP=1 ;;
   s6_adc_fft_lora)  SRC=s56_adc_fft.c; XIP=1; set -- -DLORA "$@" ;;
   *) echo "usage: $0 <step>"; exit 1 ;;

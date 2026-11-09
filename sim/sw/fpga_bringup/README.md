@@ -24,6 +24,7 @@ of the pins that the AFE board drives.
 | 4 | `s4_lora` | flash | RegVersion, NPKT packets, TxDone on DIO0 | SX1276, a second SX1276 |
 | 5 | `s5_adc_fft` | flash | ADC block, FFT, features (5 blocks) | none new |
 | 6 | `s6_adc_fft_lora` | flash | ADC block, FFT, features sent over LoRa (5 blocks) | none new |
+| 7 | `s7_event` | flash | WAKE_N-triggered capture, FFT per block (BAND_OK, DECAY), envelope features | AFE v1, a signal |
 
 ## 1. Where every croc port goes
 
@@ -43,8 +44,8 @@ All Pmods are 3.3 V (bank 13). Pmod pins 5 and 11 are GND, 6 and 12 are 3.3 V. P
 | `jtag_tdo_o` | out | J-Link TDO | JA4 | AA9 | |
 | `jtag_trst_ni` | in | J-Link nTRST | JA7 | AB11 | pull-up |
 | | | J-Link VTref / GND | JA6 / JA5 | | |
-| `uart_tx_o` | out | FTDI RX | JB1 | W12 | 115200 8N1 |
-| `uart_rx_i` | in | FTDI TX | JB2 | W11 | |
+| `uart_tx_o` | out | UART receiver (AD2 DIO 0) | JB1 | W12 | **125000** 8N1, see section 7 |
+| `uart_rx_i` | in | (not used by the steps) | JB2 | W11 | |
 | `qspi_csn_o[0]` | out | flash CS | JC1 | AB7 | QSPI Pmod (TinyTapeout), plugs in directly |
 | `qspi_sd[0]` | io | SD0 / MOSI | JC2 | AB6 | |
 | `qspi_sd[1]` | io | SD1 / MISO | JC3 | Y4 | |
@@ -162,3 +163,43 @@ testbench GPIO model does not loop back).
 
 croc stores words in the PSRAM most significant byte first. The `.psram.hex` for the model is in that order, the
 `.psram.bin` for OpenOCD is not (OpenOCD writes through croc).
+
+## 7. Board findings (9 Nov 2026)
+
+- **UART rate:** croc sends at 125000 baud, not 115200: `uart_init` truncates 20 MHz / (16 x 115200) = 10.85 to 10
+  (measured 8.0 us per bit with `ad2_bittime.py`). A 115200 receiver reads garbage. The steps are read with an Analog
+  Discovery 2: DIO 0 on JB1, GND on JB5, `python3 ad2_uart.py <seconds> <log>` (close the WaveForms app first). The
+  J-Link VCOM does not work for it (garbled, and its pin 5 is TDI: it breaks JTAG).
+- **QSPI flash commands in SPI mode 3:** when a command of the engine ends, `user_domain.sv` gives the pins back to
+  obi_qspi in the same cycle that CS rises, and the idle SCLK of obi_qspi is 1. In mode 0 that is a rising SCLK edge
+  at the CS rise, the W25Q counts a 9th clock and drops every command it runs at CS rise (write enable, erase,
+  program, status write, reset). Reads work. Step 2 and the flasher send flash commands in mode 3 (the PSRAMs pass in
+  mode 0). The RTL fix is open. The simulation flash model does not catch it.
+- **Flash ID:** the Pmod has a W25Q128JV-IM/JM, ID EF7018 (step 2 accepts EF4018 and EF7018).
+- **SRAM steps:** their crt0 does not clear .bss, so each step sets `fail = 0`. `load.sh` sets ra to the bootrom
+  `_eoc` (0x0200_0100), or main returns to a stale ra and the step runs again.
+- **GPIO:** the input register reads 0 for a pin set as an output, so step 0 has no read-back check: watch LD0/LD1.
+- **Builds:** `~/Documents/run_bringup_sim.sh` builds the simulation versions (`-DCLK_HZ=20000u`) into the same `bin/`.
+  Build the board versions after it (`./build.sh <step>`), or the waits are 1000 times too short on the board.
+
+## 8. Bench tools (MSOX4024A over LAN, AD2)
+
+| Tool | Use |
+|---|---|
+| `scope.py` | SCPI to the MSOX4024A (192.168.140.102:5025), for example `python3 scope.py ":WGEN:OUTP 0"` |
+| `ad2_uart.py`, `ad2_bittime.py` | UART receiver on AD2 DIO 0, and the bit time on the line |
+| `adc_point.sh`, `adc_fit.py` | one frequency-response point: WaveGen sine, step 3 with `-DDUMP=8` in the flash, sine fit of the blocks |
+| `wake_probe.tcl` | WAKE_N flag and pin level through croc over JTAG |
+| `trig_test.tcl` | the WAKE_N-triggered ADC capture set up over JTAG, no program |
+| `flash_status.tcl` | W25Q JEDEC ID and status registers through the command engine over JTAG |
+| `cav_arb.py`, `cav_run.sh`, `cav_compare.py` | a scope capture played by the WaveGen (8192 points, 4 kHz): the ADC and FFT of croc against the expected chain |
+| `event_arb.py`, `event_run.sh`, `event_check.py` | step 7: synthetic hits or captures played once per 2 ms, the FFT checked against `sim/fft/model/aefft_model.py`, the envelope features recomputed |
+| `gen_dash_data.py` | the CSV files of the results page from the logs |
+
+The tools that use numpy need a Python 3 with numpy (on the Mac: a venv).
+
+Step 7 on the board (9 Nov 2026): the FFT equals the model and the envelope features equal the recomputed ones on
+every event. 250 kHz hit (20 us rise, 80 us decay): rise 15 to 16 us, fall 173 to 176 us, duration 68 to 70 us (ideal
+16, 177, 69), BAND_OK, DECAY on blocks 1 to 3. 120 kHz hit: no BAND_OK. Cavitation captures: BAND_OK, duration 247 to
+250 us for a 250 us capture, rise and fall not meaningful (steady noise). Spike captures (00003, 00007): no WAKE_N,
+below the listener threshold after the AFE.

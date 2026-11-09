@@ -203,3 +203,47 @@ every event. 250 kHz hit (20 us rise, 80 us decay): rise 15 to 16 us, fall 173 t
 16, 177, 69), BAND_OK, DECAY on blocks 1 to 3. 120 kHz hit: no BAND_OK. Cavitation captures: BAND_OK, duration 247 to
 250 us for a 250 us capture, rise and fall not meaningful (steady noise). Spike captures (00003, 00007): no WAKE_N,
 below the listener threshold after the AFE.
+
+## 9. SX1262 LoRa through a Heltec WiFi LoRa 32 V3 (9 Nov 2026)
+
+The SX1262 of the Heltec V3 is wired to ESP32-S3 GPIO8 to 14 only, not to the headers. Heltec #1 runs `heltec/bridge`:
+a loop on core 1 copies croc's lines from header J3 to the SX1262 and back. No radio code runs on the ESP32, croc
+drives the radio itself. A monitor on core 0 only reads the same pins: it decodes croc's commands for the OLED
+(frames, sync word, SetTx, TxDone, payload, airtime) and prints a pin report on USB once a second (level and edge
+count of SCK, MOSI, NSS, RESET). Heltec #2 runs `heltec/receiver` (RadioLib) and prints each packet on USB.
+
+| croc | ZedBoard | Heltec #1 J3 | dir |
+|---|---|---|---|
+| SCK | JB3 | pin 15 (GPIO4) | croc to radio |
+| MOSI | JB4 | pin 16 (GPIO5) | croc to radio |
+| NSS | JB8 | pin 17 (GPIO6) | croc to radio |
+| RESET | JB9 | pin 18 (GPIO7) | croc to radio |
+| MISO | JB7 | pin 14 (GPIO3) | radio to croc |
+| BUSY (on `rf_dio0_i`) | JB10 | pin 13 (GPIO2) | radio to croc |
+| GND | JB5 or JB11 | pin 1 | |
+
+Power Heltec #1 from its USB, or from JB6 (3.3 V) to a 3V3 pin. Never both at the same time. Antennas on both boards
+before any transmission. Flash: `pio run -d heltec/<bridge|receiver> -t upload --upload-port /dev/cu.usbserial-...`.
+Read: `python3 serial_read.py <port> <seconds> [log]` (it releases RTS: on macOS RTS is on after open, and it holds
+the ESP32 in reset).
+
+Radio settings (`sx1262.h`, the same in the receiver): 915 MHz, SF7, BW 125 kHz, CR 4/5, sync word 0x12, CRC on,
++14 dBm, TCXO 1.8 V on DIO3, RF switch on DIO2. BUSY is read in `RF_PINS[8]` and TxDone is polled with GetIrqStatus,
+so DIO1 is not used and the chip needs no new pad. SCLK is 50 kHz (`SX_CLKDIV`) because of the bridge.
+
+- **Step 4 (`s4_sx1262`):** sync word read back 0x1424, 20 buffer write and read-backs of 64 bytes, then 10 packets
+  'L', sequence, A5 5A C3 3C 0F F0. Result 9 Nov 2026: all 10 packets received in order, CRC ok, RSSI -19 dBm,
+  SNR +12 dB (boards about 1 m apart).
+- **Step 8 (`s8_event_lora`):** step 7 plus one 34-byte packet per event (`s7_event.c` with `-DLORA`). The receiver
+  decodes it.
+- **Step 7 by hand:** `./build.sh s7_event -DARM_FOREVER -DNEV=10` re-arms after each empty arm window. LD0 is on
+  while croc is armed, LD1 toggles at each event.
+
+**FPGA clock mux (fixed 9 Nov 2026):** the shared SPI SCLK goes through `tc_clk_mux2` (`adc_rdr` `i_sclk_own`). On the
+FPGA it was a BUFGMUX, which waits for a falling edge of the clock it leaves. The ADC SCLK idles high, so that edge
+never came and the radio SCK stayed at 1 (MOSI, NSS and RESET worked). `tc_clk_xilinx.sv` now uses a BUFGCTRL with
+IGNORE0 and IGNORE1 set: the select acts at once. The chip uses a plain mux cell and does not have this problem.
+
+**ADC reader after a JTAG reset (open):** a reset while step 7 is armed (triggered capture running) left the ADC
+reader stuck (STATUS 0x08, COUNT 0xFFFF, all samples 0). Only a bitstream load cleared it. Do not reset croc while it
+is armed.

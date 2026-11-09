@@ -235,7 +235,15 @@ so DIO1 is not used and the chip needs no new pad. SCLK is 50 kHz (`SX_CLKDIV`) 
   'L', sequence, A5 5A C3 3C 0F F0. Result 9 Nov 2026: all 10 packets received in order, CRC ok, RSSI -19 dBm,
   SNR +12 dB (boards about 1 m apart).
 - **Step 8 (`s8_event_lora`):** step 7 plus one 34-byte packet per event (`s7_event.c` with `-DLORA`). The receiver
-  decodes it.
+  decodes it. Result 9 Nov 2026 with the WaveGen hit (`event_arb.py hit 250e3 0.15 20 80`): STEP8 OK, 4 packets
+  sent and 4 received, each byte for byte the same as the `pkt` line on croc's UART, CRC ok, RSSI -19 dBm, SNR +12.5 to
+  +13 dB, airtime about 83 ms. `event_check.py` on the same log: the FFT of all 4 events equals the bit-exact model
+  (peak bin 32, BAND_OK and DECAY from block 1), the envelope features equal the recomputed ones, and against the
+  ideal chain rise 16 (16), fall 174 (177), duration 69 (69), peak 1451 (1500).
+- **Packets of other devices:** the 915 MHz band is shared (one 27-byte packet at -109 dBm from another device was
+  received). The receiver decodes only 8-byte `L` and 34-byte `E` packets.
+- **AD2 overflows:** `ad2_uart.py` reports receive-buffer overflows during the 512-sample event dumps. The feature and
+  `pkt` lines came through complete in this run, but a long log can lose characters (open item).
 - **Step 7 by hand:** `./build.sh s7_event -DARM_FOREVER -DNEV=10` re-arms after each empty arm window. LD0 is on
   while croc is armed, LD1 toggles at each event.
 

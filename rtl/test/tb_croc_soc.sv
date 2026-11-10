@@ -237,18 +237,36 @@ module tb_croc_soc #(
                i_adc_model.tacq_violations, i_adc_model.tsu_violations, i_adc_model.tph_violations);
   end
 
-  // SX1276 model on the shared bus (sim/models/sx1276_model.v, SPI mode 0), CS1. MISO is high impedance while NSS
-  // is high. The model has no reset input: rf_rstn is only printed.
-  wire  rf_csn, rf_dio0, rf_rstn;
+  // Radio on the shared bus, CS1, SPI mode 0. MISO is high impedance while NSS is high.
+  // Default: SX1276 model (sim/models/sx1276_model.v), DIO0 on rf_dio0_i. It has no reset input: rf_rstn is only
+  // printed. +rf=sx1262: SX1262 model (sim/models/sx1262_model.v), BUSY on rf_dio0_i, NRESET from rf_rstn, as on the
+  // ZedBoard (Heltec bridge). Only the selected model sees CS1.
+  wire  rf_csn, rf_dio0, rf_rstn, rf_dio0_76, rf_busy_62;
+  string rf_sel = "sx1276";
+  initial void'($value$plusargs("rf=%s", rf_sel));
+  wire  rf_is_62 = (rf_sel == "sx1262");
+  assign rf_dio0 = rf_is_62 ? rf_busy_62 : rf_dio0_76;
   sx1276_model i_rf_model (
-    .nss_n ( rf_csn   ),
+    .nss_n ( rf_csn | rf_is_62 ),
     .sclk  ( spi_sck  ),
     .mosi  ( spi_sd_o ),
     .miso  ( spi_sd   ),
-    .dio0  ( rf_dio0 )
+    .dio0  ( rf_dio0_76 )
   );
+  sx1262_model i_sx1262 (
+    .nreset ( rf_rstn | ~rf_is_62 ),
+    .nss_n  ( rf_csn | ~rf_is_62 ),
+    .sclk   ( spi_sck  ),
+    .mosi   ( spi_sd_o ),
+    .miso   ( spi_sd   ),
+    .busy   ( rf_busy_62 )
+  );
+  final if (rf_is_62)
+    $display("[SX1262] summary: commands %0d, TX %0d, while BUSY %0d, unknown %0d, short %0d, timing errors %0d",
+             i_sx1262.cmd_count, i_sx1262.tx_count, i_sx1262.cmd_while_busy, i_sx1262.unknown_ops,
+             i_sx1262.short_cmds, i_sx1262.timing_errors);
   always @(posedge rf_rstn) $display("@%t | [RF] radio out of reset", $time);
-  always @(posedge rf_dio0) begin
+  always @(posedge rf_dio0) if (!rf_is_62) begin
     $write("@%t | [RF] TX done, payload %0d bytes:", $time, i_rf_model.last_tx_len);
     for (int k = 0; k < i_rf_model.last_tx_len && k < 32; k++) $write(" %02h", i_rf_model.last_tx[k]);
     $display("");

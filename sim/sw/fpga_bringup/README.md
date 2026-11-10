@@ -154,12 +154,16 @@ Payload 8 bytes (step 4) or 24 bytes (step 6).
 
 ## 6. Simulation
 
-`~/Documents/run_bringup_sim.sh` on Rocky runs every step in the RTL testbench (`tb_croc_soc`, with the ADS7057,
-SX1276, W25Q and APS6404L models), with short waits (`-DCLK_HZ=20000u -DTIMEOUT=2000000u -DNPKT=2 -DNBLK=2`). Steps 3
+`scripts/sim/run_bringup_sim.sh` runs every step in the RTL testbench (`tb_croc_soc`, with the ADS7057, SX1276,
+SX1262, W25Q and APS6404L models), with short waits (`-DCLK_HZ=20000u -DTIMEOUT=2000000u -DNPKT=2 -DNBLK=2`). Steps 3
 to 6 go through the whole board path: the flasher (`-DBOOT`) is loaded over JTAG, PSRAM A is preloaded with
 `bin/<step>.psram.hex` (as OpenOCD writes it), the flasher writes the flash and jumps to the program. Step 3 uses
 `-DRAMP` (the model ramp), steps 5 and 6 `-DEXPECT_BIN=36` with `+adc_tone=36`, step 0 `-DNO_GPIO_READBACK` (the
-testbench GPIO model does not loop back).
+testbench GPIO model does not loop back). Steps 4 and 8 also run with the SX1262 model (`s4_sx1262`,
+`s8_event_lora`, `+rf=sx1262`: BUSY on `rf_dio0_i`, as on the board) at SCLK 1 MHz (`-DSX_CLKDIV=9u`). Step 8 runs
+one event (`-DNEV=1`), WAKE_N at ADC frame 3000. The model counts commands sent while BUSY is high, unknown or short
+commands and SCLK edges within 5 ns of an NSS edge: the summary prints them after each SX1262 step. Results in
+`sim/build/bringup_sim/summary.txt` (about 4 min).
 
 croc stores words in the PSRAM most significant byte first. The `.psram.hex` for the model is in that order, the
 `.psram.bin` for OpenOCD is not (OpenOCD writes through croc).
@@ -182,7 +186,7 @@ croc stores words in the PSRAM most significant byte first. The `.psram.hex` for
 - **SRAM steps:** their crt0 does not clear .bss, so each step sets `fail = 0`. `load.sh` sets ra to the bootrom
   `_eoc` (0x0200_0100), or main returns to a stale ra and the step runs again.
 - **GPIO:** the input register reads 0 for a pin set as an output, so step 0 has no read-back check: watch LD0/LD1.
-- **Builds:** `~/Documents/run_bringup_sim.sh` builds the simulation versions (`-DCLK_HZ=20000u`) into the same `bin/`.
+- **Builds:** `scripts/sim/run_bringup_sim.sh` builds the simulation versions (`-DCLK_HZ=20000u`) into the same `bin/`.
   Build the board versions after it (`./build.sh <step>`), or the waits are 1000 times too short on the board.
 
 ## 8. Bench tools (MSOX4024A over LAN, AD2)

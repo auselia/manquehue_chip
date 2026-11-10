@@ -444,6 +444,83 @@ proc hand_eco {} {
 }
 
 ###############################################################################
+# Scan-shift hold
+###############################################################################
+# In scan shift every flop captures the Q of its neighbour, mostly a straight Q to SI wire. route_opt leaves some of
+# them with negative hold in the scan scenarios (9 Nov 2026 route: -0.70 ns slow, -0.49 ns fast, clock skew of up to
+# 2.4 ns between neighbours in the chain). Found in the block, so any route gets the fix: each scan end point (SI
+# pin, or D pin of a plain flop of the chain) with scan hold slack under the margin (0.05 ns: Fusion Compiler
+# is about 0.1 ns more pessimistic than PrimeTime on these paths) gets a delay cell in front of it,
+# next to the flop. The cell steps up the list until the slack is met, a second cell is added after the last one.
+# A D pin is also a functional path: it gets a cell only with enough functional setup slack.
+proc scan_hold_slack {pin scen} {
+  set p [get_timing_paths -delay_type min -scenarios $scen -to $pin -max_paths 1]
+  if {[sizeof_collection $p] == 0} { return 1000.0 }
+  return [get_attribute $p slack]
+}
+proc finish_scan_hold_fix {{margin 0.05} {setup_keep 2.0}} {
+  set scen [get_scenarios -quiet scan_*]
+  if {[sizeof_collection $scen] == 0} { puts "INFO: scan hold fix: no scan scenarios"; return }
+  set func [get_scenarios -quiet {slow typical fast}]
+  set ends [get_pins -quiet -hierarchical */SI]
+  set dplain [get_pins -quiet -of_objects [get_cells -quiet -hierarchical -filter "ref_name =~ *__dff*"] -filter "lib_pin_name == D"]
+  set ends [add_to_collection $ends $dplain]
+  update_timing
+  set todo [dict create]
+  foreach_in_collection p [get_timing_paths -delay_type min -scenarios $scen -to $ends -slack_lesser_than $margin -max_paths 100000 -nworst 1] {
+    set e [get_object_name [get_attribute $p endpoint]]
+    set s [get_attribute $p slack]
+    if {![dict exists $todo $e] || $s < [dict get $todo $e]} { dict set todo $e $s }
+  }
+  puts "INFO: scan hold fix: [dict size $todo] end point(s) under $margin ns"
+  set steps [list]
+  foreach n {clkbuf_1 dlya_1 dlyb_1 dlyc_1 dlyd_1} { lappend steps [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__$n] }
+  set new [list]
+  set i 0
+  dict for {pn s0} $todo {
+    set pin [get_pins $pn]
+    set flop [get_cells -of_objects $pin]
+    if {[get_attribute $pin lib_pin_name] eq "D"} {
+      set sp [get_timing_paths -delay_type max -scenarios $func -to $pin -max_paths 1]
+      set ss [expr {[sizeof_collection $sp] ? [get_attribute $sp slack] : 1000.0}]
+      if {$ss < $setup_keep} { puts "WARNING: scan hold fix: $pn hold $s0 ns, functional setup slack $ss ns, left as it is"; continue }
+    }
+    set org [lindex [get_attribute $flop boundary_bbox] 0]
+    set tag eco_scanhold_[incr i]
+    add_buffer -new_cell_names $tag -lib_cell [lindex $steps 0] $pin
+    set c [get_cells ${tag}*]
+    set_cell_location -coordinates $org $c
+    lappend new [get_object_name $c]
+    set k 0
+    set ncell 1
+    set s [scan_hold_slack $pin $scen]
+    while {$s < $margin} {
+      if {$k < [llength $steps] - 1} {
+        incr k
+        size_cell $c [lindex $steps $k]
+      } elseif {[llength $new] < 4 * [dict size $todo]} {
+        set tag eco_scanhold_[incr i]
+        add_buffer -new_cell_names $tag -lib_cell [lindex $steps 0] $pin
+        set c [get_cells ${tag}*]
+        set_cell_location -coordinates $org $c
+        lappend new [get_object_name $c]
+        set k 0
+        incr ncell
+      } else { break }
+      set s [scan_hold_slack $pin $scen]
+    }
+    puts "INFO: scan hold fix: $pn [format %.3f $s0] -> [format %.3f $s] ns ($ncell cell(s), last [get_attribute $c ref_name])"
+  }
+  if {[llength $new] == 0} { return }
+  # A full legalization: with -cells only, the new buffers went up to 340 um away, the rows near them are full.
+  legalize_placement
+  route_eco
+  update_timing
+  set w [get_timing_paths -delay_type min -scenarios $scen -to $ends -max_paths 1]
+  puts "INFO: scan hold fix: [llength $new] cell(s), scan hold WNS after route_eco [format %.3f [get_attribute $w slack]] ns"
+}
+
+###############################################################################
 # Max transition and max capacitance after route_opt
 ###############################################################################
 # route_opt leaves weak drivers over the limits (24 nets on the 8 Nov 2026 route, 25 -> 30 during route_opt), FC has

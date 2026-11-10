@@ -21,6 +21,8 @@ drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
 # SRAM CLK buffers (and, on the chip, the pad input buffers): found in the block, so any route gets them.
 # hand_eco (common/drc_eco.tcl) names the cells of one old macro route and is not called.
 chip_finish_buffers
+# Scan-shift hold: a delay cell in front of each scan end point under 0.05 ns of scan hold slack, then route_eco.
+finish_scan_hold_fix
 # Weak drivers over max transition or max capacitance: next drive strength (or a buf_4), then route_eco.
 finish_drv_fix
 

@@ -1,8 +1,7 @@
 #!/bin/bash
 # Chip-level gate-level simulation of chip_top (pads included) in Icarus, plain Verilog test bench.
 # usage: run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]       (run inside the template's nix-shell: iverilog)
-#   env SDF=<file.sdf>: simulation with timing. The cell models keep their specify blocks (no -DFUNCTIONAL), the
-#   delays of PrimeTime are annotated (tb_macro.v, $sdf_annotate), and the flops get no extra output delay.
+#   Zero delay with a 0.5 ns flop output delay. The test with the SDF delays of PrimeTime is run_macro_gls_vcs.sh.
 set -e
 CHIP_NL=none; MACRO_NL=$(readlink -f "$2"); W=${3:?work dir}
 HEX=${PROG_HEX:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/sim/sw/gls_mini/gls_mini.hex}
@@ -11,22 +10,6 @@ PDK=$HOME/.ciel/gf180mcuD/libs.ref
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p $W; cd $W
 FUNC=-DFUNCTIONAL; DEFAULT_DLY=0.5ns
-if [ -n "$SDF" ]; then
-  # The SRAM entries of the SDF have a COND that Icarus cannot parse (CEN==1'b0&&GWEN==1'b1), and it stops reading the
-  # file there. The SRAM model has no edge paths in timing mode (below), so its CELL blocks are left out of a copy.
-  mkdir -p "$W"
-  python3 - "$(readlink -f "$SDF")" "$W/sim.sdf" <<'EOF'
-import re, sys
-t = open(sys.argv[1]).read()
-parts = re.split(r"(?m)^(?=\(CELL\s*$)", t)
-keep = [x for x in parts if 'CELLTYPE "gf180mcu_fd_ip_sram__' not in x]
-if not keep[-1].rstrip().endswith(")"):
-    keep[-1] += ")"
-open(sys.argv[2], "w").write("".join(keep))
-print("SDF for the simulation:", len(parts) - len(keep), "SRAM cell block(s) left out")
-EOF
-  FUNC="-gspecify -ginterconnect -DSDF_FILE=\"$W/sim.sdf\""; DEFAULT_DLY=0
-fi
 export INIT=${INIT:-0} CHIP_NL MACRO_NL HEX PDK W HERE FLOPDELAY=${FLOPDELAY:-$DEFAULT_DLY}
 python3 - <<'PY'
 import os, re
@@ -40,10 +23,6 @@ def rep(m):
     return (f"{m.group(1)}buf #({os.environ['FLOPDELAY']}) MGMDLY_{n[0]}( {m.group(3)}, {m.group(3)}_u );\n"
             f"{m.group(1)}{m.group(2)}( {m.group(3)}_u,")
 c = re.sub(r"(\s*)(gf180mcu_fd_sc_mcu7t5v0__udp_[a-z_]+)\(\s*(\w+),", rep, c)
-# timing mode: Icarus does not take ifnone before an edge-sensitive path ("sorry"). Without the keyword it is a plain
-# edge-sensitive path, and the SDF still annotates it.
-if os.environ.get("SDF"):
-    c = re.sub(r"\bifnone\b", "", c)
 open("cells_chip.v", "w").write("`timescale 1ns/1ps\n" + c)   # without a timescale Icarus uses 1 s units and rounds the flop delay to 0
 # power-up state of the sequential cells: all flops and latches start at INIT (0 or 1), like a Verilator two-state run.
 # Without it every unreset flop is X for ever and the four-state simulator never leaves X (pessimism, not a design bug).
@@ -52,10 +31,6 @@ pr = pr.replace("\ntable\n", "\ninitial Q = 1'b%s;\ntable\n" % os.environ.get("I
 open("primitives_chip.v", "w").write("`timescale 1ns/1ps\n" + pr)
 s = open(pdk + "/gf180mcu_fd_ip_sram/verilog/gf180mcu_fd_ip_sram__sram512x8m8wm1.v").read()
 s = s.replace("  cen_dly        = 0;", "  cen_dly        = 1;")
-# timing mode: Icarus rejects the conditional edge paths of the SRAM model (CLK to Q[i]). Only those lines are left
-# out (the specparams stay): the SRAM keeps the access delay of its behavioral model, the cells get the SDF delays.
-if os.environ.get("SDF"):
-    s = re.sub(r"(?m)^.*\(posedge CLK => \(Q\[\d\].*$", "", s)
 open("sram_chip.v", "w").write(s)
 # program image: word per line from the byte hex (@addr lines + bytes)
 mem, addr = {}, 0

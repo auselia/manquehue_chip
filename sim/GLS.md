@@ -41,6 +41,26 @@ Icarus pitfalls found on the way (each one stopped the program at the UART witho
 - TDO must be sampled a few ns after the falling TCK edge (pad delay), and the chip netlist has no `DVDD`/`DVSS`
   ports (the power pins are inout nets inside).
 
+## Macro boot with the SDF delays (VCS)
+
+`scripts/sim/run_macro_gls_vcs.sh <croc_soc.v> <file.sdf> <min|max> <work dir>` runs the `tb_macro.v` boot in VCS
+with the typical-corner SDF of PrimeTime (`make sta-pt`). `run_gls_all.sh` runs it with `min` and with `max`. PASS
+needs `GLS OK` on `uart_tx_o` and 0 timing violations. It uses the original PDK cell and SRAM models, with their
+timing checks. Compile about 10 s, run about 1 min.
+
+- PrimeTime writes each delay as `(min::max)`, with no typical value. `+mindelays` or `+maxdelays` selects one of
+  them. Icarus reads the typical value: it finds none, keeps the 1 ns default of the cell models and gives no
+  message. Until 10 Nov 2026 the SDF test ran in Icarus and was a unit-delay simulation. It failed on run
+  `croc_soc_20261109_213014` from a race of that unit delay (the clock tree to the debug-module response FIFO had
+  8 cells, so 8 ns in the simulation, 3.51 ns in PrimeTime, hold slack +1.18 ns). VCS passes that netlist at min
+  and max, with the delays of the SDF verified on one flop (CLK to Q 1.785 ns rise, 1.323 ns fall).
+- The first stage of each synchronizer (16 flops: debug-module CDC, reset, CLINT, GPIO, UART, ADC wake, DIO0)
+  samples a signal of another clock or a chip input on purpose. Its setup or hold check fails now and then by
+  design, and the X of the violation stopped the boot. The script turns off the timing checks of those flops only
+  (`+optconfigfile`, `noTiming`). Their delays stay, and all other flops keep their checks.
+- VCS needs `-full64`: without it, it looks for a 32-bit install that is not there.
+- The 10 `SDFCOM_CFTC` warnings are `PERIOD (negedge CLK)` entries of the SDF. The cell model has no such check.
+
 ## Scan shift
 
 `scripts/sim/run_gls_scan.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist

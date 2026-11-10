@@ -14,6 +14,7 @@ SRAM_DB=${SRAM_DB:-$REPO/outputs/.cache/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_
 [ -e "$SRAM_DB" ] || SRAM_DB=$HOME/Documents/manquehue_chip/outputs/.cache/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db
 PT_HOME=${PT_HOME:-/usr/synopsys/prime/Y-2026.03-SP2}
 TMAX_HOME=${TMAX_HOME:-/usr/synopsys/txs/Y-2026.03-SP2}
+VCS_HOME=${VCS_HOME:-/usr/synopsys/vcs/Y-2026.03-SP2}            # always with -full64 (no 32-bit install)
 SNPSLMD_LICENSE_FILE=${SNPSLMD_LICENSE_FILE:-27020@localhost}
 TEMPLATE_DIR=${TEMPLATE_DIR:-$HOME/Documents/waferspace_manquehue}   # wafer.space template (chip flow, simulators via nix-shell)
 PRECHECK_DIR=${PRECHECK_DIR:-$HOME/Documents/gf180mcu-precheck}

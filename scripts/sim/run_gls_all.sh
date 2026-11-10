@@ -1,6 +1,7 @@
 #!/bin/bash
 # Gate-level simulation of a run: Verilator (full-SoC testbench, program prints GLS OK), boot from the QSPI flash
-# model (flash_hello prints FLASH OK, no JTAG load), scan shift, and the Icarus macro-level JTAG boot test. The
+# model (flash_hello prints FLASH OK, no JTAG load), scan shift, the Icarus macro-level JTAG boot test, and the same
+# boot in VCS with the SDF delays of PrimeTime (min and max). The
 # chip-level test (pad ring) is part of `make chip`: it needs the chip netlist.
 # usage: scripts/sim/run_gls_all.sh      (env: RUN)
 set -e
@@ -43,13 +44,20 @@ nixrun "PROG_HEX=$HEX $HERE/run_macro_gls.sh none $RUN/croc_soc.v $O/icarus_macr
 P=$(grep -h "PASS: GLS OK" "$O/icarus_macro.log" | head -1)
 summary icarus_macro_boot "${P:-no PASS}"; [ -n "$P" ] || ST=FAIL
 
-# e. the same boot with the delays of PrimeTime at the typical corner (SDF of make sta-pt)
+# e. the same boot in VCS with the delays of PrimeTime at the typical corner (SDF of make sta-pt), with the min and
+#    the max values of the SDF, timing checks on. PASS needs GLS OK and 0 timing violations.
+#    (Icarus is not used here: it reads the typical value of an SDF triple, PrimeTime leaves it empty, and Icarus
+#    then keeps the 1 ns default of the cell models with no message, a unit-delay simulation.)
 SDF=$(ls $RUN/sta_pt/croc_soc.typical.sdf 2>/dev/null | head -1)
 if [ -n "$SDF" ]; then
-  nixrun "SDF=$SDF PROG_HEX=$HEX $HERE/run_macro_gls.sh none $RUN/croc_soc.v $O/icarus_macro_sdf" > "$O/icarus_macro_sdf.log" 2>&1 || true
-  P=$(grep -h "PASS: GLS OK" "$O/icarus_macro_sdf.log" | head -1)
-  summary icarus_macro_boot_sdf "${P:-no PASS}"; [ -n "$P" ] || ST=FAIL
+  for M in min max; do
+    PROG_HEX=$HEX "$HERE/run_macro_gls_vcs.sh" "$RUN/croc_soc.v" "$SDF" $M "$O/vcs_macro_sdf_$M" > "$O/vcs_macro_sdf_$M.log" 2>&1 || true
+    P=$(grep -h "PASS: GLS OK" "$O/vcs_macro_sdf_$M.log" | head -1)
+    V=$(grep -h "^timing violations:" "$O/vcs_macro_sdf_$M.log" | grep -o "[0-9]*" | head -1)
+    summary vcs_macro_boot_sdf_$M "${P:-no PASS}, timing violations: ${V:-?}"
+    [ -n "$P" ] && [ "$V" = "0" ] || ST=FAIL
+  done
 else
-  summary icarus_macro_boot_sdf "not run (no SDF, run make sta-pt)"
+  summary vcs_macro_boot_sdf "not run (no SDF, run make sta-pt)"
 fi
 summary status $ST

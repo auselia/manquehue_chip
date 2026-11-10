@@ -114,7 +114,7 @@ module tb_macro;
   reg [31:0] prog [0:NWORDS-1];
   integer k;
 `ifdef SDF_FILE
-  // gate-level simulation with timing (run_macro_gls_sdf.sh): the delays of PrimeTime
+  // gate-level simulation with timing (scripts/sim/run_macro_gls_vcs.sh, VCS): the delays of PrimeTime
   initial $sdf_annotate(`SDF_FILE, dut);
 `endif
   initial begin

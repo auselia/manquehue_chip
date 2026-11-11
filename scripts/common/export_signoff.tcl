@@ -54,8 +54,8 @@ proc write_pt_sdc { sdc_out } {
   set SKIP_CONTINUATION 0
   foreach line $SDC_LINES {
     # the limits at 0.9 x library of one scenario are for implementation: PrimeTime checks every corner on its library limit
-    if { [regexp {^set_max_transition\M} $line] } { continue }
-    if { [regexp {^set_clock_latency\M} $line] } {
+    # A dropped command takes its continuation lines with it (write_sdc splits long pin lists over several lines).
+    if { [regexp {^(set_max_transition|set_clock_latency)\M} $line] } {
       set SKIP_CONTINUATION [expr {[string index $line end] == "\\"}]
       continue
     }

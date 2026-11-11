@@ -225,6 +225,13 @@ set ADC_RDR_FLOPS [get_cells -quiet -hierarchical -filter "is_sequential == true
 if {[sizeof_collection $ADC_RDR_FLOPS] > 0} {
   set_false_path -from [get_clocks clock] -through [get_ports spi_sd_i] -to $ADC_RDR_FLOPS
 }
+# spi_sck_o carries the radio SCLK while the radio owns the bus (rf_spi sclk_q through the clock mux). That leg is a
+# clk_i data path with no output delay, because the port is the source of adc_sclk. Give it the same budget as the
+# other clk_i outputs (MOSI on spi_sd_o): a clock period less IO_DELAY.
+set RF_SCLK_FLOPS [get_cells -quiet -hierarchical -filter "is_sequential == true && full_name =~ *rf_spi*sclk_q*"]
+if {[sizeof_collection $RF_SCLK_FLOPS] > 0} {
+  set_max_delay [expr {$CLOCK_PERIOD - $IO_DELAY}] -from $RF_SCLK_FLOPS -to [get_ports spi_sck_o]
+}
 
 
 ################################################################################

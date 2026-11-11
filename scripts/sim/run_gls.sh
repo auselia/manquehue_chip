@@ -102,6 +102,7 @@ $REPO/sim/models/ads7057_model.v
 $REPO/sim/models/spi_flash_model.v
 $REPO/sim/models/spi_psram_model.v
 $REPO/sim/models/sx1276_model.v
+$REPO/sim/models/sx1262_model.v
 $W/tb/tb_croc_soc.sv
 $V/primitives.v
 $W/cells.v

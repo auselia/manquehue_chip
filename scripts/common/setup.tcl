@@ -82,7 +82,7 @@ set CHIP_FLOORPLAN      [expr {[info exists ::env(CHIP_FLOORPLAN)] && $::env(CHI
 if { [info exists ::env(WS_IP_DIR)] } { set WS_IP_DIR $::env(WS_IP_DIR) } else { set WS_IP_DIR "$::env(HOME)/Documents/waferspace_manquehue/ip" }
 set CHIP_WS_IPS         {gf180mcu_ws_ip__qrcode_id gf180mcu_ws_ip__shuttle_id gf180mcu_ws_ip__project_id gf180mcu_ws_ip__logo gf180mcu_ws_ip__marker}
 # The croc core ends DCDC_GAP under the lowest DC-DC block (chip_floorplan.tcl). The Makefile passes DCDC_MACROS.
-# Sebastian's V0 migration (AC3E commit d1d53b2: Channels_wrapper DB_VCO_wrapper, waferspace_wip/dcdc_macro_v0_20261028)
+# Sebastian's V0 migration (AC3E commit d1d53b2: Channels_wrapper DB_VCO_wrapper, waferspace_wip/macros/dcdc_v0)
 # reaches 99 um into the croc area. Until its next iteration the flow keeps the previous wrappers.
 set CHIP_DCDC_MACROS    [expr {[info exists ::env(DCDC_MACROS)] ? $::env(DCDC_MACROS) : {8_segs_wrapper DB_VCO_wrapper 8seg_DB_routing}}]
 # The chip has its own top (rtl/chip/chip_top.sv, scripts/chip/gen_chip_top.py) and its own library

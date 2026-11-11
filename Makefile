@@ -236,8 +236,8 @@ pt_export:
 # make chip_macros_ndm once (or when a wrapper GDS changes), make chip_pnr (01 to 06), then make chip_finish.
 # Outputs: outputs/chip_floorplan/, chip_route/, chip_final/ (GDS, DEF, netlist) and chip_finish/ (precheck).
 # DC-DC blocks. The V0 migration of AC3E commit d1d53b2 (Channels_wrapper DB_VCO_wrapper) is in
-# waferspace_wip/dcdc_macro_v0_20261028 and reaches into the croc area: the flow keeps the previous wrappers for now.
-DCDC_GDS_DIR ?= $(HOME)/Documents/waferspace_wip/dcdc_macro
+# waferspace_wip/macros/dcdc_v0 and reaches into the croc area: the flow keeps the previous wrappers for now.
+DCDC_GDS_DIR ?= $(HOME)/Documents/waferspace_wip/macros/dcdc_old
 DCDC_MACROS  ?= 8_segs_wrapper DB_VCO_wrapper 8seg_DB_routing
 export DCDC_MACROS
 .PHONY: chip_macros_ndm chip_top chip_read_rtl chip_floorplan chip_synthesis chip_cts chip_route chip_finish_fc chip_pnr chip_finish chip_gui

@@ -3,7 +3,7 @@
 
 usage: check_ae_node.py <simulation log> [tone bin, default 36]
 
-The log has one "[RF] TX done, payload 24 bytes: .." line per packet (rtl/test/tb_croc_soc.sv). The testbench
+The log has one "[RF] TX done, payload 24 bytes: .." line per packet (sim/tb/tb_croc_soc.sv). The testbench
 stimulus with +adc_tone=<b> is code(k) = round(3000 sin(2 pi b k / 128)) + ((1237 k) mod 61) - 30, 14-bit two's
 complement. Bytes 4..7 of a packet are the first two samples of the block. The script finds k where code(k) and
 code(k+1) are these two samples, runs sim/fft/model/aefft_model.run_block on code(k..k+127) with the configuration

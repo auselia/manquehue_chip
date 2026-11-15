@@ -29,14 +29,14 @@
 ../rtl/riscv-dbg/tb/jtag_test_simple.sv
 
 # ---- testbench ----
-../rtl/test/tb_croc_pkg.sv
-../rtl/test/croc_vip.sv
+../sim/tb/tb_croc_pkg.sv
+../sim/tb/croc_vip.sv
 ../sim/models/ads7057_model.v
 ../sim/models/spi_flash_model.v
 ../sim/models/spi_psram_model.v
 ../sim/models/sx1276_model.v
 ../sim/models/sx1262_model.v
-../rtl/test/tb_croc_soc.sv
+../sim/tb/tb_croc_soc.sv
 
 ###############################################################################
 # Croc original file List

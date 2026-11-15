@@ -9,7 +9,7 @@
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
 STEP=$1; shift || true
-HW=../hello_world
+LIB=../lib
 FL=../flash
 PFX=${RISCV_PREFIX:-riscv32-none-elf-}
 NOLIBC=$(ls -d /nix/store/*-riscv32-none-elf-nolibc-gcc-15*/bin 2>/dev/null | head -1)
@@ -26,10 +26,10 @@ case $STEP in
 esac
 FLAGS="-march=rv32ic_zicsr -mabi=ilp32 -mcmodel=medany -static -std=gnu99 -Os -nostdlib -fno-builtin -ffreestanding -ffunction-sections -fdata-sections"
 mkdir -p build bin
-${PFX}gcc $FLAGS -I$HW/lib/inc -I$HW -c $HW/lib/src/uart.c -o build/uart.o
+${PFX}gcc $FLAGS -I$LIB/inc -I$LIB -c $LIB/src/uart.c -o build/uart.o
 if [ $XIP = 1 ]; then
   ${PFX}gcc $FLAGS -c $FL/crt0_flash.S -o build/crt0_flash.o
-  ${PFX}gcc $FLAGS -DXIP ${DEFS:-} "$@" -I. -I$HW/lib/inc -I$HW -c $SRC -o build/$STEP.o
+  ${PFX}gcc $FLAGS -DXIP ${DEFS:-} "$@" -I. -I$LIB/inc -I$LIB -c $SRC -o build/$STEP.o
   ${PFX}gcc $FLAGS -nostartfiles -Wl,--gc-sections -T$FL/link_flash.ld -o bin/$STEP.elf build/crt0_flash.o build/$STEP.o build/uart.o
   ${PFX}objdump -D -s bin/$STEP.elf > bin/$STEP.dump
   ${PFX}objcopy -O verilog --change-addresses -0x20000000 bin/$STEP.elf bin/$STEP.flash.hex
@@ -52,8 +52,8 @@ PY
   echo "ok: $STEP, flash image $(stat -c %s bin/$STEP.flash.bin) bytes"
   exit 0
 fi
-${PFX}gcc $FLAGS -c $HW/crt0.S -o build/crt0.o
-${PFX}gcc $FLAGS ${DEFS:-} "$@" -I. -I$HW/lib/inc -I$HW -c $SRC -o build/$STEP.o
+${PFX}gcc $FLAGS -c $LIB/crt0.S -o build/crt0.o
+${PFX}gcc $FLAGS ${DEFS:-} "$@" -I. -I$LIB/inc -I$LIB -c $SRC -o build/$STEP.o
 ${PFX}gcc $FLAGS -nostartfiles -Wl,--gc-sections -T../gls_mini/link.ld -o bin/$STEP.elf build/crt0.o build/$STEP.o build/uart.o -lgcc
 ${PFX}objdump -D -s bin/$STEP.elf > bin/$STEP.dump
 ${PFX}objcopy -O verilog bin/$STEP.elf bin/$STEP.hex

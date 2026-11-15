@@ -4,7 +4,7 @@
 # out: variables and the functions need, summary and step_begin
 #
 # Every setting below keeps a value that is already in the environment. local.env can set any of them.
-# shellcheck disable=SC2034  # the scripts that source this file read the variables
+# shellcheck shell=bash disable=SC2034  # the scripts that source this file read the variables
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 eval "$(python3 "$REPO/scripts/lib/config.py" sh)"
@@ -16,11 +16,11 @@ RUN=$(readlink -f "${RUN:-$REPO/outputs/latest}" 2>/dev/null || true)
 CHECKS_OUT=${CHECKS_OUT:-$RUN/checks}
 CACHE=$REPO/outputs/.cache
 
-# PDK data. A new worktree without outputs/.cache uses the cache of the main checkout.
+# PDK data. The PDK has the SRAM as .lib only: sram_db converts it into SRAM_DB.
 PDK_ROOT=${PDK_ROOT:-$HOME/.ciel}
 PDK_DB=${PDK_DB:-$HOME/pdk_synopsys/db}
-SRAM_DB=${SRAM_DB:-$CACHE/$SRAM_LIB.db}
-[ -e "$SRAM_DB" ] || SRAM_DB=$HOME/Documents/manquehue_chip/outputs/.cache/$SRAM_LIB.db
+PT_SRAM_LIB=${PT_SRAM_LIB:-$HOME/pdk_synopsys/lib/$SRAM_LIB.lib}
+SRAM_DB=$CACHE/$SRAM_LIB.db
 
 # Synopsys tools. PT_HOME_DIR is the name that the Makefile of waferspace_manquehue passes.
 PT_HOME=${PT_HOME:-${PT_HOME_DIR:-/usr/synopsys/prime/Y-2026.03-SP2}}
@@ -47,6 +47,16 @@ need() {
   [ -e "$1" ] && return 0
   echo "[$2] ERROR: $3"
   exit 1
+}
+
+# sram_db <tag>: convert the SRAM .lib into SRAM_DB (Library Compiler) when the .db is missing or older
+sram_db() {
+  [ -e "$SRAM_DB" ] && [ ! "$PT_SRAM_LIB" -nt "$SRAM_DB" ] && return 0
+  mkdir -p "$CACHE"
+  echo "[$1] Compiling the SRAM liberty into a .db (Library Compiler): $SRAM_DB"
+  PATH="$LC_HOME/bin:$PATH" lc_shell -x "read_lib $PT_SRAM_LIB; write_lib $SRAM_LIB -format db -output $SRAM_DB; exit" \
+    2>&1 | tee "$CACHE/lc_sram.log"
+  need "$SRAM_DB" "$1" "SRAM .db compile failed, see $CACHE/lc_sram.log"
 }
 
 # summary <key> <value>: add a "key: value" line to the summary of the current check

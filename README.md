@@ -52,8 +52,6 @@ collects them in `outputs/<run>/report.md`.
 
 - `TECHLIB_DATA_DIR` in `scripts/common/setup.tcl`: the Synopsys technology data (NDM libraries, tech file, GDS).
 - `scripts/utils/env.sh`: the tool and PDK paths. Put your own values in `scripts/utils/local.env` (not in git).
-- In a new worktree, copy `outputs/.cache` or run `make sta-pt` first. LEC and the timing models read the SRAM
-  timing from there.
 
 ## Credits
 

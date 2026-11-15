@@ -1,34 +1,41 @@
 #!/bin/bash
-# PrimeTime sign-off STA of a run: one pt_shell per corner (sta_corner.tcl), then the QoR summary
+# PrimeTime sign-off STA of a run: one pt_shell per corner (sta_corner.tcl), then the setup and hold of path group clock
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
 # usage: scripts/signoff/sta/sta.sh      (env: RUN, see settings.sh)
 # in:  <run>/croc_soc.v, <run>/croc_soc_55ns.sdc, <run>/croc_soc.<spef>.spef of every corner
-# out: sta_pt/ in the run folder: the reports of every corner and sta_pt.<corner>.log
+# out: <run>/sta_pt/: the reports and the log of every corner
 . "$(dirname "${BASH_SOURCE[0]}")/settings.sh"
+
 need "$PT_HOME/bin/pt_shell" STA-PT "pt_shell not found in PT_HOME=$PT_HOME."
 need "$SPEC_SDC" STA-PT "sign-off SDC not found: $SPEC_SDC. Run make finish, or make pt_export to write SDC and SPEF again."
 sram_db STA-PT
 set -o pipefail
-VLOG_REAL=$(readlink -f "$VLOG"); SDC_REAL=$(readlink -f "$SPEC_SDC"); RUN_REAL=$(dirname "$VLOG_REAL")
-OUT=$RUN_REAL/sta_pt
-mkdir -p "$OUT"
-echo "[STA-PT] design  : $VLOG_REAL"
-echo "[STA-PT] sdc     : $SDC_REAL"
-echo "[STA-PT] results : $OUT"
+
+vlog_file=$(readlink -f "$VLOG")
+sdc_file=$(readlink -f "$SPEC_SDC")
+run_dir=$(dirname "$vlog_file")
+out=$run_dir/sta_pt
+mkdir -p "$out"
+echo "[STA-PT] design  : $vlog_file"
+echo "[STA-PT] sdc     : $sdc_file"
+echo "[STA-PT] results : $out"
+
+# The exit status of pt_shell does not stop the loop: the reports are the result.
 for corner in $CORNERS; do
-  corner_inputs "$corner"
+  corner_inputs "$corner" "$run_dir"
   need "$SPEF" STA-PT "SPEF not found for corner $corner: $SPEF. Run make finish or make pt_export first."
   echo "[STA-PT] --- corner: $corner ---"
-  ( cd "$OUT" && PATH="$PT_HOME/bin:$PATH" pt_shell -x "set CORNER $corner; set TOP $TOP; set VLOG $VLOG_REAL;
-      set SDC_FILE $SDC_REAL; set SPEF_FILE $SPEF; set SC_DB $SC_DB; set IO_DB $IO_DB; set SRAM_DB $PT_SRAM_DB;
-      set REPORT_DIR $OUT; source $REPO/scripts/signoff/sta/sta_corner.tcl; exit" ) 2>&1 | tee "$OUT/sta_pt.$corner.log"
+  ( cd "$out" && PATH="$PT_HOME/bin:$PATH" pt_shell -x "
+      set CORNER $corner; set TOP $TOP; set VLOG $vlog_file; set SDC_FILE $sdc_file; set SPEF_FILE $SPEF
+      set SC_DB $SC_DB; set IO_DB $IO_DB; set SRAM_DB $SRAM_DB; set REPORT_DIR $out
+      source $REPO/scripts/signoff/sta/sta_corner.tcl; exit" ) 2>&1 | tee "$out/sta_pt.$corner.log"
 done
-# Setup at slow and typical, hold at fast, as in mcmm.tcl
+
 echo "[STA-PT] ================ Summary ================"
 for corner in slow typical; do
   echo "[STA-PT] setup @ $corner (Path Group 'clock'):"
-  grep -A5 "Timing Path Group 'clock' (max_delay/setup)" "$OUT/report_qor.$corner.rpt" 2>/dev/null | sed 's/^/  /'
+  grep -A5 "Timing Path Group 'clock' (max_delay/setup)" "$out/report_qor.$corner.rpt" 2>/dev/null | sed 's/^/  /'
 done
 echo "[STA-PT] hold @ fast (Path Group 'clock'):"
-grep -A5 "Timing Path Group 'clock' (min_delay/hold)" "$OUT/report_qor.fast.rpt" 2>/dev/null | sed 's/^/  /'
-echo "[STA-PT] Full reports: $OUT/*.rpt"
+grep -A5 "Timing Path Group 'clock' (min_delay/hold)" "$out/report_qor.fast.rpt" 2>/dev/null | sed 's/^/  /'
+echo "[STA-PT] Full reports: $out/*.rpt"

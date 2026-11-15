@@ -7,7 +7,7 @@
 ##@ Sign-off of a run (RUN=<run>, default outputs/latest)
 .PHONY: signoff scan-sta gls dft dft-serial drc lvs sta-pt lec drc-icv lvs-icv fill-icv power-pp rail
 signoff: drc lvs sta-pt lec ## KLayout DRC and LVS, PrimeTime STA at 3 corners, Formality, then the summary
-	RUN=$(RUN_DIR) scripts/signoff/sta/signoff_summary.sh
+	RUN=$(RUN_DIR) scripts/signoff/signoff_summary.py
 scan-sta: ## scan-shift STA, 3 corners
 	RUN=$(RUN_DIR) scripts/signoff/sta/scan_sta.sh
 gls: ## gate-level simulation: Verilator boot, flash boot, scan shift, Icarus and VCS (SDF) macro boot over JTAG

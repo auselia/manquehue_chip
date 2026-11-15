@@ -1,21 +1,12 @@
-###############################################################################
-# Croc SoC Sign-off
+# RedHawk-SC voltage drop of the finish block: the top-level VDD and VSS pins as ideal supplies
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: RedHawk-SC voltage drop of the finish block (called by make rail)
-###############################################################################
-
-# Opens the finish block, takes the top-level VDD and VSS pins as ideal supplies (create_taps -top_pg) and solves the
-# voltage drop of the routed PDN. It saves nothing: the taps and the result exist only in this session.
+# usage: fc_shell -batch -x "set TOP ...; ...; source analyze_rail.tcl"      (rail.sh does it, in work/)
+# in:  TOP, REPORT_DIR, RAIL_PRODUCT, RAIL_REDHAWK_PATH, RAIL_TECH_FILE (ITF, see its header),
+#      RAIL_VOLTAGE_DROP (static, dynamic, dynamic_vectorless or dynamic_vcd)
+# out: REPORT_DIR/voltage_drop.<mode>.rpt, pg_pin_power.<net>.<mode>.rpt, RAIL_DATABASE
 #
-# Variables (set with -x before this file is sourced, see make rail):
-#   TOP                top module (croc_soc)
-#   REPORT_DIR         folder for the rail database and the reports
-#   RAIL_PRODUCT       redhawk_sc (RedHawk-SC is in the IC Validator install)
-#   RAIL_REDHAWK_PATH  folder of the redhawk_sc executable
-#   RAIL_TECH_FILE     ITF with the R and C of every layer: tech/gf180mcu.itf, made from the PDK nxtgrd with the LEF
-#                      layer names (see its header). This RedHawk-SC takes itf, ircx or nrc, not atf.
-#   RAIL_VOLTAGE_DROP  static | dynamic | dynamic_vectorless | dynamic_vcd
-###############################################################################
+# It saves nothing: the taps and the result exist only in this session. The result shows if the top-level supply
+# pins of the macro are enough.
 
 source [file dirname [info script]]/../../common/open_lib.tcl
 open_block finish

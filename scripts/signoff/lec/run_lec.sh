@@ -1,43 +1,46 @@
 #!/bin/bash
-# Formality RTL-vs-gate equivalence check of a finished run, guided by the SVFs Fusion Compiler wrote.
+# Formality equivalence of the RTL and the netlist of a run, guided by the SVF files of Fusion Compiler
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: scripts/signoff/lec/run_lec.sh [run folder]      (default outputs/latest)
+# in:  <run>/croc_soc.v, <run>/logs/<step>.log, <run>/svf/default-*.svf, flists/croc.flist
+# out: <run>/lec_fm/ (reports), <run>/lec_fm.log
 #
-# usage: scripts/signoff/lec/run_lec.sh [run folder]   (default: outputs/latest)
-#        PDK_DB=<dir with the synopsys .db files> (default ~/pdk_synopsys/db)
-#
-# Every FC session writes a default-*.svf, and the netlist is only explained by all of them in flow order.
-# The six sessions are matched to the step logs (<step>.log) by modification time, which FC sets at the end of the
-# session. The files come from the run folder (<run>/logs and <run>/svf, copied there by scripts/utils/archive_run.sh at
-# the end of the finish step), so any run with those folders can be checked. For an older run without them the script
-# falls back to work/logs and work/ of this checkout, which only fit the newest build.
-# Results land in <run folder>/lec_fm/ and in <run folder>/lec_fm.log.
+# Every Fusion Compiler session writes one default-*.svf, and the netlist is explained only by all six in flow order.
+# An SVF and the log of its step have the same modification time (archive_run.sh keeps the times).
 set -e
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-RUN=$(readlink -f "${1:-$REPO/outputs/latest}")
-eval "$(python3 "$REPO/scripts/lib/config.py" sh)"
-PDK_DB=${PDK_DB:-$HOME/pdk_synopsys/db}
-CACHE=$REPO/outputs/.cache
-if [ -d "$RUN/logs" ] && [ -d "$RUN/svf" ]; then LOGD=$RUN/logs; SVFD=$RUN/svf; else LOGD=$REPO/work/logs; SVFD=$REPO/work; fi
-echo "step logs: $LOGD, SVF: $SVFD"
-SVF=""
+RUN=${1:-$RUN}
+. "$(dirname "${BASH_SOURCE[0]}")/../../utils/env.sh"
+need "$RUN/logs" LEC "no logs/ in '$RUN'. A run that make finish wrote has logs/ and svf/."
+need "$RUN/svf" LEC "no svf/ in '$RUN'. A run that make finish wrote has logs/ and svf/."
+sram_db LEC
+
+svf_chain=""
 for step in read_rtl floorplan synthesis cts route finish; do
-  t=$(stat -c %Y "$LOGD/$step.log")
-  f=$(for c in "$SVFD"/default-*.svf; do [ "$(stat -c %Y "$c")" = "$t" ] && echo "$c"; done | head -1)
-  [ -n "$f" ] || { echo "no SVF for step $step ($LOGD/$step.log was written at $t)"; exit 1; }
-  SVF="$SVF $f"
+  log_time=$(stat -c %Y "$RUN/logs/$step.log")
+  svf=""
+  for candidate in "$RUN"/svf/default-*.svf; do
+    [ "$(stat -c %Y "$candidate")" = "$log_time" ] && { svf=$candidate; break; }
+  done
+  [ -n "$svf" ] || { echo "no SVF for step $step ($RUN/logs/$step.log was written at $log_time)"; exit 1; }
+  svf_chain="$svf_chain $svf"
 done
-echo "SVF chain:$SVF"
-mkdir -p "$RUN/lec_fm"
-cd "$RUN/lec_fm"
+echo "SVF chain:$svf_chain"
+
+# Formality compares functions: it reads the typical libraries (CORNER_typical_LIB comes from config/ through env.sh)
+report_dir=$RUN/lec_fm
+mkdir -p "$report_dir"
+cd "$report_dir"
+# shellcheck disable=SC2154
 fm_shell -x "
-set TOP croc_soc
-set VLOG $RUN/croc_soc.v
+set TOP $TOP
+set VLOG $RUN/$TOP.v
 set FLIST $REPO/flists/croc.flist
 set SC_DB $PDK_DB/${SC_LIB}__${CORNER_typical_LIB}.db
 set IO_DB $PDK_DB/${IO_LIB}__${CORNER_typical_LIB}.db
-set SRAM_DB $CACHE/$SRAM_LIB.db
-set REPORT_DIR $RUN/lec_fm
-set SVF_FILE {$SVF}
+set SRAM_DB $SRAM_DB
+set REPORT_DIR $report_dir
+set SVF_FILE {$svf_chain}
 source $REPO/scripts/signoff/lec/lec_rtl_vs_gate.tcl
 exit
 " > "$RUN/lec_fm.log" 2>&1
-sed -n '/Verification Results/,/^\*\*\*\*/p' "$RUN/lec_fm/report_verification_status.rpt" | grep -v '^$'
+sed -n '/Verification Results/,/^\*\*\*\*/p' "$report_dir/report_verification_status.rpt" | grep -v '^$'

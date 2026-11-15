@@ -75,4 +75,5 @@ distclean: clean ### clean, and remove outputs/ (all runs). Use with care
 include scripts/sim/module.mk
 include scripts/signoff/module.mk
 include scripts/fpga/module.mk
+include scripts/release/module.mk
 include scripts/utils/module.mk

@@ -1,14 +1,21 @@
 # Sign-off targets of a finished run. Included by the Makefile.
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# in:  RUN_DIR. The options of each check: pv/settings.sh, sta/settings.sh, power/power.sh, irdrop/rail.sh
+# in:  RUN_DIR. The options of each check: pv/settings.sh, sta/settings.sh, power/power.sh, irdrop/rail.sh,
+#      scripts/utils/env.sh (NPAT, DFT_REPLAY, JOBS for dft)
 # out: outputs/<run>/{drc,lvs,sta_pt,lec_fm,...}/ and outputs/<run>/checks/<check>/summary.txt
 
 ##@ Sign-off of a run (RUN=<run>, default outputs/latest)
-.PHONY: signoff scan-sta drc lvs sta-pt lec drc-icv lvs-icv fill-icv power-pp rail
+.PHONY: signoff scan-sta gls dft dft-serial drc lvs sta-pt lec drc-icv lvs-icv fill-icv power-pp rail
 signoff: drc lvs sta-pt lec ## KLayout DRC and LVS, PrimeTime STA at 3 corners, Formality, then the summary
 	RUN=$(RUN_DIR) scripts/signoff/sta/signoff_summary.sh
 scan-sta: ## scan-shift STA, 3 corners
 	RUN=$(RUN_DIR) scripts/signoff/sta/scan_sta.sh
+gls: ## gate-level simulation: Verilator boot, flash boot, scan shift, Icarus and VCS (SDF) macro boot over JTAG
+	RUN=$(RUN_DIR) scripts/signoff/gls/gls.sh
+dft: ## scan chain trace, ATPG, pattern replay (NPAT=20 for a quick run), SRAM March test
+	RUN=$(RUN_DIR) scripts/signoff/dft/dft.sh
+dft-serial: ### dft with the serial replay of every pattern (hours), for a full sign-off
+	RUN=$(RUN_DIR) DFT_REPLAY=serial scripts/signoff/dft/dft.sh
 drc: ### KLayout DRC (GDS=<file> checks another GDS, for example a filled one)
 	RUN=$(RUN_DIR) scripts/signoff/pv/drc.sh
 lvs: ### KLayout LVS, the SRAMs as black boxes

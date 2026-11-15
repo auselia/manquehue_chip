@@ -1,6 +1,6 @@
 # Gate-level simulation of croc_soc
 
-`scripts/sim/run_gls.sh <program.hex> [work dir]` simulates the final netlist (`outputs/latest/croc_soc.v`)
+`verilator.sh <program.hex> [work dir]` simulates the final netlist (`outputs/latest/croc_soc.v`)
 with Verilator, zero delay, using the repo testbench. It patches copies of the testbench, netlist and cell
 models in the work directory; the repo is not touched. See the script header for the patches and why.
 
@@ -16,11 +16,11 @@ models in the work directory; the repo is not touched. See the script header for
 
 ## Chip-level gate-level simulation (pads included)
 
-`scripts/sim/run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]` simulates the placed chip netlist of the template
+`scripts/run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]` of waferspace_manquehue simulates the placed chip netlist
 (pad ring + `croc_soc` macro) in Icarus; run it inside the template's nix-shell. `sim/tb/tb_chip.v` is a plain
 Verilog test bench that drives only the pins a board drives: `ref_clk_i`, `rst_ni`, the four JTAG pins and the UART RX.
 It leaves `testmode_i`, `scan_si_i` and `scan_se_i` open, loads the 272-byte program through the debug module (JTAG,
-system bus access), wakes the core and waits for `GLS OK` on the `uart_tx_o` pad. `scripts/sim/run_macro_gls.sh` and
+system bus access), wakes the core and waits for `GLS OK` on the `uart_tx_o` pad. `icarus_macro.sh` and
 `sim/tb/tb_macro.v` are the same test with the macro alone (about 20 s per run).
 
 Result with the AUS-106 macro in the chip of 14 Oct (template run `RUN_2026-10-14_23-22-13`, `testmode_i` pad open):
@@ -43,8 +43,8 @@ Icarus pitfalls found on the way (each one stopped the program at the UART witho
 
 ## Macro boot with the SDF delays (VCS)
 
-`scripts/sim/run_macro_gls_vcs.sh <croc_soc.v> <file.sdf> <min|max> <work dir>` runs the `tb_macro.v` boot in VCS
-with the typical-corner SDF of PrimeTime (`make sta-pt`). `run_gls_all.sh` runs it with `min` and with `max`. PASS
+`vcs_sdf.sh <croc_soc.v> <file.sdf> <min|max> <work dir>` runs the `tb_macro.v` boot in VCS
+with the typical-corner SDF of PrimeTime (`make sta-pt`). `gls.sh` runs it with `min` and with `max`. PASS
 needs `GLS OK` on `uart_tx_o` and 0 timing violations. It uses the original PDK cell and SRAM models, with their
 timing checks. Compile about 10 s, run about 1 min.
 
@@ -63,7 +63,7 @@ timing checks. Compile about 10 s, run about 1 min.
 
 ## Scan shift
 
-`scripts/sim/run_gls_scan.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist
+`scan_shift.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist
 (`rtl/test/tb_scan_shift.sv`, testmode_i = scan_se_i = 1, both clocks with the waveforms of the DFT spec) and checks
 that scan_so_o is the same stream delayed by exactly the number of scan cells (3964). The chain passes, also with
 jtag_trst_ni driven low. With rst_ni driven low the chain is disturbed: rst_ni is a DFT reset signal that the tester

@@ -7,7 +7,7 @@ prints: cells=<scan cells + non-scan cells> scan=<N> nonscan=<M> inversions=<K>
 The chain runs through the SI pin of each scan flop. Fusion Compiler keeps registers that already shift (shift
 register identification) as non-scan flops inside the chain, reached through their functional D pin. Between two
 cells there can be buffers and inverters (high-fanout repair). An odd number of inverters makes the chain return
-the shifted stream inverted, which scripts/sim/run_gls_scan.sh passes to rtl/test/tb_scan_shift.sv.
+the shifted stream inverted, which scripts/signoff/gls/scan_shift.sh passes to rtl/test/tb_scan_shift.sv.
 """
 import re
 import sys

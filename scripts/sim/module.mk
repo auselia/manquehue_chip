@@ -1,18 +1,16 @@
 # Simulation and firmware targets. Included by the Makefile.
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# in:  BIN (a program .hex), RUN_DIR (gls)
-# out: sim/build/, sim/sw/**/bin/, outputs/<run>/checks/gls/
+# in:  BIN (a program .hex)
+# out: sim/build/, sim/sw/**/bin/
 
 # Default program. Example: make run BIN=sim/sw/bin/test/test_gpio.hex
 BIN ?= sim/sw/hello_world/bin/helloworld.hex
 
 ##@ Simulation
-.PHONY: sim gls sw clean-sw verilate run sim-spi vcs-compile run-vcs sim-vcs clean-sim
+.PHONY: sim sw clean-sw verilate run sim-spi vcs-compile run-vcs sim-vcs clean-sim
 sim: ## Verilator: build the model and run BIN (default helloworld)
 	@echo "[SIM] Launching Verilator simulation flow..."
 	@cd sim && BIN=$(abspath $(BIN)) bash ../scripts/sim/run_verilator.sh
-gls: ## gate-level simulation of a run: Verilator boot, scan shift, Icarus macro boot over JTAG
-	RUN=$(RUN_DIR) scripts/sim/run_gls_all.sh
 sw: ### build the RISC-V programs
 	@echo "[SW] Compiling RISC-V bare-metal software..."
 	@$(MAKE) -C sim/sw

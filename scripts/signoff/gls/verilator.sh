@@ -2,7 +2,7 @@
 # Zero-delay gate-level simulation of the croc_soc macro netlist (outputs/latest/croc_soc.v)
 # with Verilator, using the repo testbench. No waveform dump (TRACE_WAVE is not defined): a trace writes tens of GB.
 #
-# usage: scripts/sim/run_gls.sh <program.hex> [work dir]
+# usage: scripts/signoff/gls/verilator.sh <program.hex> [work dir]
 #   program.hex  must fit the 2 KB SRAM, e.g. sim/sw/gls_mini/build.sh -> bin/gls_mini.hex
 #   work dir     default /tmp/gls_full
 # env:   PDK_ROOT   default ~/.ciel
@@ -26,13 +26,13 @@
 #  - the vendor SRAM model starts with CEN deasserted (its own initial block sets cen_dly = 0)
 # Output must stay line-buffered (stdbuf -oL) or it is lost when the run is killed.
 set -e
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 RUN=$(readlink -f "${GLS_RUN:-$REPO/outputs/latest}")
 PDK=${PDK_ROOT:-$HOME/.ciel}/gf180mcuD/libs.ref
 V=$PDK/gf180mcu_fd_sc_mcu7t5v0/verilog
 S=$PDK/gf180mcu_fd_ip_sram/verilog
 GXX=${GLS_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bin/g++}
-HEX=$(readlink -f "${1:?usage: run_gls.sh <program.hex> [work dir]}")
+HEX=$(readlink -f "${1:?usage: verilator.sh <program.hex> [work dir]}")
 W=${2:-/tmp/gls_full}
 mkdir -p "$W/tb"; cd "$W"
 export W RUN V DELAY=${FLOPDELAY:-0.5ns}

@@ -74,6 +74,5 @@ distclean: clean ### clean, and remove outputs/ (all runs). Use with care
 # In flow order: make help lists the targets in this order.
 include scripts/sim/module.mk
 include scripts/signoff/module.mk
-include scripts/dft/module.mk
 include scripts/fpga/module.mk
 include scripts/utils/module.mk

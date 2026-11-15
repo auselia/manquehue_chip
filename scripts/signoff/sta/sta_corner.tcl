@@ -90,7 +90,7 @@ if { $CORNER == "fast" } {
   redirect -file ${REPORT_DIR}/report_qor.${CORNER}.rpt { report_qor }
 }
 
-# delays of the typical corner for the gate-level simulation with timing (scripts/sim/run_macro_gls_sdf.sh)
+# delays of the typical corner for the gate-level simulation with timing (scripts/signoff/gls/vcs_sdf.sh)
 if { $CORNER == "typical" } {
   write_sdf -version 3.0 -significant_digits 3 ${REPORT_DIR}/${TOP}.typical.sdf
 }

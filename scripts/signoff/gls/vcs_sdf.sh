@@ -1,11 +1,11 @@
 #!/bin/bash
-# Macro-level gate-level simulation with the delays of PrimeTime (SDF), in VCS. Same test as run_macro_gls.sh
+# Macro-level gate-level simulation with the delays of PrimeTime (SDF), in VCS. Same test as icarus_macro.sh
 # (sim/tb/tb_macro.v): JTAG through the macro ports, program loaded over the debug module, GLS OK on uart_tx_o.
-# usage: run_macro_gls_vcs.sh <croc_soc.v> <file.sdf> <min|max> <work dir>      (env: PROG_HEX)
+# usage: vcs_sdf.sh <croc_soc.v> <file.sdf> <min|max> <work dir>      (env: PROG_HEX)
 #
 # - Cells and SRAM: the original PDK models, with their specify blocks and timing checks. The only change: every
-#   sequential primitive starts at 0 (no power-up value in the PDK, see sim/GLS.md) and the SRAM cen_dly as in
-#   run_macro_gls.sh.
+#   sequential primitive starts at 0 (no power-up value in the PDK, see README.md) and the SRAM cen_dly as in
+#   icarus_macro.sh.
 # - PrimeTime writes each delay as (min::max), with no typical value. +mindelays or +maxdelays selects one of them.
 #   Run both: min is the hold side, max the setup side.
 # - Timing checks are on (+neg_tchk). A violation prints "Timing violation" and puts X on the flop. The first stage
@@ -14,7 +14,7 @@
 set -e
 NL=$(readlink -f "$1"); SDF=$(readlink -f "$2"); M=${3:?min or max}; W=${4:?work dir}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-. "$HERE/../utils/env.sh"
+. "$HERE/../../utils/env.sh"
 HEX=${PROG_HEX:-$REPO/sim/sw/gls_mini/gls_mini.hex}
 PDK=$PDK_ROOT/gf180mcuD/libs.ref
 export VCS_HOME PATH=$VCS_HOME/bin:$PATH

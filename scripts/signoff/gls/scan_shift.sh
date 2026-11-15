@@ -4,23 +4,23 @@
 # clocks, and checks it comes out of scan_so_o delayed by exactly the number of scan cells, also with
 # jtag_trst_ni driven low (rst_ni low is run for information, see the loop below). See rtl/test/tb_scan_shift.sv.
 #
-# usage: scripts/sim/run_gls_scan.sh [work dir]      (default /tmp/gls_scan)
+# usage: scripts/signoff/gls/scan_shift.sh [work dir]      (default /tmp/gls_scan)
 # env:   PDK_ROOT   default ~/.ciel
 #        GLS_CXX    g++ with -fcoroutines (Verilator --timing). The system g++ 8.5 on Rocky has none.
 #        GLS_RUN    netlist run folder, default outputs/latest
-#        EXPECTED_LAG  scan cells in the chain (run_gls_all.sh reads it from the run), default 3964 (dft_drc: "Chain 1 ... scan_cells")
+#        EXPECTED_LAG  scan cells in the chain (gls.sh reads it from the run), default 3964 (dft_drc: "Chain 1 ... scan_cells")
 # The chain polarity comes from the netlist (scan_chain_trace.py): an odd number of inverters between the cells
 # returns the stream inverted. The traced length must equal EXPECTED_LAG.
 #        FLOPDELAY  output delay of the sequential cell models, default 0.5ns
 #        JOBS       compile parallelism, default 8
 # Run it inside an environment that has verilator (the template's nix-shell on Rocky).
 #
-# Same netlist and cell-model patches as scripts/sim/run_gls.sh (see there for why), nothing in the repo
+# Same netlist and cell-model patches as scripts/signoff/gls/verilator.sh (see there for why), nothing in the repo
 # changes. Zero delay on the combinational gates means the clock tree has no skew in this simulation:
 # it proves the chain order, the clock/enable/reset wiring and the reset gating, not hold timing (the
 # scan-mode STA covers that).
 set -e
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 RUN=$(readlink -f "${GLS_RUN:-$REPO/outputs/latest}")
 PDK=${PDK_ROOT:-$HOME/.ciel}/gf180mcuD/libs.ref
 V=$PDK/gf180mcu_fd_sc_mcu7t5v0/verilog
@@ -49,7 +49,7 @@ print("sequential UDP outputs delayed:", n[0])
 PY
 sed "s/^  cen_dly        = 0;/  cen_dly        = 1;/" "$S/gf180mcu_fd_ip_sram__sram512x8m8wm1.v" > sram.v
 
-TRACE=$(python3 "$REPO/scripts/sim/scan_chain_trace.py" "$RUN/croc_soc.v")
+TRACE=$(python3 "$REPO/scripts/signoff/gls/scan_chain_trace.py" "$RUN/croc_soc.v")
 echo "scan chain in the netlist: $TRACE"
 TRACED=$(echo "$TRACE" | sed -n 's/.*cells=\([0-9]*\).*/\1/p')
 INV=$(( $(echo "$TRACE" | sed -n 's/.*inversions=\([0-9]*\).*/\1/p') % 2 ))

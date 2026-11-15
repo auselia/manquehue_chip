@@ -68,7 +68,7 @@ make sim-spi              # SPI block test bench
 make help                 # the main targets (make help-all: every target)
 ```
 
-`sim/GLS.md` describes the gate-level simulation.
+`scripts/signoff/gls/README.md` describes the gate-level simulation.
 
 ## Credits
 

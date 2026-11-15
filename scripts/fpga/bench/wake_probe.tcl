@@ -1,6 +1,6 @@
 # WAKE_N through croc's ADC block (0x2200_0100): clear the sticky WAKE flag (STATUS[6]), wait, read it, and sample the
 # synchronised pin level (PINS[8]) 20 times. EN and TRIG_ACTIVE_LOW set, reader not running.
-#   openocd -f openocd-croc.cfg -f wake_probe.tcl
+#   openocd -f ../openocd-croc.cfg -f wake_probe.tcl
 set A 0x22000100
 mww $A [expr {1 | (1 << 14) | (3 << 8)}]
 mww [expr {$A + 0x04}] 0x40

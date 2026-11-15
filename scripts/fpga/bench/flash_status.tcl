@@ -1,5 +1,5 @@
 # Reads the W25Q status registers 1, 2, 3 through croc's QSPI command engine (0x2200_2000), from OpenOCD:
-#   openocd -f openocd-croc.cfg -f flash_status.tcl
+#   openocd -f ../openocd-croc.cfg -f flash_status.tcl
 # Same register use as s2b_flasher.c: CTRL = EN, mode 0, SCLK clk/4, CS_SETUP 1. QCTRL [1:0] = 0 selects the flash.
 set QC 0x22002000
 proc qcmd {tx} {

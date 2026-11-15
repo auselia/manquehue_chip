@@ -1,6 +1,6 @@
 # FPGA targets (ZedBoard, Zynq-7000 PL). Included by the Makefile. Vivado must be on PATH.
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# in:  flists/croc_fpga.flist, constraints/zedboard.xdc
+# in:  flists/croc_fpga.flist, scripts/fpga/zedboard.xdc
 # out: work_fpga/
 
 VIVADO ?= vivado

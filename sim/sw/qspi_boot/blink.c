@@ -47,5 +47,5 @@ int main() {
 //      also soc_ctrl's BOOTADDR reset default) that does `lui t0,0x20000;
 //      jr t0`, redirecting the normal boot path into flash.
 //   3. Wake the core from bootrom's wfi as usual (CLINT msip -- automatic
-//      if using the openocd-croc.cfg in this directory), then `continue`.
+//      if using scripts/fpga/openocd-croc.cfg), then `continue`.
 // ---------------------------------------------------------------------

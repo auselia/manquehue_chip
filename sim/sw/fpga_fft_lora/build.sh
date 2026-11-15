@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the ZedBoard FFT + LoRa demo for the 2 KB SRAM, loaded over JTAG (openocd-croc.cfg, see README.md).
+# Build the ZedBoard FFT + LoRa demo for the 2 KB SRAM, loaded over JTAG (scripts/fpga/openocd-croc.cfg, see README.md).
 # Compressed instructions (rv32ic): with rv32i the code (about 2 KB) does not fit next to the 256 B sample buffer
 # and the stack. The CVE2 core always has the C extension.
 # usage: ./build.sh   -> bin/fft_lora.{elf,hex,dump}

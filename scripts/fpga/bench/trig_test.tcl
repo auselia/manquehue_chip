@@ -1,7 +1,7 @@
 # WAKE_N-triggered ADC capture, set up over JTAG with the core halted (the SRAM above 0x1000_0300 is free then).
 # Buffers of 128 samples at 0x1000_0300 and 0x1000_0400 work as one ring, POST = 112: 16 samples before the trigger
 # and 112 after it. Waits up to 3 s for DONE, then prints STATUS, TPOS, COUNT and the 128 words of both buffers.
-#   openocd -f openocd-croc.cfg -f trig_test.tcl
+#   openocd -f ../openocd-croc.cfg -f trig_test.tcl
 set A 0x22000100
 set B0 0x10000300
 set B1 0x10000400

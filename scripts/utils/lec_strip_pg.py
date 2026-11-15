@@ -1,30 +1,35 @@
 #!/usr/bin/env python3
-"""Prepare the final croc_soc netlist for Formality: drop what is not logic.
-
-usage: lec_strip_pg.py <in.v> <out.v>
-
-The signoff netlist carries the power ports (VDD/VSS), a .VDD/.VSS pin on every cell and the
-physical-only cells (fillcap, tap, endcap, antenna). Formality treats the supply ports as unmatched
-drivers and the fill cells as black boxes, which turned most of the design into X sources and made
-almost every compare point fail. The RTL has none of these, so they are removed here:
-  - power/ground pin connections on every instance
-  - VDD/VSS port declarations and their entries in the module port list
-  - instances of fillcap/filltie/endcap/antenna cells (no signal pins, no logic)
-"""
-import re, sys
+# Remove from the croc_soc netlist what Formality must not compare: supply pins and ports, physical-only cells
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: lec_strip_pg.py <in.v> <out.v>      (called by signoff/lec/lec_rtl_vs_gate.tcl)
+# in:  the gate-level netlist of a run
+# out: the netlist without supplies and physical-only cells
+#
+# Formality takes the VDD/VSS ports as unmatched drivers and the fill cells as black boxes. With them, most compare
+# points fail as X sources. The RTL has none of them.
+import re
+import sys
 
 src, dst = sys.argv[1:3]
-t = open(src).read()
+with open(src) as f:
+    netlist = f.read()
 
-phys = re.compile(r"(?m)^gf180mcu_fd_sc_mcu7t5v0__(?:fillcap|fill|filltie|endcap|antenna)\w*\s+\S+\s*\([^;]*\)\s*;\n")
-t, n_phys = phys.subn("", t)
+# fillcap, fill, filltie, endcap and antenna instances: no signal pins, no logic
+physical_cell = re.compile(r"(?m)^gf180mcu_fd_sc_mcu7t5v0__(?:fillcap|fill|filltie|endcap|antenna)\w*"
+                           r"\s+\S+\s*\([^;]*\)\s*;\n")
+netlist, n_physical = physical_cell.subn("", netlist)
 
-pg = r"\.(?:VDD|VSS|VNW|VPW)\s*\(\s*(?:VDD|VSS)\s*\)"
-t, n1 = re.subn(pg + r"\s*,\s*", "", t)       # pin followed by a comma
-t, n2 = re.subn(r"\s*,\s*" + pg, "", t)       # last pin, preceded by a comma
-t, n3 = re.subn(r"\(\s*" + pg + r"\s*\)", "( )", t)  # instance with only PG pins
+# the .VDD/.VSS/.VNW/.VPW pin connections of every instance
+pg_pin = r"\.(?:VDD|VSS|VNW|VPW)\s*\(\s*(?:VDD|VSS)\s*\)"
+netlist, n_before_comma = re.subn(pg_pin + r"\s*,\s*", "", netlist)
+netlist, n_after_comma = re.subn(r"\s*,\s*" + pg_pin, "", netlist)
+netlist, n_only_pg = re.subn(r"\(\s*" + pg_pin + r"\s*\)", "( )", netlist)
 
-t = re.sub(r"\s*,\s*(?:VDD|VSS)\b(?=[^;]*\)\s*;)", "", t, count=2)   # module port list entries
-t = re.sub(r"(?m)^(?:input|inout|supply1|supply0)\s+(?:VDD|VSS)\s*;\n", "", t)
-open(dst, "w").write(t)
-print(f"lec_strip_pg: removed {n_phys} physical-only cells, {n1 + n2 + n3} PG pin connections")
+# VDD and VSS in the port list of the module, and their declarations
+netlist = re.sub(r"\s*,\s*(?:VDD|VSS)\b(?=[^;]*\)\s*;)", "", netlist, count=2)
+netlist = re.sub(r"(?m)^(?:input|inout|supply1|supply0)\s+(?:VDD|VSS)\s*;\n", "", netlist)
+
+with open(dst, "w") as f:
+    f.write(netlist)
+n_pins = n_before_comma + n_after_comma + n_only_pg
+print(f"lec_strip_pg: removed {n_physical} physical-only cells, {n_pins} PG pin connections")

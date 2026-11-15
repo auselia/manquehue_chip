@@ -1,6 +1,10 @@
-# make pt_export: writes the PrimeTime inputs again (06_finish.tcl writes them already) from the saved finish block
-# of work/design.dlib into the run folder outputs/latest points to. That is the run of the same build only while no
-# other run was exported after it.
+# Write the PrimeTime inputs (SDC, SPEF) again from the saved finish block, into the run folder of outputs/latest
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: make pt_export      (fc_shell in work/)
+# in:  work/design.dlib, block finish
+# out: outputs/latest/: the files of common/export_signoff.tcl
+#
+# 06_finish.tcl writes these files already. outputs/latest is the run of this block only until another run is exported.
 source [file dirname [info script]]/../common/open_lib.tcl
 open_block finish
 

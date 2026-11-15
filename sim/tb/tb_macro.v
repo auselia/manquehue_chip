@@ -1,4 +1,4 @@
-// Chip-level gate-level test of chip_top (pads included): boots croc_soc through the JTAG pins and waits for "GLS OK" on the UART pin.
+// Macro-level gate-level test of croc_soc: boots croc_soc through the JTAG pins and waits for "GLS OK" on the UART pin.
 // The test bench drives only what a board would drive. testmode_i, scan_si_i and scan_se_i are left open: the pull-downs of
 // the pads must make them read 0.  Plain Verilog, runs in Icarus (four-state, so X on a reset path shows up).
 `timescale 1ns/1ps

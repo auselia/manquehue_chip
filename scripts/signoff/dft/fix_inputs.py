@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+# Adapt the netlist and the test protocol of Fusion Compiler to TestMAX ATPG
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: fix_inputs.py <netlist.v> <protocol.stil> <out dir> <scan length>      (dft.sh)
+# in:  croc_soc_atpg.v, croc_soc.stil
+# out: <out dir>/croc_soc_atpg.v, <out dir>/croc_soc_scan.stil
 """Turn the Fusion Compiler outputs in this folder into inputs that TestMAX ATPG (TetraMAX) accepts.
-
-usage: fix_inputs.py <netlist.v> <protocol.stil> <out dir> <scan length>
 
 Netlist (what the tool complained about, in this order):
   - one comment line of 80 000 characters in the header (limit is 50 000)      -> comment lines dropped
@@ -16,9 +19,9 @@ import re
 import sys
 
 net, stil, out = sys.argv[1], sys.argv[2], sys.argv[3]
-length = int(sys.argv[4])                # dft.sh: from the synthesis log of the run
+length = int(sys.argv[4])                # from the synthesis log of the run
 
-s = "".join(l for l in open(net) if not l.startswith("//"))
+s = "".join(line for line in open(net) if not line.startswith("//"))
 s = re.sub(r",\s*\.VDD\s*\(\s*VDD\s*\)", "", s)
 s = re.sub(r",\s*\.VSS\s*\(\s*VSS\s*\)", "", s)
 s, n_fill = re.subn(r"^gf180mcu_fd_sc_mcu7t5v0__fillcap_\d+\s+\S+\s*\([^;]*?\)\s*;\s*\n", "", s, flags=re.M | re.S)

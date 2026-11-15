@@ -4,7 +4,7 @@
 `outputs/<run>/checks/gls/summary.txt`. The sections below are the reference: what each test does, why it patches
 the models, and the traps.
 
-`verilator.sh <program.hex> [work dir]` simulates the final netlist (`outputs/latest/croc_soc.v`)
+`verilator.sh <program.hex> <work dir>` simulates the final netlist (`outputs/latest/croc_soc.v`)
 with Verilator, zero delay, using the repo testbench. It patches copies of the testbench, netlist and cell
 models in the work directory; the repo is not touched. See the script header for the patches and why.
 
@@ -67,9 +67,9 @@ timing checks. Compile about 10 s, run about 1 min.
 
 ## Scan shift
 
-`scan_shift.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist
+`EXPECTED_LAG=<scan cells> scan_shift.sh <work dir>` shifts a pseudo-random stream through the scan chain of the netlist
 (`sim/tb/tb_scan_shift.sv`, testmode_i = scan_se_i = 1, both clocks with the waveforms of the DFT spec) and checks
-that scan_so_o is the same stream delayed by exactly the number of scan cells (3964). The chain passes, also with
+that scan_so_o is the same stream delayed by exactly the number of scan cells of the run. The chain passes, also with
 jtag_trst_ni driven low. With rst_ni driven low the chain is disturbed: rst_ni is a DFT reset signal that the tester
 holds inactive during scan, and the 800 flops behind the reset generator (which passes rst_ni through in test mode)
 are not gated by testmode_i. This is the zero-delay shift test: it proves chain order, enables and reset gating, not

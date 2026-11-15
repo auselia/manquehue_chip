@@ -39,7 +39,7 @@ module tb_atpg;
         for (kb = 0; kb < NPO; kb = kb + 1)
           if (diff[kb] !== 1'b0 && nprint < maxprint) begin
             nprint = nprint + 1;
-            // parsed by diagnose.py: kind (shift|capture), pattern, shift position j, output bit (0 = scan_so_o), expected, read
+            // fields: kind (shift|capture), pattern, shift position j, output bit (0 = scan_so_o), expected, read
             $display("FAIL kind=%0s pat=%0d j=%0d bit=%0d exp=%b got=%b t=%0t", what, idx, j, kb, e[kb], po[kb], $time);
           end
       end

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+# Convert the stuck-at patterns of TestMAX (STIL) into vector files and the pin include of sim/tb/tb_atpg.v
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: stil_to_vectors.py patterns_stuck.stil <out dir>      (sim_patterns.sh)
+# in:  patterns_stuck.stil
+# out: <out dir>/*.mem, <out dir>/tb_atpg_pins.vh
 """Convert the stuck-at patterns that TestMAX ATPG writes (STIL) into plain vector files for a tester or a simulator.
-
-usage: stil_to_vectors.py patterns_stuck.stil <out dir>
 
 The Pattern block is a list of  Call "load_unload" {scan_si_i=...; scan_so_o=...;}  and  Call "multiclock_capture"
 {_pi=...; _po=...;}  statements. One file per quantity, one line per load/unload (patterns + 1 lines) or capture

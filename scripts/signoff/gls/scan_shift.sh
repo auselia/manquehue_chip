@@ -1,91 +1,76 @@
 #!/bin/bash
-# Gate-level scan-shift test of the croc_soc macro netlist (outputs/latest/croc_soc.v) with Verilator.
-# Shifts a pseudo-random stream through the scan chain with testmode_i = scan_se_i = 1 and both shift
-# clocks, and checks it comes out of scan_so_o delayed by exactly the number of scan cells, also with
-# jtag_trst_ni driven low (rst_ni low is run for information, see the loop below). See sim/tb/tb_scan_shift.sv.
+# Gate-level test of the scan chain of a run in Verilator: a pseudo-random stream shifted through the chain must come
+# out of scan_so_o delayed by exactly the number of scan cells
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: EXPECTED_LAG=<scan cells> scripts/signoff/gls/scan_shift.sh <work dir>      (inside the nix-shell of the template)
+# in:  env EXPECTED_LAG (gls.sh reads it from the synthesis log), GLS_RUN (default outputs/latest), FLOPDELAY,
+#      GLS_CXX, JOBS, PDK_ROOT
+# out: <work dir>/run_<case>.log, and "ALL PASS" or "FAILED" as the last line
 #
-# usage: scripts/signoff/gls/scan_shift.sh [work dir]      (default /tmp/gls_scan)
-# env:   PDK_ROOT   default ~/.ciel
-#        GLS_CXX    g++ with -fcoroutines (Verilator --timing). The system g++ 8.5 on Rocky has none.
-#        GLS_RUN    netlist run folder, default outputs/latest
-#        EXPECTED_LAG  scan cells in the chain (gls.sh reads it from the run), default 3964 (dft_drc: "Chain 1 ... scan_cells")
-# The chain polarity comes from the netlist (scan_chain_trace.py): an odd number of inverters between the cells
-# returns the stream inverted. The traced length must equal EXPECTED_LAG.
-#        FLOPDELAY  output delay of the sequential cell models, default 0.5ns
-#        JOBS       compile parallelism, default 8
-# Run it inside an environment that has verilator (the template's nix-shell on Rocky).
-#
-# Same netlist and cell-model patches as scripts/signoff/gls/verilator.sh (see there for why), nothing in the repo
-# changes. Zero delay on the combinational gates means the clock tree has no skew in this simulation:
-# it proves the chain order, the clock/enable/reset wiring and the reset gating, not hold timing (the
-# scan-mode STA covers that).
+# testmode_i = scan_se_i = 1, both shift clocks (sim/tb/tb_scan_shift.sv). The gates have zero delay, so the clock
+# tree has no skew here: the test proves the chain order and the clock, enable and reset wiring, not the hold timing
+# (scan_sta.sh does that).
 set -e
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-RUN=$(readlink -f "${GLS_RUN:-$REPO/outputs/latest}")
-PDK=${PDK_ROOT:-$HOME/.ciel}/gf180mcuD/libs.ref
-V=$PDK/gf180mcu_fd_sc_mcu7t5v0/verilog
-S=$PDK/gf180mcu_fd_ip_sram/verilog
-GXX=${GLS_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bin/g++}
-W=${1:-/tmp/gls_scan}
-mkdir -p "$W"; cd "$W"
-export W RUN V DELAY=${FLOPDELAY:-0.5ns}
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+run_dir=$(readlink -f "${GLS_RUN:-$repo/outputs/latest}")
+work=${1:?usage: scan_shift.sh <work dir>}
+expected_lag=${EXPECTED_LAG:?set EXPECTED_LAG to the number of scan cells}
+pdk=${PDK_ROOT:-$HOME/.ciel}/gf180mcuD/libs.ref
+cell_models=$pdk/gf180mcu_fd_sc_mcu7t5v0/verilog
+sram_models=$pdk/gf180mcu_fd_ip_sram/verilog
+cxx=${GLS_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bin/g++}
+models=$repo/scripts/signoff/gate_models.py
 
-python3 - <<'PY'
-import os, re
-W, RUN, V = os.environ["W"], os.environ["RUN"], os.environ["V"]
-net = open(RUN + "/croc_soc.v").read()
-net = net.replace(" , VDD , VSS ) ;", " ) ;", 1)
-net = net.replace("input  VDD ;\n", "", 1).replace("input  VSS ;\n", "", 1)
-open(W + "/croc_soc_gls.v", "w").write(net)
-c = open(V + "/gf180mcu_fd_sc_mcu7t5v0.v").read().replace("buf (weak0, weak1)", "buf")
-n = [0]
-def rep(m):
-    n[0] += 1
-    return (f"{m.group(1)}buf #({os.environ['DELAY']}) MGMDLY_{n[0]}( {m.group(3)}, {m.group(3)}_u );\n"
-            f"{m.group(1)}{m.group(2)}( {m.group(3)}_u,")
-c = re.sub(r"(\s*)(gf180mcu_fd_sc_mcu7t5v0__udp_[a-z_]+)\(\s*(\w+),", rep, c)
-open(W + "/cells.v", "w").write(c)
-print("sequential UDP outputs delayed:", n[0])
-PY
-sed "s/^  cen_dly        = 0;/  cen_dly        = 1;/" "$S/gf180mcu_fd_ip_sram__sram512x8m8wm1.v" > sram.v
+mkdir -p "$work"
+cd "$work"
+python3 "$models" netlist "$run_dir/croc_soc.v" croc_soc_gls.v --no-supply-ports
+python3 "$models" cells "$cell_models/gf180mcu_fd_sc_mcu7t5v0.v" cells.v --no-keeper --flop-delay "${FLOPDELAY:-0.5ns}"
+python3 "$models" sram "$sram_models/gf180mcu_fd_ip_sram__sram512x8m8wm1.v" sram.v
 
-TRACE=$(python3 "$REPO/scripts/signoff/gls/scan_chain_trace.py" "$RUN/croc_soc.v")
-echo "scan chain in the netlist: $TRACE"
-TRACED=$(echo "$TRACE" | sed -n 's/.*cells=\([0-9]*\).*/\1/p')
-INV=$(( $(echo "$TRACE" | sed -n 's/.*inversions=\([0-9]*\).*/\1/p') % 2 ))
-if [ "$TRACED" != "${EXPECTED_LAG:-3964}" ]; then
-  echo "traced chain has $TRACED cells, expected ${EXPECTED_LAG:-3964}"; echo "FAILED"; exit 1
+# The chain in the netlist: its length must be the expected one. An odd number of inverters between the cells
+# returns the stream inverted.
+trace=$(python3 "$repo/scripts/signoff/gls/scan_chain_trace.py" "$run_dir/croc_soc.v")
+echo "scan chain in the netlist: $trace"
+traced_cells=$(echo "$trace" | sed -n 's/.*cells=\([0-9]*\).*/\1/p')
+inversions=$(echo "$trace" | sed -n 's/.*inversions=\([0-9]*\).*/\1/p')
+inverted=$((inversions % 2))
+if [ "$traced_cells" != "$expected_lag" ]; then
+  echo "traced chain has $traced_cells cells, expected $expected_lag"
+  echo "FAILED"
+  exit 1
 fi
 
-cat > files.f <<EOT
+cat > files.f <<EOF2
 +define+USE_POWER_PINS
 +define+FUNCTIONAL
 +define+VERILATOR=1
-$REPO/sim/tb/tb_scan_shift.sv
-$V/primitives.v
-$W/cells.v
-$W/sram.v
-$W/croc_soc_gls.v
-EOT
-
-verilator --binary -MAKEFLAGS "CXX=$GXX LINK=$GXX" -j "${JOBS:-8}" -Wno-fatal -Wno-lint -Wno-style \
+$repo/sim/tb/tb_scan_shift.sv
+$cell_models/primitives.v
+$work/cells.v
+$work/sram.v
+$work/croc_soc_gls.v
+EOF2
+verilator --binary -MAKEFLAGS "CXX=$cxx LINK=$cxx" -j "${JOBS:-8}" -Wno-fatal -Wno-lint -Wno-style \
   -Wno-SPECIFYIGN --timing -f files.f --top-module tb_scan_shift -o Vscan > build.log 2>&1 \
-  || { echo "verilator build failed, see $W/build.log"; exit 1; }
+  || { echo "verilator build failed, see $work/build.log"; exit 1; }
 
-RC=0
-# must pass: normal shift, and jtag_trst_ni driven low (its resets are gated by testmode_i).
-# informational: rst_ni driven low. rst_ni is a DFT reset signal held inactive by the tester during scan. 800 flops
-# (the reset-generator output, which follows rst_ni in test mode) are not gated, so this run is expected to disturb the chain.
-for args in "" "+trstn_low" "+rstn_low"; do
-  tag=$(echo "$args" | tr -d "+"); tag=${tag:-normal}
-  echo "== run: ${args:-defaults}"
+# Must pass: the normal shift, and the shift with jtag_trst_ni low (testmode_i gates its resets).
+# For information only: rst_ni low. The tester holds rst_ni inactive during the shift, and the 800 flops behind the
+# reset generator (it passes rst_ni through in test mode) are not gated, so this run disturbs the chain.
+failed=0
+for case_args in "" "+trstn_low" "+rstn_low"; do
+  case_name=$(echo "$case_args" | tr -d "+")
+  case_name=${case_name:-normal}
+  echo "== run: ${case_args:-defaults}"
   set +e
-  stdbuf -oL ./obj_dir/Vscan +expected_lag=${EXPECTED_LAG:-3964} +expected_inv=$INV $args 2>&1 | tee "run_${tag}.log" | grep -E "SCAN_SHIFT|Error|error"
-  rc_run=${PIPESTATUS[0]}
+  # shellcheck disable=SC2086  # case_args is empty or one plusarg
+  stdbuf -oL ./obj_dir/Vscan +expected_lag="$expected_lag" +expected_inv=$inverted $case_args 2>&1 \
+    | tee "run_$case_name.log" | grep -E "SCAN_SHIFT|Error|error"
+  sim_status=${PIPESTATUS[0]}
   set -e
-  if [ "$tag" = rstn_low ]; then continue; fi
-  [ "$rc_run" = 0 ] || RC=1
-  grep -q "SCAN_SHIFT_RESULT PASS" "run_${tag}.log" || RC=1
+  [ "$case_name" = rstn_low ] && continue
+  [ "$sim_status" = 0 ] || failed=1
+  grep -q "SCAN_SHIFT_RESULT PASS" "run_$case_name.log" || failed=1
 done
-[ $RC = 0 ] && echo "ALL PASS" || echo "FAILED"
-exit $RC
+if [ $failed = 0 ]; then echo "ALL PASS"; else echo "FAILED"; fi
+exit $failed

@@ -54,8 +54,9 @@ sram_db() {
   [ -e "$SRAM_DB" ] && [ ! "$PT_SRAM_LIB" -nt "$SRAM_DB" ] && return 0
   mkdir -p "$CACHE"
   echo "[$1] Compiling the SRAM liberty into a .db (Library Compiler): $SRAM_DB"
-  PATH="$LC_HOME/bin:$PATH" lc_shell -x "read_lib $PT_SRAM_LIB; write_lib $SRAM_LIB -format db -output $SRAM_DB; exit" \
-    2>&1 | tee "$CACHE/lc_sram.log"
+  # lc_shell writes its own log files into the folder it runs in
+  ( cd "$CACHE" && PATH="$LC_HOME/bin:$PATH" lc_shell -x \
+      "read_lib $PT_SRAM_LIB; write_lib $SRAM_LIB -format db -output $SRAM_DB; exit" ) 2>&1 | tee "$CACHE/lc_sram.log"
   need "$SRAM_DB" "$1" "SRAM .db compile failed, see $CACHE/lc_sram.log"
 }
 

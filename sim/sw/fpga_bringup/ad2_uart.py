@@ -2,13 +2,13 @@
 # croc UART through an Analog Discovery 2 (WaveForms SDK): croc uart_tx_o (JB1) on DIO 0, GND on JB5.
 # Prints what croc sends, for <seconds> (0 = until Ctrl-C), and writes it to <log> if given.
 #   python3 ad2_uart.py 20 out.log
-# croc runs at 20 MHz, and uart_init truncates 20 MHz / (16 * 115200) = 10.85 to 10: 125000 baud, 8.5 % above
-# 115200 (measured on JB1 with ad2_bittime.py, 8.0 us per bit). A 115200 receiver cannot read it, the AD2 takes
-# 125000 exactly. Close the WaveForms app first: only one program can open the AD2.
+# croc runs at 20 MHz, and uart_init rounds 20 MHz / (16 * 115200) = 10.85 to 11: 113636 baud, 1.4 % below
+# 115200, so a 115200 receiver reads it too. Images built before the rounding fix send at 125000 baud (divisor 10,
+# 8.0 us per bit): use BAUD = 125000 for those. Close the WaveForms app first: only one program can open the AD2.
 import sys, time
 from ctypes import cdll, c_int, c_double, byref, create_string_buffer
 
-BAUD = 125000
+BAUD = 113636
 RX_DIO = 0
 TX_DIO = 1  # the SDK needs a TX pin: DIO 1, leave it unconnected
 

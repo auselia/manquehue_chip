@@ -44,7 +44,7 @@ All Pmods are 3.3 V (bank 13). Pmod pins 5 and 11 are GND, 6 and 12 are 3.3 V. P
 | `jtag_tdo_o` | out | J-Link TDO | JA4 | AA9 | |
 | `jtag_trst_ni` | in | J-Link nTRST | JA7 | AB11 | pull-up |
 | | | J-Link VTref / GND | JA6 / JA5 | | |
-| `uart_tx_o` | out | UART receiver (AD2 DIO 0) | JB1 | W12 | **125000** 8N1, see section 7 |
+| `uart_tx_o` | out | UART receiver (AD2 DIO 0) | JB1 | W12 | **113636** 8N1 (115200 receivers read it), see section 7 |
 | `uart_rx_i` | in | (not used by the steps) | JB2 | W11 | |
 | `qspi_csn_o[0]` | out | flash CS | JC1 | AB7 | QSPI Pmod (TinyTapeout), plugs in directly |
 | `qspi_sd[0]` | io | SD0 / MOSI | JC2 | AB6 | |
@@ -170,8 +170,9 @@ croc stores words in the PSRAM most significant byte first. The `.psram.hex` for
 
 ## 7. Board findings (9 Nov 2026)
 
-- **UART rate:** croc sends at 125000 baud, not 115200: `uart_init` truncates 20 MHz / (16 x 115200) = 10.85 to 10
-  (measured 8.0 us per bit with `ad2_bittime.py`). A 115200 receiver reads garbage. The steps are read with an Analog
+- **UART rate:** `uart_init` truncated 20 MHz / (16 x 115200) = 10.85 to 10, so croc sent at 125000 baud (measured
+  8.0 us per bit with `ad2_bittime.py`) and a 115200 receiver read garbage. Fixed in the firmware: the divisor is now
+  rounded to 11, 113636 baud, 1.4 % below 115200. The steps are read with an Analog
   Discovery 2: DIO 0 on JB1, GND on JB5, `python3 ad2_uart.py <seconds> <log>` (close the WaveForms app first). The
   J-Link VCOM does not work for it (garbled, and its pin 5 is TDI: it breaks JTAG).
 - **QSPI flash commands in SPI mode 3:** when a command of the engine ends, `user_domain.sv` gives the pins back to

@@ -4,7 +4,7 @@
 //                 UART pad.
 //   +flash=<hex>  no JTAG: the QSPI flash model on the QSPI pads holds the program (sim/sw/flash, objcopy -O verilog),
 //                 the bootrom finds the image and runs it. The ADS7057 model on the shared SPI pads (CS0, SCK, SD_I)
-//                 feeds (1237 * k + 5000) mod 16384 at CS fall k, as rtl/test/tb_croc_soc.sv. The SX1276 model is on
+//                 feeds (1237 * k + 5000) mod 16384 at CS fall k, as sim/tb/tb_croc_soc.sv. The SX1276 model is on
 //                 CS1 of the same bus (MISO on SD_I too), DIO0 and RSTN on their pads. Waits for a UART line
 //                 that ends in "OK" (for example "SPI ADC OK" from sim/sw/spi/spi_adc.c), fails on "FAIL".
 // The test bench drives only what a board would drive. testmode_i, scan_in_i and scan_en_i are left open: the

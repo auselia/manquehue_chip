@@ -64,7 +64,7 @@ timing checks. Compile about 10 s, run about 1 min.
 ## Scan shift
 
 `scan_shift.sh [work dir]` shifts a pseudo-random stream through the scan chain of the netlist
-(`rtl/test/tb_scan_shift.sv`, testmode_i = scan_se_i = 1, both clocks with the waveforms of the DFT spec) and checks
+(`sim/tb/tb_scan_shift.sv`, testmode_i = scan_se_i = 1, both clocks with the waveforms of the DFT spec) and checks
 that scan_so_o is the same stream delayed by exactly the number of scan cells (3964). The chain passes, also with
 jtag_trst_ni driven low. With rst_ni driven low the chain is disturbed: rst_ni is a DFT reset signal that the tester
 holds inactive during scan, and the 800 flops behind the reset generator (which passes rst_ni through in test mode)
@@ -76,7 +76,7 @@ hold timing (the scan-mode STA covers that).
 - `sim/sw/*/link.ld` and the committed `bin/*.hex` assume the old 16 KB SRAM (commit a1704ce shrank it to
   2 KB). Those images wrap around and overwrite the vector table, in RTL too. Rebuild for 2 KB, or load code
   through the QSPI boot trampoline.
-- `rtl/test/tb_croc_soc.sv` has `` `define TRACE_WAVE `` hard-coded. Never build with `--trace`: it wrote tens of GB.
+- `sim/tb/tb_croc_soc.sv` has `` `define TRACE_WAVE `` hard-coded. Never build with `--trace`: it wrote tens of GB.
 - Verilator needs g++ with `-fcoroutines` for `--timing`. The system g++ 8.5 on Rocky has none; set `GLS_CXX`.
 - Run with `stdbuf -oL`, otherwise the output of a killed run is lost.
 - Icarus cannot parse the SystemVerilog testbench.

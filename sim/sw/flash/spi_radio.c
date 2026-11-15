@@ -1,4 +1,4 @@
-// Radio master test from the QSPI flash. The SoC testbench (rtl/test/tb_croc_soc.sv) puts the SX1276 model
+// Radio master test from the QSPI flash. The SoC testbench (sim/tb/tb_croc_soc.sv) puts the SX1276 model
 // (sim/models/sx1276_model.v) on the rf_* pins. The program releases the radio reset, reads RegVersion, writes and
 // reads back a burst of registers, writes a 16-byte payload into the radio FIFO and reads it back (17-byte transfers,
 // more than the 8-byte FIFOs of rf_spi), starts TX and waits for DIO0, then clears the radio flag.

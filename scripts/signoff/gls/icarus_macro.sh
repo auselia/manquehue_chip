@@ -4,7 +4,7 @@
 #   Zero delay with a 0.5 ns flop output delay. The test with the SDF delays of PrimeTime is vcs_sdf.sh.
 set -e
 CHIP_NL=none; MACRO_NL=$(readlink -f "$2"); W=${3:?work dir}
-HEX=${PROG_HEX:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/sim/sw/gls_mini/gls_mini.hex}
+HEX=${PROG_HEX:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/sim/sw/gls_mini/bin/gls_mini.hex}
 T=${TEMPLATE_DIR:-$HOME/Documents/waferspace_manquehue}
 PDK=$HOME/.ciel/gf180mcuD/libs.ref
 HERE=$(cd "$(dirname "$0")" && pwd)

@@ -37,7 +37,7 @@ W=${2:-/tmp/gls_full}
 mkdir -p "$W/tb"; cd "$W"
 export W RUN V DELAY=${FLOPDELAY:-0.5ns}
 
-cp "$REPO"/rtl/test/*.sv tb/
+for f in tb_croc_pkg.sv croc_vip.sv tb_croc_soc.sv tb_scan_shift.sv; do cp "$REPO/sim/tb/$f" tb/; done
 python3 - <<'PY'
 import os, re
 W, RUN, V = os.environ["W"], os.environ["RUN"], os.environ["V"]

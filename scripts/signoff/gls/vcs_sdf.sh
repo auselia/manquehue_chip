@@ -15,7 +15,7 @@ set -e
 NL=$(readlink -f "$1"); SDF=$(readlink -f "$2"); M=${3:?min or max}; W=${4:?work dir}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/../../utils/env.sh"
-HEX=${PROG_HEX:-$REPO/sim/sw/gls_mini/gls_mini.hex}
+HEX=${PROG_HEX:-$REPO/sim/sw/gls_mini/bin/gls_mini.hex}
 PDK=$PDK_ROOT/gf180mcuD/libs.ref
 export VCS_HOME PATH=$VCS_HOME/bin:$PATH
 mkdir -p "$W"; cd "$W"

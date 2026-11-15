@@ -1,4 +1,4 @@
-// ADC capture test from the CPU (fits the 2 KB SRAM). The SoC testbench (rtl/test/tb_croc_soc.sv) puts the ADS7057
+// ADC capture test from the CPU (fits the 2 KB SRAM). The SoC testbench (sim/tb/tb_croc_soc.sv) puts the ADS7057
 // model on the ADC pins and feeds it (1237 * k + 5000) mod 16384 at CS fall k, so two consecutive samples differ by
 // 1237 mod 2^14. The reader writes two buffers of 32 samples into the SRAM through the manager port.
 // Prints "SPI ADC OK" and returns 0, or prints "SPI ADC FAIL" and returns a bit mask of the failed checks.

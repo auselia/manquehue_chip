@@ -19,7 +19,7 @@ has one supply.*
 
 | Folder | Contents |
 |---|---|
-| `rtl/` | croc RTL, vendored IPs, `user_domain/`, test benches in `rtl/test/` |
+| `rtl/` | croc RTL, vendored IPs, `user_domain/` |
 | `flists/` | file lists for FC, simulation and FPGA |
 | `scripts/` | FC steps `01_read_rtl` to `06_finish`, then `common/`, `chip/padring.*` (pin positions from the AC3E pad ring) |
 | `sim/` | test benches, models, firmware (`sw/`), FFT reference, experiments |

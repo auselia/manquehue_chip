@@ -9,7 +9,9 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/../../utils/env.sh"
 step_begin gls
 O=$STEP_DIR
-HEX=$REPO/sim/sw/gls_mini/gls_mini.hex
+# the program: the 2 KB bring-up program, built from source (needs riscv32-none-elf-gcc)
+HEX=$REPO/sim/sw/gls_mini/bin/gls_mini.hex
+"$REPO/scripts/sim/build_sw.sh" gls_mini > "$O/gls_mini_build.log" 2>&1 || true
 nixrun() { ( cd "$TEMPLATE_DIR" && nix-shell --run "$*" ); }
 ST=PASS
 

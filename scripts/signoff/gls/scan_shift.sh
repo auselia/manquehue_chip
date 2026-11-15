@@ -2,7 +2,7 @@
 # Gate-level scan-shift test of the croc_soc macro netlist (outputs/latest/croc_soc.v) with Verilator.
 # Shifts a pseudo-random stream through the scan chain with testmode_i = scan_se_i = 1 and both shift
 # clocks, and checks it comes out of scan_so_o delayed by exactly the number of scan cells, also with
-# jtag_trst_ni driven low (rst_ni low is run for information, see the loop below). See rtl/test/tb_scan_shift.sv.
+# jtag_trst_ni driven low (rst_ni low is run for information, see the loop below). See sim/tb/tb_scan_shift.sv.
 #
 # usage: scripts/signoff/gls/scan_shift.sh [work dir]      (default /tmp/gls_scan)
 # env:   PDK_ROOT   default ~/.ciel
@@ -61,7 +61,7 @@ cat > files.f <<EOT
 +define+USE_POWER_PINS
 +define+FUNCTIONAL
 +define+VERILATOR=1
-$REPO/rtl/test/tb_scan_shift.sv
+$REPO/sim/tb/tb_scan_shift.sv
 $V/primitives.v
 $W/cells.v
 $W/sram.v

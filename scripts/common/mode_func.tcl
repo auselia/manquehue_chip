@@ -6,23 +6,7 @@
 
 current_mode func
 
-# Main system clock.
-if { ![info exists CLOCK_PORT_NAME] } { set CLOCK_PORT_NAME "clk_i" }
-if { ![info exists CLOCK_PERIOD]    } { set CLOCK_PERIOD    50.0    }
-
-# JTAG test clock, driven off-chip by the debug probe
-set JTAG_TCK_PORT   "jtag_tck_i"
-set JTAG_TCK_PERIOD 100.0; # 10 MHz
-
-# Margins
-set SETUP_UNCERT 2.75; # Based on v0.1 clock QOR report
-set HOLD_UNCERT      0.25; # Based on v0.1 clock QOR report +0.23 ns slack.
-set CLOCK_IDEAL_TRAN 0.4; # TODO: Educated guess.
-
-# Off-chip environment
-set IO_DELAY_FRAC    0.20   ;# fraction of period for delay outside the macro: pad (3 ns in / 7-12 ns out, gf180mcu_fd_io) + board
-set EXT_INPUT_TRAN   0.3    ;# ns, input-pad Y slew into the macro (TODO: read from IO liberty)
-set EXT_LOAD         0.2    ;# pF, pad A-pin cap + macro-to-pad wire (TODO: read from IO liberty)
+# Clock ports, periods, margins and the budget outside the macro: config/clocks.tcl (sourced by setup.tcl).
 
 # Design rule constraints: per scenario in design_rules.tcl (section 11).
 
@@ -57,9 +41,8 @@ set_clock_uncertainty -mode func -hold  $HOLD_UNCERT  [get_clocks clock]
 set_clock_uncertainty -mode func -setup $SETUP_UNCERT [get_clocks adc_sclk]
 set_clock_uncertainty -mode func -hold  $HOLD_UNCERT  [get_clocks adc_sclk]
 
-# TCK is slow and off-chip: fixed margins.
-set_clock_uncertainty -mode func -setup 2.0 [get_clocks jtag_tck]
-set_clock_uncertainty -mode func -hold  0.5 [get_clocks jtag_tck]
+set_clock_uncertainty -mode func -setup $JTAG_SETUP_UNCERT [get_clocks jtag_tck]
+set_clock_uncertainty -mode func -hold  $JTAG_HOLD_UNCERT  [get_clocks jtag_tck]
 
 set_clock_transition $CLOCK_IDEAL_TRAN [get_clocks *]
 

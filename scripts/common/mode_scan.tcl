@@ -12,13 +12,13 @@ current_mode scan
 # Shift clocks. Keep the names `clock` and `jtag_tck`: 04_cts.tcl and common/export_signoff.tcl set the
 # uncertainties by name. The waveforms are the ones of dft_scan.tcl: clk_i at 50-70 ns, jtag_tck_i at 75-90 ns of
 # 100 ns.
-create_clock -name clock -period 100 -waveform {50 70} [get_ports clk_i]
-create_clock -name jtag_tck -period 100 -waveform {75 90} [get_ports jtag_tck_i]
+create_clock -name clock -period 100 -waveform {50 70} [get_ports $CLOCK_PORT_NAME]
+create_clock -name jtag_tck -period 100 -waveform {75 90} [get_ports $JTAG_TCK_PORT]
 
-# Same hold margins as mode_func.tcl.
-set_clock_uncertainty -mode scan -hold 0.25 [get_clocks clock]
-set_clock_uncertainty -mode scan -hold 0.5  [get_clocks jtag_tck]
-set_clock_transition 0.4 [get_clocks *]
+# Same hold margins as the functional mode (config/clocks.tcl).
+set_clock_uncertainty -mode scan -hold $HOLD_UNCERT      [get_clocks clock]
+set_clock_uncertainty -mode scan -hold $JTAG_HOLD_UNCERT [get_clocks jtag_tck]
+set_clock_transition $CLOCK_IDEAL_TRAN [get_clocks *]
 
 # No set_clock_groups: the chain crosses between the two clocks (mix_clocks), so these paths are timed.
 

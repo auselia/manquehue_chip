@@ -31,24 +31,24 @@ foreach {kind dt} {hold min setup max} {
 redirect -file $REPORT_DIR/worst_hold.$CORNER.rpt { report_timing -delay_type min -to $si -max_paths 3 -input_pins -transition_time }
 exit
 TCL
-run() { # corner sc io spef
+run() { # corner
+  local lib=CORNER_$1_LIB spef=CORNER_$1_SPEF
   # pt_shell writes its command logs into the working directory: one folder per corner (they run in parallel)
   mkdir -p "$O/pt_$1" && cd "$O/pt_$1"
   PATH=$PT_HOME/bin:$PATH pt_shell -x "
-    set CORNER $1; set VLOG $RUN/croc_soc.v; set SDC_FILE $RUN/croc_soc_scan.sdc; set SPEF_FILE $RUN/croc_soc.$4.spef
-    set SC_DB $PDK_DB/gf180mcu_fd_sc_mcu7t5v0__$2.db; set IO_DB $PDK_DB/gf180mcu_fd_io__$3.db; set SRAM_DB $SRAM_DB
+    set CORNER $1; set VLOG $RUN/croc_soc.v; set SDC_FILE $RUN/croc_soc_scan.sdc; set SPEF_FILE $RUN/croc_soc.${!spef}.spef
+    set SC_DB $PDK_DB/${SC_LIB}__${!lib}.db; set IO_DB $PDK_DB/${IO_LIB}__${!lib}.db; set SRAM_DB $SRAM_DB
     set REPORT_DIR $O
     source $O/scan_sta.tcl" > "$O/$1.log" 2>&1
 }
-run slow    ss_125C_4v50 ss_125C_4v50 typ_125 &
-run typical tt_025C_5v00 tt_025C_5v00 typ_25  &
-run fast    ff_n40C_5v50 ff_n40C_5v50 typ_-40 &
+LOGS=()
+for c in $CORNERS; do run "$c" & LOGS+=("$O/$c.log"); done
 wait
-grep -h "^RESULT" "$O"/slow.log "$O"/typical.log "$O"/fast.log | sed 's/^RESULT //' > "$O/results.txt"
+grep -h "^RESULT" "${LOGS[@]}" | sed 's/^RESULT //' > "$O/results.txt"
 cat "$O/results.txt"
 HV=$(awk '/ hold:/{split($0,a,"violators="); split(a[2],b," "); s+=b[1]} END{print s+0}' "$O/results.txt")
 SV=$(awk '/ setup:/{split($0,a,"violators="); split(a[2],b," "); s+=b[1]} END{print s+0}' "$O/results.txt")
 N=$(grep -c "hold:" "$O/results.txt")
 summary hold_violators "$HV"; summary setup_violators "$SV"; summary corners_timed "$N"
-sed -n 's/.* hold: .*worst_slack=\(.*\)/\1/p' "$O/results.txt" | paste -sd' ' | sed 's/^/hold_worst_slack_ns(slow typical fast): /' >> "$SUMMARY"
-if [ "$N" = 3 ] && [ "$HV" = 0 ] && [ "$SV" = 0 ]; then summary status PASS; else summary status FAIL; fi
+sed -n 's/.* hold: .*worst_slack=\(.*\)/\1/p' "$O/results.txt" | paste -sd' ' | sed "s/^/hold_worst_slack_ns($CORNERS): /" >> "$SUMMARY"
+if [ "$N" = "${#LOGS[@]}" ] && [ "$HV" = 0 ] && [ "$SV" = 0 ]; then summary status PASS; else summary status FAIL; fi

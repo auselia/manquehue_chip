@@ -13,6 +13,7 @@
 set -e
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 RUN=$(readlink -f "${1:-$REPO/outputs/latest}")
+eval "$(python3 "$REPO/scripts/lib/config.py" sh)"
 PDK_DB=${PDK_DB:-$HOME/pdk_synopsys/db}
 CACHE=$REPO/outputs/.cache
 if [ -d "$RUN/logs" ] && [ -d "$RUN/svf" ]; then LOGD=$RUN/logs; SVFD=$RUN/svf; else LOGD=$REPO/work/logs; SVFD=$REPO/work; fi
@@ -31,9 +32,9 @@ fm_shell -x "
 set TOP croc_soc
 set VLOG $RUN/croc_soc.v
 set FLIST $REPO/flists/croc.flist
-set SC_DB $PDK_DB/gf180mcu_fd_sc_mcu7t5v0__tt_025C_3v30.db
-set IO_DB $PDK_DB/gf180mcu_fd_io__tt_025C_3v30.db
-set SRAM_DB $CACHE/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db
+set SC_DB $PDK_DB/${SC_LIB}__${CORNER_typical_LIB}.db
+set IO_DB $PDK_DB/${IO_LIB}__${CORNER_typical_LIB}.db
+set SRAM_DB $CACHE/$SRAM_LIB.db
 set REPORT_DIR $RUN/lec_fm
 set SVF_FILE {$SVF}
 source $REPO/scripts/signoff/lec/lec_rtl_vs_gate.tcl

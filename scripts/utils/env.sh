@@ -1,6 +1,8 @@
 # Shared settings of the verification scripts. Source it. Every value can be overridden from the environment or
 # from scripts/utils/local.env (not in git). No script writes to /tmp: results go to <run>/checks/<step>/.
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+# corners, libraries and clocks (config/*.tcl): CORNERS, SC_LIB, CORNER_<corner>_LIB, ...
+eval "$(python3 "$REPO/scripts/lib/config.py" sh)"
 [ -f "$REPO/scripts/utils/local.env" ] && . "$REPO/scripts/utils/local.env"
 
 # the Fusion Compiler run under test (outputs/<run>, outputs/latest is the newest)
@@ -10,8 +12,8 @@ CHECKS_OUT=${CHECKS_OUT:-$RUN/checks}
 # tools and data
 PDK_ROOT=${PDK_ROOT:-$HOME/.ciel}
 PDK_DB=${PDK_DB:-$HOME/pdk_synopsys/db}                      # Synopsys .db of the PDK (sta, lec, etm)
-SRAM_DB=${SRAM_DB:-$REPO/outputs/.cache/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db}
-[ -e "$SRAM_DB" ] || SRAM_DB=$HOME/Documents/manquehue_chip/outputs/.cache/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db
+SRAM_DB=${SRAM_DB:-$REPO/outputs/.cache/$SRAM_LIB.db}
+[ -e "$SRAM_DB" ] || SRAM_DB=$HOME/Documents/manquehue_chip/outputs/.cache/$SRAM_LIB.db
 PT_HOME=${PT_HOME:-/usr/synopsys/prime/Y-2026.03-SP2}
 TMAX_HOME=${TMAX_HOME:-/usr/synopsys/txs/Y-2026.03-SP2}
 VCS_HOME=${VCS_HOME:-/usr/synopsys/vcs/Y-2026.03-SP2}            # always with -full64 (no 32-bit install)

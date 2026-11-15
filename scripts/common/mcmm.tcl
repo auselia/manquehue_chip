@@ -8,23 +8,14 @@ remove_modes -all
 ###########################################################
 # Corners
 ###########################################################
-# 5 V rail (4.5 / 5.0 / 5.5 V). The SRAM has a 5 V tt view only, the same one at every corner
-# (scripts/signoff/sta/sta_corner.tcl).
-create_corner slow
-set_process_label ss
-set_voltage 4.5
-set_temperature 125
-
-create_corner typical
-set_process_label tt
-set_voltage 5.0
-set_temperature 25
-
-
-create_corner fast
-set_process_label ff
-set_voltage 5.5
-set_temperature -40
+# The corners and their PVT are in config/corners.tcl. The SRAM has a 5 V tt view only, the same one at every
+# corner (scripts/signoff/sta/sta_corner.tcl).
+foreach c $CORNERS {
+    create_corner $c
+    set_process_label [set CORNER_${c}_PROCESS]
+    set_voltage [set CORNER_${c}_VOLTAGE]
+    set_temperature [set CORNER_${c}_TEMPERATURE]
+}
 
 
 ###########################################################
@@ -33,9 +24,9 @@ set_temperature -40
 # func: normal operation (constraints in mode_func.tcl). scan: scan shift, further below.
 create_mode func
 
-create_scenario -name slow -mode func -corner slow
-create_scenario -name typical -mode func -corner typical
-create_scenario -name fast -mode func -corner fast
+foreach c $CORNERS {
+    create_scenario -name $c -mode func -corner $c
+}
 
 # Same parasitic spec at every corner (the PDK ships one nxtgrd).
 foreach_in_collection c [get_corners] {
@@ -70,11 +61,13 @@ source [file dirname [info script]]/mode_func.tcl
 # off: the shift period is 100 ns. They are created after mode_func.tcl, so its constraints stay on func.
 create_mode scan
 
-create_scenario -name scan_slow    -mode scan -corner slow
-create_scenario -name scan_typical -mode scan -corner typical
-create_scenario -name scan_fast    -mode scan -corner fast
+set scan_scenarios {}
+foreach c $CORNERS {
+    create_scenario -name scan_$c -mode scan -corner $c
+    lappend scan_scenarios scan_$c
+}
 
-set_scenario_status {scan_slow scan_typical scan_fast} -setup false -hold true \
+set_scenario_status $scan_scenarios -setup false -hold true \
   -max_transition false -max_capacitance false \
   -dynamic_power false -leakage_power false -cell_em false -signal_em false
 

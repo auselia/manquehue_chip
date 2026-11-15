@@ -64,11 +64,57 @@ Every check writes `outputs/<run>/checks/<check>/summary.txt`: `key: value` line
 - Tool runs `cd` into `work/<step>/`, so tool files (`*.svf`, `fc_command.log`) never reach the root.
 
 ## 8. Comments
-- A comment says why, or what is not obvious. It does not repeat the code.
-- Write comments and READMEs in short, plain sentences: active voice, one idea per sentence, no semicolons, no em dashes.
-- A README is at most about 15 lines: what the stage is for, the commands, inputs to outputs, and the traps code cannot remove.
+The test for every comment: could a reader write it from the code next to it? If yes, delete it.
 
-## 9. Linters (`make lint`)
+Write a comment for:
+- why the code is this way and not another
+- a trap or a surprise: a tool that behaves in an unexpected way, an order that must not change
+- a unit, a range, or where a value comes from (`0.2 pF: pad A pin plus wire`)
+- the big picture: the file header, and one line before each block that does a separate part of the job
+
+Do not write a comment for:
+- what the next line does
+- history: "changed", "now", "was", "fixed", dates, run names, ticket numbers. Git holds the history. A comment
+  describes the code as it is. A measured number stays only when it justifies a value in the code.
+- an excuse for a bad name. Change the name.
+
+Header and function comments say what the code does and how to call it, not how it works inside. If a function is
+hard to describe in one or two lines, split the function.
+
+Write comments and READMEs in short, plain sentences: active voice, one idea per sentence, no semicolons, no em dashes.
+A README is at most about 15 lines: what the stage is for, the commands, inputs to outputs, and the traps code cannot
+remove.
+
+## 9. Code that reads well
+- One step per line. Do not chain several actions with `;`, `&&` or nested `$( )` on one line.
+- Group the lines of one step into a paragraph, with a blank line between paragraphs.
+- Give a long expression or pipeline a name first (`hold_slack_ns=$(...)`), then use the name.
+- Names say what a value is, with its unit when it has one: `period_ns`, `load_pf`, `spef_file`. No `tmp`, `L`, `HV`.
+  Name the arguments of a function in its first lines. Do not use `$2` or `$4` further down.
+- Check the inputs at the top and stop early. Keep the main path flat, with little nesting.
+- Similar blocks have the same shape and the same order (always slow, typical, fast).
+- No program in another language inside a file: no `python3 - <<EOF` in Bash, no awk script of more than one line.
+  Put it in its own file, with its own name and header.
+- Code that two scripts need is in one shared file. Copy and edit is not allowed.
+- A function or script that only passes its arguments to another one is removed.
+
+## 10. What stays in the repository
+The repository holds the flow and what the flow needs. A file stays when one of these is true:
+- a make target, a check or another flow file uses it
+- it is a test bench, a model or a program that a check runs
+- it is a reference that we cannot make again quickly (a measured result, a deck, a tech file)
+
+A script written once for one question (a plot, a conversion, a one-time fix, a debug run) is deleted when the
+question is answered. Its result goes into the commit, the PR or a README of the stage. If we need it again, we write
+it again.
+
+## 11. Commits and pull requests
+- Commit subject: imperative, at most about 50 characters (`signoff: read corners from config`).
+- Commit body: one to five lines on why. The diff shows what changed.
+- Information that a future reader of the code needs goes into a comment in the code, not only into the commit.
+- Pull request: three short parts. What changes, why, how it was verified. Do not list the diff file by file.
+
+## 12. Linters (`make lint`)
 | Files | Tool | Where it comes from |
 |---|---|---|
 | `.sv`, `.v` (our RTL and testbenches, not vendored IP) | `verible-verilog-lint` | installed on Rocky |
@@ -81,7 +127,11 @@ Phase 1 lints only the files a PR touches. Phase 2 cleans each stage completely.
 ## Sources
 - Synopsys Fusion Compiler Reference Methodology Y-2026.03 (`generate_rm`): setup files, one script per step, pre and post hooks, summary table.
 - R. Mecklenburg, *Managing Projects with GNU Make*, 3rd ed., ch. 6. P. Miller, "Recursive Make Considered Harmful".
-- J. Ousterhout, *A Philosophy of Software Design*: deep modules, information leakage, comments.
+- J. Ousterhout, *A Philosophy of Software Design*, 2nd ed.: deep modules, information leakage, comments
+  (ch. 12 to 16), names (ch. 14), code should be obvious (ch. 18).
+- D. Boswell and T. Foucher, *The Art of Readable Code*: names, aesthetics, what to comment, giant expressions,
+  one task at a time.
+- C. Beams, "How to Write a Git Commit Message". Google Engineering Practices, "Writing good CL descriptions".
 - G. Wilson et al., "Good enough practices in scientific computing": src, results and doc apart, one driver.
 - J. Nielsen, *Usability Engineering*, and J. Carroll, *The Nurnberg Funnel*: a short task path first, details one level down.
 - Google Shell Style Guide. Tcl Style Guide (TIP 352). lowRISC Verilog Coding Style Guide. PEP 8.

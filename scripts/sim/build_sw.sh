@@ -9,12 +9,13 @@ SW=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../sim/sw" && pwd)
 export RISCV_PREFIX=${RISCV_PREFIX:-riscv32-none-elf-}
 CLEAN=0; [ "$1" = clean ] && { CLEAN=1; shift; }
 if [ $# -eq 0 ]; then
-  set -- $(cd "$SW" && for d in */; do d=${d%/}; [ -f "$d/Makefile" ] || [ -f "$d/build.sh" ] && echo "$d"; done)
+  mapfile -t PROGS < <(cd "$SW" && for d in */; do d=${d%/}; { [ -f "$d/Makefile" ] || [ -f "$d/build.sh" ]; } && echo "$d"; done)
+  set -- "${PROGS[@]}"
 fi
 FAILED=()
 for p in "$@"; do
   d=$SW/$p
-  if [ "$CLEAN" = 1 ]; then rm -rf "$d/bin" "$d/build"; continue; fi
+  if [ "$CLEAN" = 1 ]; then rm -rf "${d:?}/bin" "${d:?}/build"; continue; fi
   if [ -f "$d/Makefile" ]; then
     make -s -C "$d" RISCV_PREFIX="$RISCV_PREFIX" || FAILED+=("$p")
   elif [ -f "$d/build.sh" ]; then

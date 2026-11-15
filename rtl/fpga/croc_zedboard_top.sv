@@ -13,7 +13,7 @@
 //   - direct pin-for-pin connections for JTAG/UART/QSPI-control, which are
 //     unidirectional at the croc_soc boundary
 //
-// Pin mapping (see constraints/zedboard.xdc):
+// Pin mapping (see scripts/fpga/zedboard.xdc):
 //   JTAG          -> Pmod JA (tck/tms/tdi/tdo/trst_n on JA1/JA2/JA3/JA4/JA7)
 //   UART          -> Pmod JB (tx on JB1, rx on JB2)
 //   QSPI          -> Pmod JC (clk/csn on JC1_P/JC1_N/JC2_P/JC2_N,

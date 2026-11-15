@@ -62,5 +62,8 @@ sim/experiments/*/work/
 
 # Python byte code
 __pycache__/
+# logs of the bench tools and PlatformIO builds of the Heltec sketches
+scripts/fpga/bench/logs/
+scripts/fpga/bench/heltec/*/.pio/
 # test bench build folder of scripts/sim/run_obi_spi_tb.sh (moves to work/ in Phase 2)
 /build/

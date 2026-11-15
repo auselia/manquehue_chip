@@ -10,11 +10,13 @@ PROG = $(if $(filter sim/sw/%,$(BIN)),$(word 3,$(subst /, ,$(BIN))))
 BUILD_PROG = $(if $(PROG),scripts/sim/build_sw.sh $(PROG),true)
 
 ##@ Simulation
-.PHONY: sim sw clean-sw verilate run sim-spi vcs-compile run-vcs sim-vcs clean-sim
+.PHONY: sim regress sw clean-sw verilate run sim-spi vcs-compile run-vcs sim-vcs clean-sim
 sim: ## Verilator: build the model and run BIN (default helloworld)
 	@$(BUILD_PROG)
 	@echo "[SIM] Launching Verilator simulation flow..."
 	@cd sim && BIN=$(abspath $(BIN)) bash ../scripts/sim/run_verilator.sh
+regress: ## RTL regression: SPI and FFT block test benches, model self-test, ZedBoard bring-up steps (BRINGUP=0: skip)
+	@scripts/sim/regress.sh
 sw: ### build all RISC-V programs of sim/sw (the shared library is sim/sw/lib)
 	@echo "[SW] Compiling RISC-V bare-metal software..."
 	@scripts/sim/build_sw.sh

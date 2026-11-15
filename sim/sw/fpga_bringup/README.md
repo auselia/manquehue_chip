@@ -92,7 +92,8 @@ After programming: LD3 on, LD7 blinks.
 
 ## 3. Build and load a step
 
-Build on Rocky, in this folder, then copy `bin/` to the Mac (next to `load.sh` and `openocd-croc.cfg`):
+Build on Rocky, in this folder, then copy `bin/` into the same folder of the Mac checkout. `load.sh`, the other
+bench tools and `openocd-croc.cfg` are in `scripts/fpga/` (`bench/` for the tools):
 
 ```bash
 ./build.sh s0_hello
@@ -106,12 +107,12 @@ falling-edge one).
 Load and run on the Mac (OpenOCD 0.12, J-Link on JA), with the UART open at 115200 8N1:
 
 ```bash
-./load.sh s0_hello
+scripts/fpga/bench/load.sh s0_hello
 ```
 
-For steps 3 to 6, `./load.sh s3_adc` writes `bin/s3_adc.psram.bin` into PSRAM A, runs the flasher (UART:
+For steps 3 to 6, `load.sh s3_adc` writes `bin/s3_adc.psram.bin` into PSRAM A, runs the flasher (UART:
 `STEP2b flasher`, `length ...`, `FLASH WRITE OK <length>`) and resets croc, which then boots the step from the flash.
-The flash keeps the step: BTNC (or `./load.sh boot`) runs it again. Press BTNC between SRAM steps.
+The flash keeps the step: BTNC (or `load.sh boot`) runs it again. Press BTNC between SRAM steps.
 
 ## 4. What to expect per step
 
@@ -192,6 +193,8 @@ croc stores words in the PSRAM most significant byte first. The `.psram.hex` for
 
 ## 8. Bench tools (MSOX4024A over LAN, AD2)
 
+All in `scripts/fpga/bench/`.
+
 | Tool | Use |
 |---|---|
 | `scope.py` | SCPI to the MSOX4024A (192.168.140.102:5025), for example `python3 scope.py ":WGEN:OUTP 0"` |
@@ -214,7 +217,7 @@ below the listener threshold after the AFE.
 
 ## 9. SX1262 LoRa through a Heltec WiFi LoRa 32 V3 (9 Nov 2026)
 
-The SX1262 of the Heltec V3 is wired to ESP32-S3 GPIO8 to 14 only, not to the headers. Heltec #1 runs `heltec/bridge`:
+The SX1262 of the Heltec V3 is wired to ESP32-S3 GPIO8 to 14 only, not to the headers. Heltec #1 runs `scripts/fpga/bench/heltec/bridge`:
 a loop on core 1 copies croc's lines from header J3 to the SX1262 and back. No radio code runs on the ESP32, croc
 drives the radio itself. A monitor on core 0 only reads the same pins: it decodes croc's commands for the OLED
 (frames, sync word, SetTx, TxDone, payload, airtime) and prints a pin report on USB once a second (level and edge
@@ -231,7 +234,7 @@ count of SCK, MOSI, NSS, RESET). Heltec #2 runs `heltec/receiver` (RadioLib) and
 | GND | JB5 or JB11 | pin 1 | |
 
 Power Heltec #1 from its USB, or from JB6 (3.3 V) to a 3V3 pin. Never both at the same time. Antennas on both boards
-before any transmission. Flash: `pio run -d heltec/<bridge|receiver> -t upload --upload-port /dev/cu.usbserial-...`.
+before any transmission. Flash: `pio run -d scripts/fpga/bench/heltec/<bridge|receiver> -t upload --upload-port /dev/cu.usbserial-...`.
 Read: `python3 serial_read.py <port> <seconds> [log]` (it releases RTS: on macOS RTS is on after open, and it holds
 the ESP32 in reset).
 
@@ -264,7 +267,7 @@ IGNORE0 and IGNORE1 set: the select acts at once. The chip uses a plain mux cell
 running) left the ADC reader stuck (STATUS 0x08, COUNT 0xFFFF, all samples 0) until a bitstream load. Cause: the user
 domain did not reset on the debug-module reset (ndmreset). It does now. Test: step 9 (`s9_adc_reset`, from the SRAM)
 arms a capture, then after the reset checks that the reader is idle and reads a block. Simulation: FAIL before the
-fix, STEP9 OK after. On the board: `./load.sh s9_adc_reset`, then load and run it again after an OpenOCD
+fix, STEP9 OK after. On the board: `load.sh s9_adc_reset`, then load and run it again after an OpenOCD
 `reset halt` (needs an FPGA build with the fix). After a JTAG reset the PSRAM quad state of `qspi_cmd` is 0, while a
 PSRAM can still be in QPI mode (the same as after the external reset): software that uses quad mode must leave it
 before a reset.

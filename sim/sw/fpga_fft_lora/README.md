@@ -40,7 +40,7 @@ LD2 is croc's status_o.
 On the Mac, in this folder (OpenOCD 0.12, as in August):
 
 ```bash
-openocd -f openocd-croc.cfg -c "load_image bin/fft_lora.elf; verify_image bin/fft_lora.elf; reg pc 0x1000000c; resume; shutdown"
+openocd -f ../../../scripts/fpga/openocd-croc.cfg -c "load_image bin/fft_lora.elf; verify_image bin/fft_lora.elf; reg pc 0x1000000c; resume; shutdown"
 ```
 
 `bin/fft_lora.elf` comes from `./build.sh` (on Rocky). Other bands: `DEFS=-DFRF=0xD90000u ./build.sh` for 868 MHz,

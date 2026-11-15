@@ -22,6 +22,17 @@ LOGS_DIR           := $(WORK_DIR)/logs
 OUTPUTS_DIR        := outputs
 REPO_DIR           := $(shell pwd)
 
+# Corners, libraries and clocks (CORNERS, SC_LIB, CORNER_<corner>_LIB, SPEC_PERIOD, ...) from config/*.tcl
+define newline
+
+
+endef
+$(eval $(subst ;,$(newline),$(shell python3 scripts/lib/config.py make)))
+ifeq ($(CORNERS),)
+$(error scripts/lib/config.py make gave no CORNERS)
+endif
+rparen := )
+
 .DEFAULT_GOAL := help
 
 # ------------------------------------------------------------------------------
@@ -144,23 +155,19 @@ ICV_FILL_EXTRA        ?=
 # (common/export_signoff.tcl). Without them they stop and ask for make finish, or make pt_export to write them again.
 PT_HOME_DIR ?= /usr/synopsys/prime/Y-2026.03-SP2
 SDC  ?= $(RUN_DIR)/$(TOP).sdc
-# Sign-off SDC: the same constraints at SPEC_PERIOD of setup.tcl (55.0 gives _55ns)
-SPEC_SDC ?= $(RUN_DIR)/$(TOP)_55ns.sdc
+# Sign-off SDC: the same constraints at SPEC_PERIOD of config/clocks.tcl (55.0 gives _55ns)
+SPEC_SDC ?= $(RUN_DIR)/$(TOP)_$(SPEC_PERIOD:.0=)ns.sdc
 
 # PrimeTime has no MCMM of its own (create_corner and create_mode are FC commands). sta_corner.tcl runs one
-# pt_shell per corner, so the libraries of each corner are named here. The corners are the ones of mcmm.tcl.
+# pt_shell per corner, so the libraries of each corner are named here (PT_SC_DB_<corner>, PT_IO_DB_<corner>).
 PT_PDK_DB_DIR    ?= $(ICV_PDK_HOME)/db
-PT_SC_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ss_125C_4v50.db
-PT_SC_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__tt_025C_5v00.db
-PT_SC_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_sc_mcu7t5v0__ff_n40C_5v50.db
-PT_IO_DB_slow    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ss_125C_4v50.db
-PT_IO_DB_typical ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__tt_025C_5v00.db
-PT_IO_DB_fast    ?= $(PT_PDK_DB_DIR)/gf180mcu_fd_io__ff_n40C_5v50.db
+$(foreach c,$(CORNERS),$(eval PT_SC_DB_$(c) ?= $$(PT_PDK_DB_DIR)/$(SC_LIB)__$(CORNER_$(c)_LIB).db))
+$(foreach c,$(CORNERS),$(eval PT_IO_DB_$(c) ?= $$(PT_PDK_DB_DIR)/$(IO_LIB)__$(CORNER_$(c)_LIB).db))
 
 # The PDK has one SRAM view (tt, 25 C, 5.0 V), used at all three corners. It ships as .lib only: Library Compiler
 # converts it once into outputs/.cache/, and again when the .lib changes.
-PT_SRAM_LIB ?= $(HOME)/pdk_synopsys/lib/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.lib
-PT_SRAM_DB  := $(CACHE_DIR)/gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00.db
+PT_SRAM_LIB ?= $(HOME)/pdk_synopsys/lib/$(SRAM_LIB).lib
+PT_SRAM_DB  := $(CACHE_DIR)/$(SRAM_LIB).db
 LC_HOME_DIR ?= /usr/synopsys/lc/Y-2026.03-SP1
 
 # PrimePower without activity data gives a vectorless estimate (default toggle rate and static probability).
@@ -608,7 +615,7 @@ sta-pt:
 	  echo "[STA-PT] Compiling SRAM liberty -> db (Library Compiler): $(PT_SRAM_DB)"; \
 	  PATH="$(LC_HOME_DIR)/bin:$$PATH" lc_shell -x " \
 	    read_lib $(PT_SRAM_LIB); \
-	    write_lib gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00 -format db -output $(PT_SRAM_DB); \
+	    write_lib $(SRAM_LIB) -format db -output $(PT_SRAM_DB); \
 	    exit" 2>&1 | tee "$(CACHE_DIR)/lc_sram.log"; \
 	  if [ ! -e "$(PT_SRAM_DB)" ]; then \
 	    echo "[STA-PT] ERROR: SRAM db compile failed, see $(CACHE_DIR)/lc_sram.log"; exit 1; \
@@ -623,9 +630,7 @@ sta-pt:
 	 echo "[STA-PT] design  : $$vlog_real"; \
 	 echo "[STA-PT] sdc     : $$sdc_real"; \
 	 echo "[STA-PT] results : $$out_dir"; \
-	 for spec in "slow $(PT_SC_DB_slow) $(PT_IO_DB_slow) typ_125" \
-	             "typical $(PT_SC_DB_typical) $(PT_IO_DB_typical) typ_25" \
-	             "fast $(PT_SC_DB_fast) $(PT_IO_DB_fast) typ_-40"; do \
+	 for spec in $(foreach c,$(CORNERS),"$(c) $(PT_SC_DB_$(c)) $(PT_IO_DB_$(c)) $(CORNER_$(c)_SPEF)"); do \
 	   set -- $$spec; corner=$$1; sc_db=$$2; io_db=$$3; spef_suffix=$$4; \
 	   spef="$$run_dir/$(TOP).$${spef_suffix}.spef"; \
 	   if [ ! -e "$$spef" ]; then \
@@ -683,7 +688,7 @@ power-pp:
 	  echo "[POWER-PP] Compiling SRAM liberty -> db (Library Compiler): $(PT_SRAM_DB)"; \
 	  PATH="$(LC_HOME_DIR)/bin:$$PATH" lc_shell -x " \
 	    read_lib $(PT_SRAM_LIB); \
-	    write_lib gf180mcu_fd_ip_sram__sram512x8m8wm1__tt_025C_5v00 -format db -output $(PT_SRAM_DB); \
+	    write_lib $(SRAM_LIB) -format db -output $(PT_SRAM_DB); \
 	    exit" 2>&1 | tee "$(CACHE_DIR)/lc_sram.log"; \
 	  if [ ! -e "$(PT_SRAM_DB)" ]; then \
 	    echo "[POWER-PP] ERROR: SRAM db compile failed, see $(CACHE_DIR)/lc_sram.log"; exit 1; \
@@ -701,10 +706,8 @@ power-pp:
 	 echo "[POWER-PP] results : $$out_dir"; \
 	 for corner in $(PP_CORNERS); do \
 	   case $$corner in \
-	     slow)    sc_db="$(PT_SC_DB_slow)";    io_db="$(PT_IO_DB_slow)";    spef_suffix=typ_125 ;; \
-	     typical) sc_db="$(PT_SC_DB_typical)"; io_db="$(PT_IO_DB_typical)"; spef_suffix=typ_25  ;; \
-	     fast)    sc_db="$(PT_SC_DB_fast)";    io_db="$(PT_IO_DB_fast)";    spef_suffix=typ_-40 ;; \
-	     *) echo "[POWER-PP] ERROR: unknown corner '$$corner' (expected slow|typical|fast)"; exit 1 ;; \
+	     $(foreach c,$(CORNERS),$(c)$(rparen) sc_db="$(PT_SC_DB_$(c))"; io_db="$(PT_IO_DB_$(c))"; spef_suffix=$(CORNER_$(c)_SPEF) ;;) \
+	     *) echo "[POWER-PP] ERROR: unknown corner '$$corner' (expected one of: $(CORNERS))"; exit 1 ;; \
 	   esac; \
 	   spef="$$run_dir/$(TOP).$${spef_suffix}.spef"; \
 	   if [ ! -e "$$spef" ]; then \

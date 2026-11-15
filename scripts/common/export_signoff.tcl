@@ -9,9 +9,7 @@
 #   <run>/<TOP>.sdc              mode func, propagated clocks, implementation period
 #   <run>/<TOP>_55ns.sdc         the same at SPEC_PERIOD, for make sta-pt (only the clock period differs)
 #   <run>/<TOP>_scan.sdc         mode scan, for make scan-sta
-#   <run>/<TOP>.typ_125.spef     parasitics of slow (125 C)
-#   <run>/<TOP>.typ_25.spef      parasitics of typical (25 C)
-#   <run>/<TOP>.typ_-40.spef     parasitics of fast (-40 C)
+#   <run>/<TOP>.<spef>.spef      parasitics per corner (CORNER_<corner>_SPEF in config/corners.tcl)
 #   <run>/<TOP>.spef_scenario    file-to-scenario map of FC (not read by PrimeTime)
 # The PDK has one nxtgrd (typ). The three SPEF files still differ: the sheet resistance depends on the temperature.
 # The script sets the sign-off hold uncertainty in the open block. After save_block, the saved block keeps the
@@ -27,11 +25,11 @@ set SDC_SCAN_OUT [file join $RUN_DIR "${TOP_MODULE}_scan.sdc"]
 # Base name only: write_parasitics adds .<spec>_<temperature>.spef per corner (.typ_125.spef for slow).
 set SPEF_BASE [file join $RUN_DIR "${TOP_MODULE}"]
 
-# Sign off with the real hold uncertainty from mode_func.tcl (04_cts.tcl added 0.1 ns while implementing).
+# Sign off with the hold uncertainty of config/clocks.tcl (04_cts.tcl adds a margin while implementing).
 foreach s [get_attribute [get_scenarios] -name name] {
   current_scenario $s
-  set_clock_uncertainty -hold 0.25 [get_clocks clock]
-  set_clock_uncertainty -hold 0.5  [get_clocks jtag_tck]
+  set_clock_uncertainty -hold $HOLD_UNCERT      [get_clocks clock]
+  set_clock_uncertainty -hold $JTAG_HOLD_UNCERT [get_clocks jtag_tck]
   # the extra hold margin at the SRAM clock pins of 04_cts.tcl is for implementation only
   set sram_clk [get_pins -quiet -of_objects [get_cells -quiet -hierarchical -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] -filter "is_clock_pin == true"]
   if {[sizeof_collection $sram_clk] > 0} { catch {remove_clock_uncertainty -hold $sram_clk} }
@@ -70,7 +68,7 @@ proc write_pt_sdc { sdc_out } {
 
 write_pt_sdc $SDC_OUT
 
-# Sign-off constraints: the netlist is implemented at CLOCK_PERIOD and signed off at SPEC_PERIOD (setup.tcl, AUS-9).
+# Sign-off constraints: the netlist is implemented at CLOCK_PERIOD and signed off at SPEC_PERIOD (config/clocks.tcl, AUS-9).
 # Only the period and the 50 % waveform of `clock` change. The input and output delays keep the values they have
 # at the implementation period. PrimeTime setup (make sta-pt) and the timing models read this file.
 set SPEC_STR [format %g $SPEC_PERIOD]
@@ -104,6 +102,6 @@ redirect -file [file join $RUN_DIR reports export_signoff report_parasitics.rpt]
 
 puts "INFO: Wrote SDC   -> $SDC_OUT"
 puts "INFO: Wrote SDC   -> $SDC_SCAN_OUT (scan shift)"
-puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_125.spef (slow)"
-puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_25.spef (typical)"
-puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.typ_-40.spef (fast)"
+foreach c $CORNERS {
+  puts "INFO: Wrote SPEF  -> ${SPEF_BASE}.[set CORNER_${c}_SPEF].spef ($c)"
+}

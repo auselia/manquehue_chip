@@ -44,7 +44,7 @@ No banners (`####` boxes). A proc or function gets one line on what it does and 
   - `corners.tcl`: corner names, libraries, RC corners and SPEF temperature per corner
   - `clocks.tcl`: periods, IO budgets, clock uncertainty before and after CTS
   - `sdc/`: the constraint sources (`mode_func`, `mode_scan`, design rules)
-- Tcl reads them with `source`. Bash and Make read them through one helper, `scripts/lib/config.sh` (`cfg NAME`), the same way the Synopsys RM Makefile reads `design_setup.tcl`.
+- Tcl reads them with `source`. Bash and Make read them through one helper, `scripts/lib/config.py` (`sh`, `make`, `get NAME`), the same way the Synopsys RM Makefile reads `design_setup.tcl`. The helper is Python because Rocky has no `tclsh`.
 
 ## 6. Step scripts (implementation and sign-off)
 Same skeleton in every step, as in the Synopsys FC Reference Methodology:

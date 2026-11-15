@@ -14,23 +14,21 @@ open_block synthesis
 source [file dirname [info script]]/common/design_rules.tcl
 design_rules
 
-# lower clock uncertainty
+# Clock uncertainty from CTS on, and the extra hold margins while implementing (config/clocks.tcl).
+# common/export_signoff.tcl writes the sign-off hold values.
 foreach s [get_attribute [get_scenarios] -name name] {
   current_scenario $s
-  set_clock_uncertainty -setup 0.7 [get_clocks clock]
-  # extra 0.1 ns hold margin while implementing (mode_func.tcl: 0.25 / 0.5). common/export_signoff.tcl restores it
-  set_clock_uncertainty -hold 0.35 [get_clocks clock]
-  set_clock_uncertainty -hold 0.6  [get_clocks jtag_tck]
+  set_clock_uncertainty -setup $SETUP_UNCERT_CTS [get_clocks clock]
+  set_clock_uncertainty -hold $HOLD_UNCERT_IMPL [get_clocks clock]
+  set_clock_uncertainty -hold $JTAG_HOLD_UNCERT_IMPL [get_clocks jtag_tck]
 }
 
-# SRAM inputs: PrimeTime finds about 0.1 ns less hold slack there than Fusion Compiler (0.17 ns violation at fast).
-# An extra 0.2 ns over sign-off on the SRAM clock pins while implementing (0.4 ns crowded the channel between the
-# SRAMs with hold buffers: 5935 routing DRCs). export_signoff.tcl removes it.
+# SRAM clock pins: a larger hold margin while implementing. export_signoff.tcl removes it.
 set SRAM_CLK_PINS [get_pins -quiet -of_objects [get_cells -quiet -hierarchical -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] -filter "is_clock_pin == true"]
 if {[sizeof_collection $SRAM_CLK_PINS] > 0} {
   foreach s [get_attribute [get_scenarios] -name name] {
     current_scenario $s
-    set_clock_uncertainty -hold 0.45 $SRAM_CLK_PINS
+    set_clock_uncertainty -hold $SRAM_HOLD_UNCERT_IMPL $SRAM_CLK_PINS
   }
 }
 

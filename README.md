@@ -12,8 +12,8 @@ shuttle.
 ![croc_soc](docs/croc_arch.svg)
 
 *`croc_soc` has two parts: `croc_domain` (CVE2 core, debug, peripherals, SRAM) and `user_domain` (SPI for the ADC and
-the radio, FFT, QSPI flash). PD_CORE and PD_MEM show the power domains of the power-gating study. The implementation
-has one supply.*
+the radio, FFT, QSPI flash). The wake input of the AFE board (`afe_irq_i`) goes to the ADC reader of the SPI
+block.*
 
 ## Quick start
 

@@ -231,47 +231,6 @@ pt_export:
 # Full Flow
 # ------------------------------------------------------------------------------
 .PHONY: all
-# Chip: croc on the AC3E pad ring with the wafer.space IPs and the DC-DC wrappers (steps 01 to 06 with
-# CHIP_FLOORPLAN=1, top rtl/chip/chip_top.sv from scripts/chip/padring.txt, library work/chip.dlib).
-# make chip_macros_ndm once (or when a wrapper GDS changes), make chip_pnr (01 to 06), then make chip_finish.
-# Outputs: outputs/chip_floorplan/, chip_route/, chip_final/ (GDS, DEF, netlist) and chip_finish/ (precheck).
-# DC-DC blocks. The V0 migration of AC3E commit d1d53b2 (Channels_wrapper DB_VCO_wrapper) is in
-# waferspace_wip/macros/dcdc_v0 and reaches into the croc area: the flow keeps the previous wrappers for now.
-DCDC_GDS_DIR ?= $(HOME)/Documents/waferspace_wip/macros/dcdc_old
-DCDC_MACROS  ?= 8_segs_wrapper DB_VCO_wrapper 8seg_DB_routing
-export DCDC_MACROS
-.PHONY: chip_macros_ndm chip_top chip_read_rtl chip_floorplan chip_synthesis chip_cts chip_route chip_finish_fc chip_pnr chip_finish chip_gui
-# GUI on a block of work/chip.dlib: BLOCK=floorplan_pre_pg, floorplan, synthesis, cts or route (default)
-chip_gui:
-	cd $(WORK_DIR) && CHIP_FLOORPLAN=1 fc_shell -gui -f ../scripts/common/setup.tcl \
-	    -x "open_lib chip.dlib; open_block $(or $(BLOCK),route)"
-# Steps 03 to 06 on the chip, each on the block the previous step saved. chip_pnr runs 01 to 06.
-chip_synthesis chip_cts chip_route chip_finish_fc:
-	mkdir -p $(LOGS_DIR) && cd $(WORK_DIR) && set -o pipefail; \
-	CHIP_FLOORPLAN=1 fc_shell -batch -f ../scripts/$(notdir $(wildcard scripts/0*_$(patsubst chip_%,%,$(patsubst %_fc,%,$@)).tcl)) \
-	    | tee logs/$@.log
-# Seal ring, the GDS without fill (FILL=1: also with fill) and the wafer.space precheck: outputs/chip_finish/
-chip_finish:
-	scripts/chip/chip_finish.sh
-chip_pnr:
-	$(MAKE) chip_floorplan && $(MAKE) chip_synthesis && $(MAKE) chip_cts && $(MAKE) chip_route && $(MAKE) chip_finish_fc
-chip_top rtl/chip/chip_top.sv: scripts/chip/padring.txt scripts/chip/gen_chip_top.py
-	python3 scripts/chip/gen_chip_top.py
-chip_read_rtl: rtl/chip/chip_top.sv
-	mkdir -p $(LOGS_DIR) && cd $(WORK_DIR) && set -o pipefail; \
-	CHIP_FLOORPLAN=1 fc_shell -batch -f ../scripts/01_read_rtl.tcl | tee logs/chip_read_rtl.log
-chip_macros_ndm:
-	mkdir -p $(LOGS_DIR) $(WORK_DIR)/chip_abstracts && cd $(WORK_DIR) && set -o pipefail; \
-	klayout -b -r ../scripts/chip/dcdc_abstract.py -rd gds_dir=$(DCDC_GDS_DIR) -rd cells="$(DCDC_MACROS)" \
-	    -rd out=chip_abstracts | tee logs/chip_macros_ndm.log && \
-	rm -rf chip_macros.ndm && \
-	lm_shell -batch -f ../scripts/chip/create_chip_macros_ndm.tcl | tee -a logs/chip_macros_ndm.log && \
-	rm -rf gf180mcu_fd_io.ndm && \
-	lm_shell -batch -f ../scripts/chip/create_io_ndm.tcl | tee -a logs/chip_macros_ndm.log
-chip_floorplan: chip_read_rtl
-	mkdir -p $(LOGS_DIR) && cd $(WORK_DIR) && set -o pipefail; \
-	CHIP_FLOORPLAN=1 fc_shell -batch -f ../scripts/02_floorplan.tcl | tee logs/chip_floorplan.log
-
 all: $(DEPENDENCY)
 	@echo "[FLOW] Fusion Compiler flow completed successfully up to the final TCL script."
 
@@ -1037,7 +996,7 @@ help:
 	@echo "  make clean-fpga  – Remove the FPGA build directory and Vivado logs"
 	@echo "================================================================"
 # ------------------------------------------------------------------------------
-# Checks of a finished run (scripts/signoff, scripts/sim, scripts/dft, scripts/chip)
+# Checks of a finished run (scripts/signoff, scripts/sim, scripts/dft)
 # ------------------------------------------------------------------------------
 # Every check reads RUN (a folder name under outputs/ or an absolute path, default latest) and writes
 # outputs/<run>/checks/<step>/summary.txt. `make report` collects them into outputs/<run>/report.md.
@@ -1047,22 +1006,12 @@ help:
 #   make scan-sta  scan-shift STA, 3 corners
 #   make gls       Verilator boot, scan shift, Icarus macro boot over JTAG
 #   make dft       scan chain trace, ATPG, pattern replay (NPAT=20 for a quick run), SRAM March test
-#   make chip      chip flow with the pad ring, precheck (COB=0: without --cob), chip-level GLS
-#   make check     scan-sta + gls + dft + chip, then the report
-.PHONY: signoff scan-sta gls dft chip check report
+#   make check     scan-sta + gls + dft, then the report
+.PHONY: signoff scan-sta gls dft check report
 signoff:
 	$(MAKE) drc lvs sta-pt
 	$(REPO_DIR)/scripts/signoff/lec/run_lec.sh $(RUN_DIR)
 	RUN=$(RUN_DIR) scripts/signoff/sta/signoff_summary.sh
-# Chip-level LVS of outputs/chip_final (KLayout, pads, SRAMs and wafer.space IPs as black boxes): outputs/chip_lvs/
-chip-lvs:
-	scripts/chip/chip_lvs.sh
-
-chip-sta:
-	PT_HOME_DIR=$(PT_HOME_DIR) PT_SRAM_DB=$(abspath $(PT_SRAM_DB)) \
-	PT_SC_DB_slow=$(PT_SC_DB_slow) PT_SC_DB_typical=$(PT_SC_DB_typical) PT_SC_DB_fast=$(PT_SC_DB_fast) \
-	PT_IO_DB_slow=$(PT_IO_DB_slow) PT_IO_DB_typical=$(PT_IO_DB_typical) PT_IO_DB_fast=$(PT_IO_DB_fast) \
-	scripts/chip/chip_sta.sh
 scan-sta:
 	RUN=$(RUN_DIR) scripts/signoff/sta/scan_sta.sh
 gls:
@@ -1072,8 +1021,6 @@ dft:
 # the same with the serial replay of every pattern (hours): for a full sign-off
 dft-serial:
 	RUN=$(RUN_DIR) DFT_REPLAY=serial scripts/dft/run_dft.sh
-chip:
-	RUN=$(RUN_DIR) scripts/waferspace/run_chip_flow.sh
 report:
 	python3 scripts/utils/report.py $(RUN_DIR)
-check: scan-sta gls dft chip report
+check: scan-sta gls dft report

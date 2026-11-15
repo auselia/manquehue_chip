@@ -8,10 +8,8 @@ import sys
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 run = os.path.realpath(sys.argv[1] if len(sys.argv) > 1 else repo + "/outputs/latest")
 commit = subprocess.run(["git", "-C", repo, "rev-parse", "--short", "HEAD"], stdout=subprocess.PIPE, universal_newlines=True).stdout.strip()
-# the macro checks of the run, then the chip checks of the Fusion Compiler chip flow (outputs/chip_final, chip_finish)
+# the checks of the run, in flow order
 order = [(s, f"{run}/checks/{s}/summary.txt") for s in ["signoff", "scan_sta", "gls", "dft"]]
-order += [("chip_sta", f"{repo}/outputs/chip_final/sta_pt/summary.txt"),
-          ("chip_precheck", f"{repo}/outputs/chip_finish/summary.txt")]
 rows, body = [], []
 for step, f in order:
     if not os.path.exists(f):

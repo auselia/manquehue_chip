@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-# Reads the "set NAME value" lines of config/*.tcl for Bash and Make (Tcl reads the files with source)
+# Reads the "set NAME value" lines of config/*.tcl for Bash (Tcl reads the files with source)
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# usage: python3 scripts/lib/config.py sh | make | get NAME
+# usage: python3 scripts/lib/config.py sh | get NAME
 # in:  config/*.tcl
-# out: stdout. sh: NAME='value' lines for eval. make: NAME := value entries, separated by ";", for $(eval).
-"""The config files have only "set NAME value" lines and comments. Any other line is an error, so the three
-readers (Tcl, Bash, Make) always see the same values."""
+# out: stdout. sh: NAME='value' lines for eval. get: the value.
+"""The config files have only "set NAME value" lines and comments. Any other line is an error, so the two
+readers (Tcl and Bash) always see the same values."""
 import pathlib
 import re
 import shlex
@@ -49,12 +49,10 @@ def main(argv):
     values = read()
     if argv == ["sh"]:
         print("\n".join(f"{k}={shlex.quote(v)}" for k, v in values.items()))
-    elif argv == ["make"]:
-        print(";".join(f"{k} := {v}" for k, v in values.items()))
     elif len(argv) == 2 and argv[0] == "get" and argv[1] in values:
         print(values[argv[1]])
     else:
-        sys.exit("usage: config.py sh | config.py make | config.py get NAME")
+        sys.exit("usage: config.py sh | config.py get NAME")
 
 
 if __name__ == "__main__":

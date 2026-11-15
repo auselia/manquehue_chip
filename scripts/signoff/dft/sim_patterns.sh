@@ -8,7 +8,7 @@
 #   <run dir> holds croc_soc_atpg.v (fix_inputs.py), cells_atpg.v, primitives_atpg.v, sram_blackbox.v and
 #   patterns_stuck.stil (TestMAX ATPG). npat limits the number of patterns (default: all of them).
 # The SRAM is the black box of the ATPG run: its outputs are unknown and the patterns mask what depends on them.
-# Flop delay 0.5 ns as in sim/GLS.md. The cell library has no timescale, and Icarus rounds the delay to 0 without it.
+# Flop delay 0.5 ns as in scripts/signoff/gls/README.md. The cell library has no timescale, and Icarus rounds the delay to 0 without it.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 D=$(readlink -f "${1:?run dir}"); JOBS=${2:-1}
@@ -17,7 +17,7 @@ export PATH=$IVERILOG:$PATH
 cd "$D"
 python3 "$HERE/stil_to_vectors.py" patterns_stuck.stil .
 NPAT=${3:-$(wc -l < pi.mem)}
-cp "$HERE/../../sim/tb/tb_atpg.v" .
+cp "$HERE/../../../sim/tb/tb_atpg.v" .
 python3 - <<'PY'
 import re
 n = [0]

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Chip-level gate-level simulation of chip_top (pads included) in Icarus, plain Verilog test bench.
-# usage: run_chip_gls.sh <chip_top.pnl.v> <croc_soc.v> [work dir]       (run inside the template's nix-shell: iverilog)
-#   Zero delay with a 0.5 ns flop output delay. The test with the SDF delays of PrimeTime is run_macro_gls_vcs.sh.
+# Macro-level gate-level simulation of croc_soc in Icarus (sim/tb/tb_macro.v): JTAG boot, GLS OK on uart_tx_o.
+# usage: icarus_macro.sh none <croc_soc.v> [work dir]       (run inside the template's nix-shell: iverilog)
+#   Zero delay with a 0.5 ns flop output delay. The test with the SDF delays of PrimeTime is vcs_sdf.sh.
 set -e
 CHIP_NL=none; MACRO_NL=$(readlink -f "$2"); W=${3:?work dir}
-HEX=${PROG_HEX:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/sim/sw/gls_mini/gls_mini.hex}
+HEX=${PROG_HEX:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/sim/sw/gls_mini/gls_mini.hex}
 T=${TEMPLATE_DIR:-$HOME/Documents/waferspace_manquehue}
 PDK=$HOME/.ciel/gf180mcuD/libs.ref
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -15,7 +15,7 @@ python3 - <<'PY'
 import os, re
 pdk, W, hexf = os.environ["PDK"], os.environ["W"], os.environ["HEX"]
 v = pdk + "/gf180mcu_fd_sc_mcu7t5v0/verilog"
-# flop output delay: same reason as in scripts/sim/run_gls.sh (zero-delay clock-tree race, above the SRAM model's 100 ps)
+# flop output delay: same reason as in scripts/signoff/gls/verilator.sh (zero-delay clock-tree race, above the SRAM model's 100 ps)
 c = open(v + "/gf180mcu_fd_sc_mcu7t5v0.v").read()
 n = [0]
 def rep(m):
@@ -49,7 +49,7 @@ PY
 NW=$(wc -l < prog_words.hex)
 # the netlist headers hold one comment line of many thousand characters, which Icarus' scanner cannot take
 grep -v '^//' "$MACRO_NL" > macro_nl.v
-cp $HERE/../../sim/tb/tb_macro.v tb_macro.v
+cp $HERE/../../../sim/tb/tb_macro.v tb_macro.v
 IP=$(ls $T/ip/gf180mcu_ws_ip__*/vh/*.v)
 iverilog -g2012 -o macro_gls.vvp -s tb_macro -P tb_macro.NWORDS=$NW \
   $FUNC -DUSE_POWER_PINS -DSLOT_0P5X1 -DPAD_gf180mcu_fd_io -DSCL_gf180mcu_fd_sc_mcu7t5v0 -DSRAM_gf180mcu_fd_ip_sram \

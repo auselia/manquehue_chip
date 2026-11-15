@@ -5,13 +5,13 @@
 // clk_i rises at 50 ns and falls at 70 ns, jtag_tck_i rises at 75 ns and falls at 90 ns, 100 ns
 // period) and pushes a pseudo-random bit stream through scan_si_i. A working chain returns the same
 // stream on scan_so_o, delayed by exactly the number of scan cells, inverted if the chain has an odd number of
-// inverters (+expected_inv=1, from scripts/sim/scan_chain_trace.py). The test finds that delay and requires it to be
+// inverters (+expected_inv=1, from scripts/signoff/gls/scan_chain_trace.py). The test finds that delay and requires it to be
 // EXPECTED_LAG with zero mismatches over the whole stream, with the expected polarity.
 //
 // +rst_low drives rst_ni and jtag_trst_ni low during the shift: the asynchronous resets must stay
 // held inactive by the AutoFix gate (testmode_i), so the stream must come out unchanged.
 //
-// usage (run scripts/sim/run_gls_scan.sh): Vscan [+rst_low | +rstn_low | +trstn_low] [+expected_lag=N]
+// usage (run scripts/signoff/gls/scan_shift.sh): Vscan [+rst_low | +rstn_low | +trstn_low] [+expected_lag=N]
 //        [+expected_inv=0|1] [+nbits=N]
 // +rstn_low drives only rst_ni low, +trstn_low only jtag_trst_ni.
 `timescale 1ns/1ps

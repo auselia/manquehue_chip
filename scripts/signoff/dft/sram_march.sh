@@ -1,11 +1,11 @@
 #!/bin/bash
 # March C- of the 2 KB SRAM through the JTAG debug module on the gate-level macro, fault-free and with injected faults.
-# usage: run_sram_march.sh <croc_soc.v> [work dir]        (needs iverilog, about 2 min per run, runs in parallel)
+# usage: sram_march.sh <croc_soc.v> [work dir]        (needs iverilog, about 2 min per run, runs in parallel)
 # Results: <work dir>/run_<case>.log, last lines "MARCH PASS" / "MARCH FAIL". Faults go into the behavioural SRAM model.
 set -e
 MACRO_NL=$(readlink -f "${1:?croc_soc.v}"); W=${2:?work dir}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-. "$HERE/../utils/env.sh"
+. "$HERE/../../utils/env.sh"
 PDK=$HOME/.ciel/gf180mcuD/libs.ref
 mkdir -p "$W"; cd "$W"
 export MACRO_NL PDK
@@ -27,7 +27,7 @@ open("sram_chip.v", "w").write(s.replace("  cen_dly        = 0;", "  cen_dly    
 PY
 grep -v '^//' "$MACRO_NL" > macro_nl.v
 iverilog -g2012 -o march.vvp -DFUNCTIONAL -DUSE_POWER_PINS -DSLOT_0P5X1 -DSCL_gf180mcu_fd_sc_mcu7t5v0 -DSRAM_gf180mcu_fd_ip_sram \
-  -s tb_sram_march primitives_chip.v cells_chip.v sram_chip.v macro_nl.v "$HERE/../../sim/tb/tb_sram_march.v"
+  -s tb_sram_march primitives_chip.v cells_chip.v sram_chip.v macro_nl.v "$HERE/../../../sim/tb/tb_sram_march.v"
 run() { n=$1; shift; ( vvp -n march.vvp "$@" > run_$n.log 2>&1 ) & }
 run good
 run checker +checker

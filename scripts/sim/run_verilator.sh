@@ -7,7 +7,7 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 BUILD_DIR="$ROOT/sim/build/verilator"
 # g++ with -fcoroutines (Verilator --timing). The system g++ 8.5 on Rocky has none, so the default is the
-# nix g++ that scripts/sim/run_gls.sh also uses. Override with SIM_CXX. Plain g++ when that path does not exist.
+# nix g++ that scripts/signoff/gls/verilator.sh also uses. Override with SIM_CXX. Plain g++ when that path does not exist.
 GXX=${SIM_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bin/g++}
 [ -x "$GXX" ] || GXX=g++
 SIM_BIN="$BUILD_DIR/obj_dir/Vtb_croc_soc"

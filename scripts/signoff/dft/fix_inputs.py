@@ -16,7 +16,7 @@ import re
 import sys
 
 net, stil, out = sys.argv[1], sys.argv[2], sys.argv[3]
-length = int(sys.argv[4])                # run_dft.sh: from the synthesis log of the run
+length = int(sys.argv[4])                # dft.sh: from the synthesis log of the run
 
 s = "".join(l for l in open(net) if not l.startswith("//"))
 s = re.sub(r",\s*\.VDD\s*\(\s*VDD\s*\)", "", s)

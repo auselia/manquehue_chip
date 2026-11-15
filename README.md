@@ -1,13 +1,13 @@
 # manquehue_chip
 
-This repository implements a small RISC-V system on chip for the GlobalFoundries GF180MCU 5 V process, with
-Synopsys Fusion Compiler (FC). The design is croc (`croc_soc`), an educational SoC from the PULP Platform, with
-additions for an acoustic sensor node: an SPI interface for an ADC and a LoRa radio, an FFT accelerator, and boot
-from a QSPI flash.
+This repository builds `croc_soc`, a small RISC-V system on chip, as a hard macro for the GlobalFoundries GF180MCU
+5 V process. The flow uses Synopsys Fusion Compiler (FC) and the Synopsys sign-off tools. The design is croc, an
+educational SoC of the PULP Platform. We added parts for an acoustic sensor node: an SPI interface for an ADC and a
+LoRa radio, an FFT accelerator and boot from a QSPI flash.
 
-The flow builds `croc_soc` as a hard macro. The AC3E chip (`croc_soc` on its 108-pad ring, next to the DC-DC blocks)
-is built in [waferspace_manquehue](https://github.com/nic0villegasc/waferspace_manquehue) and goes on a wafer.space
-GF180MCU shuttle.
+The AC3E chip puts `croc_soc` on a 108-pad ring, next to the DC-DC blocks. That chip is built in
+[waferspace_manquehue](https://github.com/nic0villegasc/waferspace_manquehue) and goes on a wafer.space GF180MCU
+shuttle.
 
 ![croc_soc](docs/croc_arch.svg)
 
@@ -15,60 +15,45 @@ GF180MCU shuttle.
 the radio, FFT, QSPI flash). PD_CORE and PD_MEM show the power domains of the power-gating study. The implementation
 has one supply.*
 
-## Layout
+## Quick start
+
+```
+make help                 # the main targets (make help-all: all targets)
+make sim                  # croc in Verilator with a program (BIN=<hex>, default helloworld)
+make regress              # RTL block test benches and the ZedBoard bring-up steps
+make all                  # the six FC steps: outputs/croc_soc_<timestamp>/ (outputs/latest is the newest)
+make signoff check        # all checks of the newest run (RUN=<run> for another run)
+make release              # the release files of a run, after all checks PASS
+make fpga                 # the ZedBoard bitstream (Vivado)
+```
+
+## Where things are
 
 | Folder | Contents |
 |---|---|
-| `rtl/` | croc RTL, vendored IPs, `user_domain/` |
+| `rtl/` | croc RTL, the vendored IPs, `user_domain/`, the FPGA top |
+| `config/` | corners, libraries and clocks: one place for the flow, the checks and the scripts |
 | `flists/` | file lists for FC, simulation and FPGA |
-| `scripts/` | FC steps `01_read_rtl` to `06_finish`, then `common/`, `chip/padring.*` (pin positions from the AC3E pad ring) |
-| `sim/` | test benches, models, firmware (`sw/`), FFT reference, experiments |
-| `docs/` | the architecture diagram |
-| `work/`, `outputs/` | FC library and logs, exported runs (not in git) |
+| `scripts/` | the FC steps `01_read_rtl` to `06_finish`, then one folder per stage: `signoff/`, `sim/`, `fpga/`, `release/` |
+| `sim/` | test benches (`tb/`), models, firmware (`sw/`, one library in `sw/lib/`), FFT reference |
+| `work/`, `outputs/` | FC library and tool files, the runs and their check results (not in git) |
+
+Each stage folder has a short README. A check writes `outputs/<run>/checks/<check>/summary.txt`, and `make report`
+collects them in `outputs/<run>/report.md`.
 
 ## Tools
 
-- Synopsys Fusion Compiler and its Library Manager (`fc_shell`, `lm_shell`), with the Synopsys technology data of
-  GF180MCU.
-- The open GF180MCU PDK (gf180mcuD, installed with ciel), KLayout, and the GF180MCU DRC and LVS decks.
-- For sign-off: PrimeTime, Formality, IC Validator (optional), TestMAX ATPG, RedHawk-SC (optional).
-- For simulation: Verilator, Icarus Verilog, and a RISC-V GCC for the firmware.
-- For the chip precheck: the [wafer.space project template](https://github.com/wafer-space/gf180mcu-project-template)
-  (LibreLane, nix) and [gf180mcu-precheck](https://github.com/wafer-space/gf180mcu-precheck).
+- Synopsys Fusion Compiler and Library Manager, with the Synopsys technology data of GF180MCU.
+- Sign-off: PrimeTime, Formality, TestMAX ATPG, VCS. Optional: IC Validator, PrimePower, RedHawk-SC.
+- The open GF180MCU PDK (gf180mcuD, installed with ciel), KLayout and the GF180MCU DRC and LVS decks.
+- Simulation: Verilator 5, Icarus Verilog and a RISC-V GCC (`riscv32-none-elf-`) for the firmware.
 
 ## Setup
 
-Set the paths for your machine:
-
 - `TECHLIB_DATA_DIR` in `scripts/common/setup.tcl`: the Synopsys technology data (NDM libraries, tech file, GDS).
-- `PDK_ROOT`, `TEMPLATE_DIR` and `PRECHECK_DIR` in `scripts/utils/env.sh`: the open PDK, the wafer.space template
-  and the precheck.
-
-`outputs/.cache` holds the SRAM timing that the flow makes on the first run. Copy it into a new worktree.
-
-## Macro (croc_soc)
-
-```
-make all                  # 01_read_rtl to 06_finish
-make floorplan            # or one step: read_rtl, floorplan, synthesis, cts, route, finish
-make gui_floorplan        # open a step in the GUI
-```
-
-Each run goes to `outputs/croc_soc_<timestamp>/` (GDS, netlist, LEF, blackbox, SDC, SPEF, reports), and
-`outputs/latest` points at the newest run. `CROC_MACRO_SIZE` and `CROC_MACRO_LL` in `setup.tcl` set the outline of
-the macro and its position in the chip. The pins face their pads in `scripts/chip/padring.txt`.
-
-## Checks and simulation
-
-```
-make signoff              # DRC, LVS, PrimeTime STA, equivalence of a macro run (RUN=<run>, default latest)
-make check                # scan STA, gate-level simulation, DFT/ATPG, report
-make sim                  # croc on Verilator with a program (BIN=<hex>)
-make sim-spi              # SPI block test bench
-make help                 # the main targets (make help-all: every target)
-```
-
-`scripts/signoff/gls/README.md` describes the gate-level simulation.
+- `scripts/utils/env.sh`: the tool and PDK paths. Put your own values in `scripts/utils/local.env` (not in git).
+- In a new worktree, copy `outputs/.cache` or run `make sta-pt` first. LEC and the timing models read the SRAM
+  timing from there.
 
 ## Credits
 

@@ -1,5 +1,9 @@
 # ZedBoard bring-up of croc, step by step
 
+**In short:** build a step here with `./build.sh <step>` (on Rocky), copy `bin/` to the same folder on the Mac,
+and load it with `scripts/fpga/bench/load.sh <step>`. `make regress` runs the steps in simulation. The sections
+below are the reference: pins, bitstream, what to expect per step, board findings and bench tools.
+
 Small test programs, each one printing its results on the UART and ending with `STEPn OK` or `STEPn FAIL <mask>`
 (step 2: `QSPI CMD OK` / `QSPI CMD FAIL <mask>`). Do the steps in order: each step uses only hardware that the steps
 before it have shown to work.

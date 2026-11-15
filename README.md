@@ -65,7 +65,7 @@ make signoff              # DRC, LVS, PrimeTime STA, equivalence of a macro run 
 make check                # scan STA, gate-level simulation, DFT/ATPG, report
 make sim                  # croc on Verilator with a program (BIN=<hex>)
 make sim-spi              # SPI block test bench
-make help                 # every target and option
+make help                 # the main targets (make help-all: every target)
 ```
 
 `sim/GLS.md` describes the gate-level simulation.

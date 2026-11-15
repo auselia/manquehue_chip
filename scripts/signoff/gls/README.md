@@ -1,5 +1,9 @@
 # Gate-level simulation of croc_soc
 
+**In short:** `make gls RUN=<run>` runs every test of this page on the netlist of a run. It writes
+`outputs/<run>/checks/gls/summary.txt`. The sections below are the reference: what each test does, why it patches
+the models, and the traps.
+
 `verilator.sh <program.hex> [work dir]` simulates the final netlist (`outputs/latest/croc_soc.v`)
 with Verilator, zero delay, using the repo testbench. It patches copies of the testbench, netlist and cell
 models in the work directory; the repo is not touched. See the script header for the patches and why.

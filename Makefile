@@ -217,6 +217,8 @@ $(foreach file,$(TCL_FILES),\
   $(eval $(call MAKE_FC_RULE,$(file),$(base),$(DEPENDENCY)))\
   $(eval DEPENDENCY := $(WORK_DIR)/design.dlib/$(base))\
 )
+# A helper that only one step sources: a change in it reruns that step (and the steps after it).
+$(WORK_DIR)/design.dlib/finish: scripts/common/drc_eco.tcl
 
 # Re-export of the PrimeTime inputs (06_finish.tcl writes them already): SDC, sign-off SDC, scan SDC and SPEF from
 # the saved finish block into outputs/latest, without running finish again.
@@ -233,8 +235,11 @@ pt_export:
 # CHIP_FLOORPLAN=1, top rtl/chip/chip_top.sv from scripts/chip/padring.txt, library work/chip.dlib).
 # make chip_macros_ndm once (or when a wrapper GDS changes), make chip_pnr (01 to 06), then make chip_finish.
 # Outputs: outputs/chip_floorplan/, chip_route/, chip_final/ (GDS, DEF, netlist) and chip_finish/ (precheck).
-DCDC_GDS_DIR ?= $(HOME)/Documents/waferspace_wip/dcdc_macro
+# DC-DC blocks. The V0 migration of AC3E commit d1d53b2 (Channels_wrapper DB_VCO_wrapper) is in
+# waferspace_wip/macros/dcdc_v0 and reaches into the croc area: the flow keeps the previous wrappers for now.
+DCDC_GDS_DIR ?= $(HOME)/Documents/waferspace_wip/macros/dcdc_old
 DCDC_MACROS  ?= 8_segs_wrapper DB_VCO_wrapper 8seg_DB_routing
+export DCDC_MACROS
 .PHONY: chip_macros_ndm chip_top chip_read_rtl chip_floorplan chip_synthesis chip_cts chip_route chip_finish_fc chip_pnr chip_finish chip_gui
 # GUI on a block of work/chip.dlib: BLOCK=floorplan_pre_pg, floorplan, synthesis, cts or route (default)
 chip_gui:
@@ -1049,12 +1054,24 @@ signoff:
 	$(MAKE) drc lvs sta-pt
 	$(REPO_DIR)/scripts/signoff/lec/run_lec.sh $(RUN_DIR)
 	RUN=$(RUN_DIR) scripts/signoff/sta/signoff_summary.sh
+# Chip-level LVS of outputs/chip_final (KLayout, pads, SRAMs and wafer.space IPs as black boxes): outputs/chip_lvs/
+chip-lvs:
+	scripts/chip/chip_lvs.sh
+
+chip-sta:
+	PT_HOME_DIR=$(PT_HOME_DIR) PT_SRAM_DB=$(abspath $(PT_SRAM_DB)) \
+	PT_SC_DB_slow=$(PT_SC_DB_slow) PT_SC_DB_typical=$(PT_SC_DB_typical) PT_SC_DB_fast=$(PT_SC_DB_fast) \
+	PT_IO_DB_slow=$(PT_IO_DB_slow) PT_IO_DB_typical=$(PT_IO_DB_typical) PT_IO_DB_fast=$(PT_IO_DB_fast) \
+	scripts/chip/chip_sta.sh
 scan-sta:
 	RUN=$(RUN_DIR) scripts/signoff/sta/scan_sta.sh
 gls:
 	RUN=$(RUN_DIR) scripts/sim/run_gls_all.sh
 dft:
 	RUN=$(RUN_DIR) scripts/dft/run_dft.sh
+# the same with the serial replay of every pattern (hours): for a full sign-off
+dft-serial:
+	RUN=$(RUN_DIR) DFT_REPLAY=serial scripts/dft/run_dft.sh
 chip:
 	RUN=$(RUN_DIR) scripts/waferspace/run_chip_flow.sh
 report:

@@ -26,8 +26,10 @@ foreach m $CHIP_DCDC_MACROS {
     close $f
 }
 
-# Core (standard-cell rows) only in the south, up to DCDC_GAP under the lowest wrapper: the croc logic stays there
-set croc_top [expr {$DIE_H - $CORE_MARGIN}]
+# Core (standard-cell rows) only in the south, up to DCDC_GAP under the lowest wrapper: the croc logic stays there.
+# With no wrapper (DCDC_MACROS empty, croc alone on the pad ring) the core keeps the same top, under the place of
+# 8_segs_wrapper (y 2224.36), so croc gets the same area as with the wrappers.
+set croc_top [expr {[dict size $dcdc_loc] ? $DIE_H - $CORE_MARGIN : 2224.36 - $DCDC_GAP}]
 dict for {m xy} $dcdc_loc {
     set y [expr {[lindex $xy 1] - $DCDC_GAP}]
     if {$y < $croc_top} { set croc_top $y }

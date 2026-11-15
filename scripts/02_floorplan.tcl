@@ -168,6 +168,12 @@ set all_macros [get_cells -hierarchical -filter "is_hard_macro && !is_physical_o
 create_keepout_margin -type hard_macro -outer {10 10 10 10} $all_macros
 create_keepout_margin -type hard -outer {10 10 10 10} $all_macros
 
+# Partial placement blockage at the point where the channel between the SRAM columns meets the gap between the rows:
+# nearly all routing DRCs of the macro are there (x 496 to 620, y 1164 to 1293), and the router cannot clear them.
+if {!$CHIP_FLOORPLAN} {
+    create_placement_blockage -type partial -blocked_percentage 50 -boundary {{490 1150} {630 1300}} -name sram_channel_blk
+}
+
 # Places the macros in the floorplan
 create_placement -floorplan
 

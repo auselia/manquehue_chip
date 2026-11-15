@@ -11,6 +11,10 @@ source [file dirname [info script]]/common/open_lib.tcl
 
 open_block cts
 
+# design rules of every scenario (common/design_rules.tcl)
+source [file dirname [info script]]/common/design_rules.tcl
+design_rules
+
 route_auto
 
 set_app_options -name route_opt.flow.enable_clock_power_recovery -value false

@@ -35,7 +35,7 @@ proc pg_pins {W H} {
 set KLAYOUT_BIN         "/nix/store/dljmpck53kb6zxhvd73b688286b0kwkn-klayout-0.30.9/bin/klayout"
 set DRC_DECK            "$::env(HOME)/.ciel/gf180mcuD/libs.tech/klayout/tech/drc/gf180mcu.drc"
 set DRC_ECO_DECKS       "via,metal,contact"
-set DRC_ECO_MAX_PASSES  4
+set DRC_ECO_MAX_PASSES  5
 
 # Metal4 and Metal5 stay open this far in from the boundary (um) so a parent grid can reach the pins.
 set PG_PIN_BAND 25
@@ -81,7 +81,10 @@ set CROC_MACRO_LL       {392 404}
 set CHIP_FLOORPLAN      [expr {[info exists ::env(CHIP_FLOORPLAN)] && $::env(CHIP_FLOORPLAN)}]
 if { [info exists ::env(WS_IP_DIR)] } { set WS_IP_DIR $::env(WS_IP_DIR) } else { set WS_IP_DIR "$::env(HOME)/Documents/waferspace_manquehue/ip" }
 set CHIP_WS_IPS         {gf180mcu_ws_ip__qrcode_id gf180mcu_ws_ip__shuttle_id gf180mcu_ws_ip__project_id gf180mcu_ws_ip__logo gf180mcu_ws_ip__marker}
-set CHIP_DCDC_MACROS    {8_segs_wrapper DB_VCO_wrapper 8seg_DB_routing}
+# The croc core ends DCDC_GAP under the lowest DC-DC block (chip_floorplan.tcl). The Makefile passes DCDC_MACROS.
+# Sebastian's V0 migration (AC3E commit d1d53b2: Channels_wrapper DB_VCO_wrapper, waferspace_wip/macros/dcdc_v0)
+# reaches 99 um into the croc area. Until its next iteration the flow keeps the previous wrappers.
+set CHIP_DCDC_MACROS    [expr {[info exists ::env(DCDC_MACROS)] ? $::env(DCDC_MACROS) : {8_segs_wrapper DB_VCO_wrapper 8seg_DB_routing}}]
 # The chip has its own top (rtl/chip/chip_top.sv, scripts/chip/gen_chip_top.py) and its own library
 # CROC_HIER: path of the croc_soc logic in the top (empty for the macro, i_croc/ under chip_top)
 set CROC_HIER           ""

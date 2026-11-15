@@ -103,14 +103,14 @@ module tb_chip;
     end
   endtask
 
-  // ---------------- UART monitor, 125 kBd (20 MHz / (10 * 16)) ----------------
+  // ---------------- UART monitor, 113.6 kBd (20 MHz / (11 * 16)) ----------------
   reg [7:0] ch;
   reg [8*32-1:0] line;
   integer nline = 0, uart_ok = 0, ui;
   always @(negedge uart_tx) begin
-    #4000;
-    for (ui = 0; ui < 8; ui = ui + 1) begin #8000; ch[ui] = uart_tx; end
-    #8000;
+    #4400;
+    for (ui = 0; ui < 8; ui = ui + 1) begin #8800; ch[ui] = uart_tx; end
+    #8800;
     $display("%0t  [UART] '%c' (0x%02h)", $time, ch, ch);
     line = {line[8*31-1:0], ch};
     if (line[8*6-1:0] == "GLS OK" || line[8*7-1:8] == "GLS OK") uart_ok = 1;

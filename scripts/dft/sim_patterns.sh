@@ -1,6 +1,10 @@
 #!/bin/bash
 # Apply the ATPG patterns to the gate-level netlist in Icarus and compare every expected output.
 # usage: sim_patterns.sh <run dir> [jobs] [npat]   (jobs: parallel chunks, default 1, npat: only the first n patterns)
+#   env DFT_REPLAY=parallel (default): every pattern loads the chain by a force on each scan cell (scan_cells_vh.py,
+#   scan_cells.rpt of the ATPG run) and reads the unload from the cells, in one simulation of about a minute.
+#   DFT_REPLAY=serial: every pattern shifts the chain in and out through scan_si_i and scan_so_o (about 4.5 h for
+#   646 patterns with 9 jobs). Serial also checks the shift path. Use it for a full sign-off.
 #   <run dir> holds croc_soc_atpg.v (fix_inputs.py), cells_atpg.v, primitives_atpg.v, sram_blackbox.v and
 #   patterns_stuck.stil (TestMAX ATPG). npat limits the number of patterns (default: all of them).
 # The SRAM is the black box of the ATPG run: its outputs are unknown and the patterns mask what depends on them.
@@ -27,7 +31,13 @@ open("cells_sim.v", "w").write("`timescale 1ns/1ps\n" + c)
 open("primitives_sim.v", "w").write("`timescale 1ns/1ps\n" + open("primitives_atpg.v").read())
 print("delayed sequential cells:", n[0])
 PY
-iverilog -g2012 -o sim.vvp -DFUNCTIONAL -s tb_atpg primitives_sim.v cells_sim.v sram_blackbox.v croc_soc_atpg.v tb_atpg.v
+DEF=""
+if [ "${DFT_REPLAY:-parallel}" = parallel ]; then
+  python3 "$HERE/scan_cells_vh.py" scan_cells.rpt croc_soc_atpg.v .
+  DEF=-DPARALLEL; JOBS=1
+fi
+echo "replay mode: ${DFT_REPLAY:-parallel}"
+iverilog -g2012 -o sim.vvp -DFUNCTIONAL $DEF -s tb_atpg primitives_sim.v cells_sim.v sram_blackbox.v croc_soc_atpg.v tb_atpg.v
 echo "compiled $(date +%T)"
 # chunks of consecutive patterns run as independent simulations (each starts from a loaded chain)
 per=$(( (NPAT + JOBS - 1) / JOBS ))

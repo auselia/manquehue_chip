@@ -18,6 +18,13 @@ if {$CHIP_FLOORPLAN} {
 # Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.
 source [file dirname [info script]]/common/drc_eco.tcl
 drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
+# SRAM CLK buffers (and, on the chip, the pad input buffers): found in the block, so any route gets them.
+# hand_eco (common/drc_eco.tcl) names the cells of one old macro route and is not called.
+chip_finish_buffers
+# Scan-shift hold: a delay cell in front of each scan end point under 0.05 ns of scan hold slack, then route_eco.
+finish_scan_hold_fix
+# Weak drivers over max transition or max capacitance: next drive strength (or a buf_4), then route_eco.
+finish_drv_fix
 
 ###################################
 # FILLER Cell Insertion
@@ -112,6 +119,10 @@ if {$CHIP_FLOORPLAN} {
         -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
         $CHIP_DIR/$TOP_MODULE.v
     write_chip_views $CHIP_DIR $TOP_MODULE
+    # the shrunk_* routing blockages over the SRAMs (02_floorplan.tcl) are not layout: check_lvs reports each overlap
+    # with the SRAM metal as a short (336 on 7 Nov 2026). Routing is done, so they go before the check.
+    set rb [get_routing_blockages -quiet shrunk_*]
+    if {[sizeof_collection $rb] > 0} { remove_routing_blockages $rb }
     redirect -file $CHIP_DIR/check_lvs.rpt { check_lvs -checks {open short} -max_errors 5000 }
     save_block -as finish
     return

@@ -23,6 +23,9 @@ compile_fusion -to logic_opto
 if {$CHIP_FLOORPLAN} {
     source [file dirname [info script]]/chip/chip_pg_pads.tcl
     chip_float_dcdc_pins
+    # the input pads drive one cell each (max_fanout 1 of the pad Y pin)
+    source [file dirname [info script]]/chip/chip_padbuf.tcl
+    chip_buffer_input_pads
 }
 
 # DFT Insertion

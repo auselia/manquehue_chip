@@ -146,6 +146,14 @@ module croc_vip #(
     $display("@%t | [JTAG] Resumed hart 0 ", $time);
   endtask
 
+  // Debug-module system reset (ndmreset), as OpenOCD "reset": everything except the debug module and the DTM
+  task automatic jtag_ndmreset;
+    jtag_write(dm::DMControl, dm::dmcontrol_t'{ndmreset: 1, dmactive: 1, default: '0});
+    repeat(20) @(posedge jtag_tck_o);
+    jtag_write(dm::DMControl, dm::dmcontrol_t'{dmactive: 1, default: '0});
+    $display("@%t | [JTAG] ndmreset pulse done", $time);
+  endtask
+
   // Read a 32 bit register
   task automatic jtag_read_reg32(
     input logic [31:0] addr,
@@ -284,7 +292,8 @@ module croc_vip #(
 
   typedef bit [7:0] byte_bt;
   localparam int unsigned ClkFrequency     = int'(1s / ClkPeriodSys);
-  localparam int unsigned UartDivisior     = ClkFrequency / (UartBaudRate*16);
+  // rounded to the nearest integer, as uart_init of the firmware (sim/sw/hello_world/lib/src/uart.c)
+  localparam int unsigned UartDivisior     = (ClkFrequency + UartBaudRate*8) / (UartBaudRate*16);
   localparam int unsigned UartRealBaudRate = ClkFrequency / (UartDivisior*16);
   localparam realtime     UartBaudPeriod   = 1s / UartRealBaudRate;
 

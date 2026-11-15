@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build programs that run from the QSPI flash (link_flash.ld, crt0_flash.S, uart library of hello_world).
 # usage: ./build.sh [prog.c ...]   default: flash_hello.c
-#   -> bin/<prog>.elf, bin/<prog>.dump, bin/<prog>.flash.hex (objcopy -O verilog, addresses relative to
+#   -> bin/<prog>.elf, bin/<prog>.dump, bin/<prog>.flash.bin (raw image), bin/<prog>.flash.hex (objcopy -O verilog, addresses relative to
 #      0x2000_0000, for the flash model: scripts/sim/run_verilator.sh with FLASH=bin/<prog>.flash.hex)
 #   RISCV_PREFIX (default riscv32-none-elf-), MARCH (default rv32i_zicsr), EXTRA (more sources, for example
 #   ../aefft_bench/mulsi3.S), NAME (output name, one program only), DEFS (compiler defines)
@@ -26,5 +26,7 @@ for src in $PROGS; do
     build/crt0_flash.o build/$t.o build/uart.o $extra_objs
   ${PFX}objdump -D -s bin/$t.elf > bin/$t.dump
   ${PFX}objcopy -O verilog --change-addresses -0x20000000 bin/$t.elf bin/$t.flash.hex
+  # raw image from the flash offset 0, for a physical flash programmer (ZedBoard QSPI Pmod)
+  ${PFX}objcopy -O binary bin/$t.elf bin/$t.flash.bin
   ${PFX}size -A bin/$t.elf | awk -v t=$t '$1 ~ /^\./ && $2 > 0 {printf "%s %-14s %6d bytes at 0x%08x\n", t, $1, $2, $3}'
 done

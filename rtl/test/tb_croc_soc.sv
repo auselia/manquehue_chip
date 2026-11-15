@@ -99,8 +99,27 @@ module tb_croc_soc #(
     .sio_o  ( flash_sio_o                ),
     .sio_oe ( flash_sio_oe               )
   );
-  // each data line carries what the flash drives, else what the SoC drives (0 when nobody drives)
-  assign qspi_sd_i = (flash_sio_o & flash_sio_oe) | (qspi_sd_o & qspi_sd_en_o & ~flash_sio_oe);
+  // PSRAM (sim/models/spi_psram_model.v, APS6404L) on chip selects 1 and 2, as on the TinyTapeout QSPI Pmod.
+  // +psram0=<hex> / +psram1=<hex> load an image.
+  wire [3:0] psram0_sio_o, psram0_sio_oe, psram1_sio_o, psram1_sio_oe;
+  spi_psram_model #( .Name ( "psram0" ) ) i_psram0 (
+    .csn    ( qspi_csn_o[1]              ),
+    .sclk   ( qspi_clk_o                 ),
+    .sio_i  ( qspi_sd_o & qspi_sd_en_o   ),
+    .sio_o  ( psram0_sio_o               ),
+    .sio_oe ( psram0_sio_oe              )
+  );
+  spi_psram_model #( .Name ( "psram1" ) ) i_psram1 (
+    .csn    ( qspi_csn_o[2]              ),
+    .sclk   ( qspi_clk_o                 ),
+    .sio_i  ( qspi_sd_o & qspi_sd_en_o   ),
+    .sio_o  ( psram1_sio_o               ),
+    .sio_oe ( psram1_sio_oe              )
+  );
+  // each data line carries what a memory drives, else what the SoC drives (0 when nobody drives)
+  wire [3:0] mem_sio_oe = flash_sio_oe | psram0_sio_oe | psram1_sio_oe;
+  wire [3:0] mem_sio_o  = (flash_sio_o & flash_sio_oe) | (psram0_sio_o & psram0_sio_oe) | (psram1_sio_o & psram1_sio_oe);
+  assign qspi_sd_i = mem_sio_o | (qspi_sd_o & qspi_sd_en_o & ~mem_sio_oe);
 
   ////////////
   //  DUT   //
@@ -218,18 +237,36 @@ module tb_croc_soc #(
                i_adc_model.tacq_violations, i_adc_model.tsu_violations, i_adc_model.tph_violations);
   end
 
-  // SX1276 model on the shared bus (sim/models/sx1276_model.v, SPI mode 0), CS1. MISO is high impedance while NSS
-  // is high. The model has no reset input: rf_rstn is only printed.
-  wire  rf_csn, rf_dio0, rf_rstn;
+  // Radio on the shared bus, CS1, SPI mode 0. MISO is high impedance while NSS is high.
+  // Default: SX1276 model (sim/models/sx1276_model.v), DIO0 on rf_dio0_i. It has no reset input: rf_rstn is only
+  // printed. +rf=sx1262: SX1262 model (sim/models/sx1262_model.v), BUSY on rf_dio0_i, NRESET from rf_rstn, as on the
+  // ZedBoard (Heltec bridge). Only the selected model sees CS1.
+  wire  rf_csn, rf_dio0, rf_rstn, rf_dio0_76, rf_busy_62;
+  string rf_sel = "sx1276";
+  initial void'($value$plusargs("rf=%s", rf_sel));
+  wire  rf_is_62 = (rf_sel == "sx1262");
+  assign rf_dio0 = rf_is_62 ? rf_busy_62 : rf_dio0_76;
   sx1276_model i_rf_model (
-    .nss_n ( rf_csn   ),
+    .nss_n ( rf_csn | rf_is_62 ),
     .sclk  ( spi_sck  ),
     .mosi  ( spi_sd_o ),
     .miso  ( spi_sd   ),
-    .dio0  ( rf_dio0 )
+    .dio0  ( rf_dio0_76 )
   );
+  sx1262_model i_sx1262 (
+    .nreset ( rf_rstn | ~rf_is_62 ),
+    .nss_n  ( rf_csn | ~rf_is_62 ),
+    .sclk   ( spi_sck  ),
+    .mosi   ( spi_sd_o ),
+    .miso   ( spi_sd   ),
+    .busy   ( rf_busy_62 )
+  );
+  final if (rf_is_62)
+    $display("[SX1262] summary: commands %0d, TX %0d, while BUSY %0d, unknown %0d, short %0d, timing errors %0d",
+             i_sx1262.cmd_count, i_sx1262.tx_count, i_sx1262.cmd_while_busy, i_sx1262.unknown_ops,
+             i_sx1262.short_cmds, i_sx1262.timing_errors);
   always @(posedge rf_rstn) $display("@%t | [RF] radio out of reset", $time);
-  always @(posedge rf_dio0) begin
+  always @(posedge rf_dio0) if (!rf_is_62) begin
     $write("@%t | [RF] TX done, payload %0d bytes:", $time, i_rf_model.last_tx_len);
     for (int k = 0; k < i_rf_model.last_tx_len && k < 32; k++) $write(" %02h", i_rf_model.last_tx[k]);
     $display("");
@@ -240,6 +277,8 @@ module tb_croc_soc #(
   /////////////////
 
   logic [31:0] tb_data;
+  string           binary2_path;
+  longint unsigned ndmreset_ns;
 
   initial begin
     $timeformat(-9, 0, "ns", 12); // 1: scale (ns=-9), 2: decimals, 3: suffix, 4: print-field width
@@ -270,6 +309,18 @@ module tb_croc_soc #(
 
       // resume core
       i_vip.jtag_resume();
+
+      // +ndmreset_ns=<t> +binary2=<hex>: a debug-module reset (ndmreset) t ns after the resume, then binary2 is
+      // loaded and run as above (reset test of the user domain, sim/sw/fpga_bringup/s9_adc_reset.c)
+      if ($value$plusargs("ndmreset_ns=%d", ndmreset_ns) && $value$plusargs("binary2=%s", binary2_path)) begin
+        #(ndmreset_ns * 1ns);
+        i_vip.jtag_ndmreset();
+        i_vip.jtag_load_hex(binary2_path);
+        $display("@%t | [CORE] Waking core via CLINT msip (binary2)", $time);
+        i_vip.jtag_write_reg32(ClintBaseAddr, 32'h1);
+        i_vip.jtag_halt();
+        i_vip.jtag_resume();
+      end
     end
 
     // wait for non-zero return value (written into core status register)

@@ -9,7 +9,9 @@
 #include "util.h"
 #include "config.h"
 
-#define UART_DIVISOR(freq, baud) ((freq) / ((baud) << 4)) // Divisor calculation
+// Divisor rounded to the nearest integer: 20 MHz and 115200 give 11 (113636 baud, -1.4 %). Truncation gave 10
+// (125000 baud, +8.5 %, at the edge of what a receiver takes).
+#define UART_DIVISOR(freq, baud) (((freq) + ((baud) << 3)) / ((baud) << 4))
 
 void uart_init() {
     const uint16_t divisor = UART_DIVISOR(UART_FREQ, UART_BAUD); // Calculate from provided config

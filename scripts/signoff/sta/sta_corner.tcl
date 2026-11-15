@@ -51,6 +51,11 @@ link_design
 # 3. Constraints + parasitics
 ###############################################################################
 read_sdc $SDC_FILE
+# The SDC from Fusion Compiler has this constraint only for a netlist built with it: it is applied here again.
+source [file dirname [info script]]/../../common/sclk_gating.tcl
+# the SRAM has only a tt view: derated at slow and fast (sram_derate.tcl)
+source [file dirname [info script]]/../../common/sram_derate.tcl
+sram_derate $CORNER
 read_parasitics -format SPEF $SPEF_FILE
 
 update_timing -full
@@ -60,6 +65,10 @@ update_timing -full
 ###############################################################################
 redirect -file ${REPORT_DIR}/check_timing.${CORNER}.rpt { check_timing }
 redirect -file ${REPORT_DIR}/report_clock.${CORNER}.rpt { report_clock -attribute }
+# design rules (max transition, capacitance, fanout), counted by signoff_summary.sh
+redirect -file ${REPORT_DIR}/report_drv.${CORNER}.rpt {
+  report_constraint -all_violators -max_transition -max_capacitance -max_fanout
+}
 
 if { $CORNER == "slow" || $CORNER == "typical" } {
   redirect -file ${REPORT_DIR}/report_timing_setup.${CORNER}.rpt {
@@ -79,6 +88,11 @@ if { $CORNER == "fast" } {
     report_constraint -all_violators -min_delay_groups
   }
   redirect -file ${REPORT_DIR}/report_qor.${CORNER}.rpt { report_qor }
+}
+
+# delays of the typical corner for the gate-level simulation with timing (scripts/sim/run_macro_gls_sdf.sh)
+if { $CORNER == "typical" } {
+  write_sdf -version 3.0 -significant_digits 3 ${REPORT_DIR}/${TOP}.typical.sdf
 }
 
 puts "INFO: $CORNER STA complete. Reports in $REPORT_DIR"

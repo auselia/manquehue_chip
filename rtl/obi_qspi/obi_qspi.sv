@@ -26,7 +26,11 @@
 //    read dummy phase for all devices, so mixed dummy-cycle requirements would
 //    need a change inside qqspi itself, not here.
 //  * A store into the flash bank issues command 0x02 (page program), which on a
-//    real flash needs erase + write-enable first; the flash bank is read-mostly.
+//    real flash needs erase + write-enable first. Those, and every other command
+//    (status, QE, JEDEC ID, reset, power down), go through qspi_cmd (0x2200_2000),
+//    which shares the pins: while cmd_req_i is high no access is granted here, and
+//    cmd_gnt_o tells qspi_cmd that the bus is free (no access in progress).
+//  * PSRAM quad mode is set at run time (psram_quad_i, from qspi_cmd QCTRL).
 //  * SPI pins are exposed as buses and left unrouted here; wire them out through
 //    user_domain / croc_soc to the pad ring.
 
@@ -57,7 +61,12 @@ module obi_qspi #(
   output logic [3:0]       spi_sd_o,     // sio[3:0] output value  {sio3,sio2,sio1,sio0}
   input  logic [3:0]       spi_sd_i,     // sio[3:0] input value
   output logic [3:0]       spi_sd_en_o,  // sio[3:0] output enable (sio_oe)
-  output logic [NumCs-1:0] spi_csn_o     // active-low chip selects (ce)
+  output logic [NumCs-1:0] spi_csn_o,    // active-low chip selects (ce)
+
+  // -- bus sharing with qspi_cmd and run-time PSRAM quad mode -----------------
+  input  logic             cmd_req_i,    // qspi_cmd wants the bus: grant no new access
+  output logic             cmd_gnt_o,    // no access in progress: qspi_cmd owns the pins
+  input  logic [1:0]       psram_quad_i  // [0] PSRAM0, [1] PSRAM1 in quad mode
 );
 
   // Silence unused-signal lint; testmode is not needed by this peripheral.
@@ -73,7 +82,7 @@ module obi_qspi #(
   localparam logic [NumCs-1:0] CePsram0 = 3'b010; // CS1
   localparam logic [NumCs-1:0] CePsram1 = 3'b100; // CS2
 
-  // Per-bank quad-mode enable. Flip a PSRAM entry to 1'b1 to run that device in quad.
+  // Per-bank quad-mode enable. The PSRAM entries are set at run time (psram_quad_i).
   //
   // PSRAM (APS6404L): quad is safe. Its 0xEB Fast-Read-Quad uses a 6-cycle dummy and
   //   no mode byte, which is exactly what the qqspi core emits (S5_WAIT = 6, address-
@@ -90,8 +99,9 @@ module obi_qspi #(
   //   Enabling flash quad requires changes inside the qqspi core, not this wrapper, so
   //   FlashQuad is guarded to 0 by the assertion below.
   localparam logic FlashQuad  = 1'b0;
-  localparam logic Psram0Quad = 1'b0;
-  localparam logic Psram1Quad = 1'b0;
+  logic Psram0Quad, Psram1Quad;
+  assign Psram0Quad = psram_quad_i[0];
+  assign Psram1Quad = psram_quad_i[1];
 
   // Elaboration-time guard: quad on the flash bank is unsupported by the qqspi core.
   // This fails the build (not just simulation) if someone flips FlashQuad to 1'b1.
@@ -160,7 +170,10 @@ module obi_qspi #(
   // combinationally depend on any OBI input (R-22, COMB_GNT = False), so gnt
   // is driven purely from state below. Asserting gnt before req is legal (R-3.2.1).
   logic accept;
-  assign accept = obi_req_i.req & (state_q == IDLE);
+  assign accept = obi_req_i.req & (state_q == IDLE) & ~cmd_req_i;
+  // qspi_cmd gets the pins only between accesses, and then no access is accepted (cmd_req_i stays high until its
+  // command ends)
+  assign cmd_gnt_o = cmd_req_i & (state_q == IDLE);
 
   // qqspi is driven only while we are in BUSY; latched inputs are held stable there.
   assign q_valid = (state_q == BUSY);
@@ -197,7 +210,7 @@ module obi_qspi #(
 
   always_comb begin
     obi_rsp_o         = '0;
-    obi_rsp_o.gnt     = (state_q == IDLE);            // ready to accept while idle (no input dep., R-22)
+    obi_rsp_o.gnt     = (state_q == IDLE) & ~cmd_req_i; // idle and no command (no OBI input dependence, R-22)
     obi_rsp_o.rvalid  = (state_q == RESP);
     obi_rsp_o.r.rid   = aid_q;
     obi_rsp_o.r.err   = err_q;

@@ -45,6 +45,13 @@ foreach_in_collection c [get_corners] {
 
 set_scenario_status -all  -hold false -dynamic_power false -leakage_power false -cell_em false -signal_em false {typical slow}
 set_scenario_status -none -hold true  -dynamic_power true  -leakage_power true  -cell_em true  -signal_em true  {fast}
+# Design rules at the fast corner too: with -none they were off, and PrimeTime found most slew violations there.
+set_scenario_status -max_transition true -max_capacitance true {fast}
+
+# The SRAM has only a tt view: derated at the slow and fast corners (sram_derate.tcl). The derate belongs to the
+# corner, so the scan scenarios below get it too.
+source [file dirname [info script]]/sram_derate.tcl
+foreach {s c} {slow slow fast fast} { current_scenario $s; sram_derate $c }
 
 # mode_func.tcl constrains all scenarios that exist at this point. The chip floorplan has its own constraints and no
 # scan mode (no scan ports yet).

@@ -33,11 +33,12 @@ while {[gets $fp line] >= 0} {
   if {[string match "//*" $line]} { continue }
 
   if {[string match "+incdir+*" $line]} {
-    lappend incdirs [file join $repo_dir [string range $line 8 end]]
+    lappend incdirs [file normalize [file join [file dirname $flist] [string range $line 8 end]]]
   } elseif {[string match "+define+*" $line]} {
     lappend defines [string range $line 8 end]
   } else {
-    lappend src_files [file join $repo_dir $line]
+    # the paths of the flist are relative to its own folder (flists/), not to the repository root
+    lappend src_files [file normalize [file join [file dirname $flist] $line]]
   }
 }
 close $fp

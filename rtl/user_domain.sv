@@ -37,7 +37,8 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   // [0] radio master, [1] ADC reader (SPI block), [2] AE-FFT accelerator done, [3] reserved
   logic [1:0] spi_irq;
   logic       fft_irq;
-  assign interrupts_o = NumExternalIrqs'({fft_irq, spi_irq});
+  logic       qcmd_irq;
+  assign interrupts_o = NumExternalIrqs'({qcmd_irq, fft_irq, spi_irq});
 
 
   //////////////////////
@@ -89,10 +90,17 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   sbr_obi_rsp_t user_design_obi_rsp;
   sbr_obi_req_t user_qspi_obi_req;
   sbr_obi_rsp_t user_qspi_obi_rsp;
+  // QSPI pins of obi_qspi (memory accesses) and of qspi_cmd (commands), muxed onto the pads
+  logic       mem_clk, qcmd_sclk, qcmd_mosi, qcmd_req, qcmd_gnt;
+  logic [3:0] mem_sd_o, mem_sd_en;
+  logic [2:0] mem_csn, qcmd_csn;
+  logic [1:0] psram_quad;
   sbr_obi_req_t user_spi_obi_req;
   sbr_obi_rsp_t user_spi_obi_rsp;
   sbr_obi_req_t user_fft_obi_req;
   sbr_obi_rsp_t user_fft_obi_rsp;
+  sbr_obi_req_t user_qcmd_obi_req;
+  sbr_obi_rsp_t user_qcmd_obi_rsp;
 
   // Fanout into more readable signals
   assign user_error_obi_req               = all_user_sbr_obi_req[UserError];
@@ -105,6 +113,8 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
   assign all_user_sbr_obi_rsp[UserSpi]  = user_spi_obi_rsp;
   assign user_fft_obi_req               = all_user_sbr_obi_req[UserFft];
   assign all_user_sbr_obi_rsp[UserFft]  = user_fft_obi_rsp;
+  assign user_qcmd_obi_req              = all_user_sbr_obi_req[UserQCmd];
+  assign all_user_sbr_obi_rsp[UserQCmd] = user_qcmd_obi_rsp;
 
 
   //-----------------------------------------------------------------------------------------------
@@ -164,12 +174,42 @@ module user_domain import user_pkg::*; import croc_pkg::*; #(
     .testmode_i,
     .obi_req_i    ( user_qspi_obi_req ),
     .obi_rsp_o    ( user_qspi_obi_rsp ),
-    .spi_clk_o    ( qspi_clk_o    ),
-    .spi_sd_o     ( qspi_sd_o     ),
+    .spi_clk_o    ( mem_clk       ),
+    .spi_sd_o     ( mem_sd_o      ),
     .spi_sd_i     ( qspi_sd_i     ),
-    .spi_sd_en_o  ( qspi_sd_en_o  ),
-    .spi_csn_o    ( qspi_csn_o    )
+    .spi_sd_en_o  ( mem_sd_en     ),
+    .spi_csn_o    ( mem_csn       ),
+    .cmd_req_i    ( qcmd_req      ),
+    .cmd_gnt_o    ( qcmd_gnt      ),
+    .psram_quad_i ( psram_quad    )
   );
+
+  // QSPI command engine (erase, program, status, QE, JEDEC ID). It owns the pins while obi_qspi grants it the bus:
+  // SCLK, SIO0 = MOSI, SIO1 = MISO, SIO2 (WP#) and SIO3 (HOLD#) driven high.
+  qspi_cmd #(
+    .ObiCfg    ( SbrObiCfg     ),
+    .obi_req_t ( sbr_obi_req_t ),
+    .obi_rsp_t ( sbr_obi_rsp_t )
+  ) i_qspi_cmd (
+    .clk_i,
+    .rst_ni,
+    .testmode_i,
+    .obi_req_i    ( user_qcmd_obi_req ),
+    .obi_rsp_o    ( user_qcmd_obi_rsp ),
+    .irq_o        ( qcmd_irq          ),
+    .bus_req_o    ( qcmd_req          ),
+    .bus_gnt_i    ( qcmd_gnt          ),
+    .psram_quad_o ( psram_quad        ),
+    .sclk_o       ( qcmd_sclk         ),
+    .mosi_o       ( qcmd_mosi         ),
+    .miso_i       ( qspi_sd_i[1]      ),
+    .csn_o        ( qcmd_csn          )
+  );
+
+  assign qspi_clk_o   = qcmd_gnt ? qcmd_sclk                : mem_clk;
+  assign qspi_sd_o    = qcmd_gnt ? {2'b11, 1'b0, qcmd_mosi} : mem_sd_o;
+  assign qspi_sd_en_o = qcmd_gnt ? 4'b1101                  : mem_sd_en;
+  assign qspi_csn_o   = qcmd_gnt ? qcmd_csn                 : mem_csn;
 
   // SPI block
   obi_spi #(

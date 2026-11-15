@@ -45,6 +45,12 @@ module croc_soc import croc_pkg::*; #(
 );
 
   logic synced_rst_n;
+  // The user domain resets with the core on a debug-module reset (ndmreset, OpenOCD "reset"), as croc_domain does.
+  // Without it a JTAG reset left the user blocks running: the ADC reader in a triggered capture lost its OBI write
+  // and stayed stuck (ZedBoard, 9 Nov 2026). ndmreset comes from a flop of the debug module on clk_i, so the release
+  // is synchronous. In test mode the reset stays the pin-controlled synced_rst_n (scan).
+  logic ndmreset, user_rst_n;
+  assign user_rst_n = synced_rst_n & (testmode_i | ~ndmreset);
 
   rstgen i_rstgen (
     .clk_i,
@@ -97,7 +103,8 @@ croc_domain #(
   .user_mgr_obi_rsp_o  ( user_mgr_obi_rsp ),
 
   .interrupts_i ( interrupts ),
-  .core_busy_o  ( status_o   )
+  .core_busy_o  ( status_o   ),
+  .ndmreset_o   ( ndmreset   )
 );
 
 obi_spi_pkg::spi_pads_out_t spi_pads_out;
@@ -119,7 +126,7 @@ user_domain #(
   .NumExternalIrqs ( NumExternalIrqs )
 ) i_user (
   .clk_i,
-  .rst_ni ( synced_rst_n ),
+  .rst_ni ( user_rst_n ),
   .ref_clk_i,
   .testmode_i,
 

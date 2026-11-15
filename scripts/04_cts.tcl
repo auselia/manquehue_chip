@@ -10,6 +10,10 @@
 source [file dirname [info script]]/common/open_lib.tcl
 open_block synthesis
 
+# design rules of every scenario (common/design_rules.tcl)
+source [file dirname [info script]]/common/design_rules.tcl
+design_rules
+
 # lower clock uncertainty
 foreach s [get_attribute [get_scenarios] -name name] {
   current_scenario $s
@@ -18,6 +22,20 @@ foreach s [get_attribute [get_scenarios] -name name] {
   set_clock_uncertainty -hold 0.35 [get_clocks clock]
   set_clock_uncertainty -hold 0.6  [get_clocks jtag_tck]
 }
+
+# SRAM inputs: PrimeTime finds about 0.1 ns less hold slack there than Fusion Compiler (0.17 ns violation at fast).
+# An extra 0.2 ns over sign-off on the SRAM clock pins while implementing (0.4 ns crowded the channel between the
+# SRAMs with hold buffers: 5935 routing DRCs). export_signoff.tcl removes it.
+set SRAM_CLK_PINS [get_pins -quiet -of_objects [get_cells -quiet -hierarchical -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] -filter "is_clock_pin == true"]
+if {[sizeof_collection $SRAM_CLK_PINS] > 0} {
+  foreach s [get_attribute [get_scenarios] -name name] {
+    current_scenario $s
+    set_clock_uncertainty -hold 0.45 $SRAM_CLK_PINS
+  }
+}
+
+# the ADC SCLK mux is in gates now: no clock gating check on it (common/sclk_gating.tcl)
+source [file dirname [info script]]/common/sclk_gating.tcl
 
 # remove early synthesis constraints
 set_lib_cell_purpose -include {hold optimization} [get_lib_cells $SYN_IGNORE_CELLS]

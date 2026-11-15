@@ -2,7 +2,7 @@
 # RTL simulation of the ZedBoard bring-up steps (sim/sw/fpga_bringup). Steps 0 to 2 from the SRAM over JTAG. Steps
 # 3 to 6 through the whole board path: the flasher (JTAG, SRAM) copies the step image from PSRAM A (preloaded, as
 # OpenOCD does on the board) into the flash, then jumps to it (-DBOOT, the bootrom does that after BTNC). Steps 4
-# and 8 also with the SX1262 model (sim/models/sx1262_model.v), as on the ZedBoard.
+# and 8 also with the SX1262 model (sim/models/sx1262_model.v), as on the ZedBoard, at 1 MHz and at the board's 50 kHz.
 # usage: scripts/sim/run_bringup_sim.sh      (env: OUT, results folder, default sim/build/bringup_sim;
 #                                             VERILATOR_BIN, a Verilator 5 with --timing; needs riscv32 gcc)
 # Result: $OUT/summary.txt, one line per step (OK or FAIL), and one log per step.
@@ -36,5 +36,15 @@ for s in s3_adc s4_lora s5_adc_fft s6_adc_fft_lora s4_sx1262 s8_event_lora; do
   sim $s $P/s2b_flasher.hex "$A" "STEP[3-8]"
   echo "  $(grep -aE "FLASH WRITE" $L/$s.sim.log | grep -aE "OK|FAIL" | tail -1 | sed "s/.*UART\] //")" >> $S
   grep -a "^\[SX1262\] summary" $L/$s.sim.log | sed "s/^/  /" >> $S
+done
+# s4_sx1262 and s8_event_lora again at the board SCLK: 50 kHz (SX_CLKDIV 199, the default of sx1262.h), the rate of the
+# Heltec bridge on the ZedBoard. Same images otherwise.
+( cd $B && ./build.sh s4_sx1262 $SHORT && ./build.sh s8_event_lora $SHORT -DNEV=1 ) >> $L/build.log 2>&1 \
+  || { echo "build 50 kHz FAIL" >> $S; echo DONE >> $S; exit 1; }
+for s in s4_sx1262 s8_event_lora; do
+  A="+psram0=$P/$s.psram.hex +adc_tone=36 +rf=sx1262"; [ $s = s8_event_lora ] && A="$A +adc_wake_frame=3000"
+  sim ${s}_50k $P/s2b_flasher.hex "$A" "STEP[3-8]"
+  echo "  $(grep -aE "FLASH WRITE" $L/${s}_50k.sim.log | grep -aE "OK|FAIL" | tail -1 | sed "s/.*UART\] //")" >> $S
+  grep -a "^\[SX1262\] summary" $L/${s}_50k.sim.log | sed "s/^/  /" >> $S
 done
 echo DONE >> $S

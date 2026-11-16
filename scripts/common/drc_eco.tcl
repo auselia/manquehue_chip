@@ -461,7 +461,7 @@ proc scan_hold_slack {pin scen} {
 proc finish_scan_hold_fix {{margin 0.05} {setup_keep 2.0}} {
   set scen [get_scenarios -quiet scan_*]
   if {[sizeof_collection $scen] == 0} { puts "INFO: scan hold fix: no scan scenarios"; return }
-  set func [get_scenarios -quiet $CORNERS]
+  set func [get_scenarios -quiet $::CORNERS]
   set ends [get_pins -quiet -hierarchical */SI]
   set dplain [get_pins -quiet -of_objects [get_cells -quiet -hierarchical -filter "ref_name =~ *__dff*"] -filter "lib_pin_name == D"]
   set ends [add_to_collection $ends $dplain]

@@ -142,16 +142,20 @@ proc drc_eco_reroute {run_dir} {
 }
 # Placement ECO for base-layer rules from two cells in neighbouring rows, for example DF.6_5V: the poly end of a gate
 # in one row is 0.395 um from the COMP of a cell in the row above (minimum 0.4 um). Runs the COMP deck of the
-# wafer.space rules, moves the smaller logic cell under each marker by two sites, legalizes, repairs the routes and
-# checks again. Sourced from 06_finish.tcl before the fillers.
+# wafer.space rules, swaps the smaller logic cell under each marker with its neighbour in the row (the two cells
+# trade footprints, so both stay legal), repairs the routes and checks again. A marker that comes back gets the moves
+# by sites. In a full row a move does not work: legalization puts the cell back in its own hole. A flip does not work
+# either: the site has no symmetry, so legalization turns a mirrored cell back.
+# Sourced from 06_finish.tcl before the fillers.
 
 # Legalization with no site near a cell can send it far away, and that breaks timing and transition limits. It also
 # fills the hole of the cell, so a second legalization cannot bring it back. The positions at the start of a pass are
-# legal and match the routes, so the cells go back to these exact positions.
+# legal and match the routes, so the cells go back to these exact positions. A position is the lower-left corner of
+# the cell and its orientation: the origin of a mirrored (MX) cell is not its lower-left corner.
 proc drc_eco_far_cells {origins limit} {
   set far [list]
   dict for {name o} $origins {
-    lassign [get_attribute [get_cells $name] origin] x y
+    lassign [lindex [get_attribute [get_cells $name] boundary_bbox] 0] x y
     set dist [expr {abs($x - [lindex $o 0]) + abs($y - [lindex $o 1])}]
     if {$dist > $limit} { lappend far "$name $dist" }
   }
@@ -162,13 +166,39 @@ proc drc_eco_undo_pass {pass origins} {
   set n 0
   dict for {name o} $origins {
     set c [get_cells $name]
-    if {[get_attribute $c origin] ne [lrange $o 0 1]} {
-      move_objects -to [lrange $o 0 1] $c
-      set_attribute $c orientation [lindex $o 2]
+    if {[lindex [get_attribute $c boundary_bbox] 0] ne [lrange $o 0 1] || [get_attribute $c orientation] ne [lindex $o 2]} {
+      set_cell_location -coordinates [lrange $o 0 1] -orientation [lindex $o 2] $c
       incr n
     }
   }
   puts "WARNING: placement DRC ECO pass $pass: pass undone, $n cell(s) back, ECO stopped, the markers stay open"
+}
+
+# drc_eco_row_neighbour <cell>: the movable logic cell that abuts the cell in its row, on the right, else on the left
+proc drc_eco_row_neighbour {c} {
+  lassign [get_attribute $c boundary_bbox] lo hi
+  set y [expr {[lindex $lo 1] + 1}]
+  set filter "is_hard_macro == false && physical_status != fixed && ref_name !~ *fill* && ref_name !~ *endcap* && ref_name !~ *tap*"
+  foreach x [list [expr {[lindex $hi 0] + 0.1}] [expr {[lindex $lo 0] - 0.2}]] {
+    set n [get_cells -hierarchical -quiet -intersect [list [list $x $y] [list [expr {$x + 0.1}] [expr {$y + 1}]]] -filter $filter]
+    if {[sizeof_collection $n] == 1} { return $n }
+  }
+  return ""
+}
+
+# drc_eco_swap <a> <b>: two abutting cells of one row trade places, each keeps its orientation
+proc drc_eco_swap {a b} {
+  lassign [get_attribute $a boundary_bbox] alo ahi
+  lassign [get_attribute $b boundary_bbox] blo bhi
+  set left [expr {min([lindex $alo 0], [lindex $blo 0])}]
+  set y [lindex $alo 1]
+  if {[lindex $alo 0] < [lindex $blo 0]} {
+    set first $b; set second $a; set w [expr {[lindex $bhi 0] - [lindex $blo 0]}]
+  } else {
+    set first $a; set second $b; set w [expr {[lindex $ahi 0] - [lindex $alo 0]}]
+  }
+  set_cell_location -coordinates [list $left $y] -orientation [get_attribute $first orientation] $first
+  set_cell_location -coordinates [list [expr {$left + $w}] $y] -orientation [get_attribute $second orientation] $second
 }
 
 proc drc_eco_move_cells {eco_dir rules} {
@@ -202,7 +232,7 @@ proc drc_eco_move_cells {eco_dir rules} {
 
     set origins [dict create]
     foreach_in_collection c [get_cells -hierarchical -filter "is_hard_macro == false && physical_status != fixed && ref_name !~ *fill* && ref_name !~ *endcap*"] {
-      dict set origins [get_object_name $c] [concat [get_attribute $c origin] [get_attribute $c orientation]]
+      dict set origins [get_object_name $c] [concat [lindex [get_attribute $c boundary_bbox] 0] [get_attribute $c orientation]]
     }
     set moved [list]
     foreach m $markers {
@@ -218,26 +248,43 @@ proc drc_eco_move_cells {eco_dir rules} {
       set key [format "%.2f_%.2f" $x0 $y0]
       set k [expr {[dict exists $tries $key] ? [dict get $tries $key] : 0}]
       dict set tries $key [expr {$k + 1}]
-      # The marker came back once or twice: every cell under it moves 4 and then 6 sites, the other way each time.
-      if {$k == 1 || $k == 2} {
-        set dir [expr {$k % 2 == 0 ? 1 : -1}]
+      set sorted [sort_collection $cells area]
+      # First try: the smaller cell swaps with the cell next to it in the row (right, else left)
+      if {$k == 0} {
+        set c [index_collection $sorted 0]
+        set name [get_object_name $c]
+        if {$name in $moved} { continue }
+        set n [drc_eco_row_neighbour $c]
+        if {$n ne "" && [get_object_name $n] ni $moved} {
+          drc_eco_swap $c $n
+          puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1}, swapping $name ([get_attribute $c ref_name]) with [get_object_name $n] ([get_attribute $n ref_name])"
+          lappend moved $name [get_object_name $n]
+          continue
+        }
+        # no neighbour to swap with: the 2-site move of the next try
+        set k 1
+        dict set tries $key 2
+      }
+      # The marker came back twice or three times: every cell under it moves 4 and then 6 sites, the other way each time.
+      if {$k == 2 || $k == 3} {
+        set dir [expr {$k % 2 == 0 ? -1 : 1}]
         foreach_in_collection c $cells {
-          move_objects -delta [list [expr {(2 + 2 * $k) * $dir * $site_w}] 0] $c
+          move_objects -delta [list [expr {(2 * $k) * $dir * $site_w}] 0] $c
           lappend moved [get_object_name $c]
         }
-        puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} came back, all cells under it moved by [expr {(2 + 2 * $k) * $dir}] sites"
+        puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} came back, all cells under it moved by [expr {(2 * $k) * $dir}] sites"
         continue
       }
-      # After three tries the marker stays open for a hand fix. A blockage here sent a flip-flop 1.3 mm away.
-      if {$k >= 3} {
+      # After four tries the marker stays open for a hand fix. A blockage here sent a flip-flop 1.3 mm away.
+      if {$k >= 4} {
         puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1} came back, marker stays open"
         continue
       }
-      set sorted [sort_collection $cells area]
-      set c [index_collection $sorted [expr {$k % [sizeof_collection $sorted]}]]
+      # The marker came back once: the smaller cell moves 2 sites
+      set c [index_collection $sorted 0]
       set name [get_object_name $c]
       if {$name in $moved} { continue }
-      set dir [expr {$k % 2 == 0 ? 1 : -1}]
+      set dir 1
       puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1}, moving $name ([get_attribute $c ref_name]) by [expr {2 * $dir}] sites"
       move_objects -delta [list [expr {2 * $dir * $site_w}] 0] $c
       lappend moved $name

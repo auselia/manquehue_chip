@@ -5,7 +5,8 @@
 # croc runs at 20 MHz, and uart_init rounds 20 MHz / (16 * 115200) = 10.85 to 11: 113636 baud, 1.4 % below
 # 115200, so a 115200 receiver reads it too. Images built before the rounding fix send at 125000 baud (divisor 10,
 # 8.0 us per bit): use BAUD = 125000 for those. Close the WaveForms app first: only one program can open the AD2.
-import sys, time
+import sys
+import time
 from ctypes import cdll, c_int, c_double, byref, create_string_buffer
 
 BAUD = 113636
@@ -18,7 +19,8 @@ log = open(sys.argv[2], "wb") if len(sys.argv) > 2 else None
 
 h = c_int()
 if dwf.FDwfDeviceOpen(c_int(-1), byref(h)) == 0 or h.value == 0:
-    err = create_string_buffer(512); dwf.FDwfGetLastErrorMsg(err)
+    err = create_string_buffer(512)
+    dwf.FDwfGetLastErrorMsg(err)
     sys.exit("AD2 open failed: " + err.value.decode(errors="replace"))
 dwf.FDwfDigitalUartRateSet(h, c_double(BAUD))
 dwf.FDwfDigitalUartTxSet(h, c_int(TX_DIO))
@@ -29,7 +31,8 @@ dwf.FDwfDigitalUartStopSet(h, c_double(1))
 n, par = c_int(), c_int()
 dwf.FDwfDigitalUartRx(h, None, c_int(0), byref(n), byref(par))  # start the receiver
 print(f"AD2 UART ready: DIO {RX_DIO}, {BAUD} 8N1", file=sys.stderr, flush=True)
-if log: open(log.name + ".ready", "w").close()
+if log:
+    open(log.name + ".ready", "w").close()
 
 buf = create_string_buffer(8193)
 end = time.time() + secs if secs > 0 else None
@@ -38,9 +41,12 @@ try:
         time.sleep(0.05)
         dwf.FDwfDigitalUartRx(h, buf, c_int(8192), byref(n), byref(par))
         if n.value > 0:
-            data = buf.raw[:n.value]
-            sys.stdout.write(data.decode("ascii", errors="replace")); sys.stdout.flush()
-            if log: log.write(data); log.flush()
+            data = buf.raw[: n.value]
+            sys.stdout.write(data.decode("ascii", errors="replace"))
+            sys.stdout.flush()
+            if log:
+                log.write(data)
+                log.flush()
         if par.value < 0:
             print("\n[AD2: receive buffer overflow]", file=sys.stderr)
         elif par.value > 0:

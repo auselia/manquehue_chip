@@ -9,7 +9,7 @@
 //     crosses 10 % to 90 % of its peak), fall (the last 90 % crossing to the first value under 10 % after it, 0xFFFF
 //     if it stays over 10 % to the end), duration (samples with env at or over 50 %), onset (10 % crossing minus the
 //     trigger index), peak |x - DC|, mean of a over rise to fall, crest = 16 x peak / mean.
-// Prints the features, then the 512 samples in time order (4 hex digits, two's complement 14 bit), for event_check.py.
+// Prints the features, then the 512 samples in time order (4 hex digits, two's complement 14 bit), for a check on the host.
 // Times are in samples = us. With -DNEV=n the number of events (default 4).
 #include "bringup.h"
 #ifdef LORA

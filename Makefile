@@ -11,7 +11,7 @@ SHELL := /bin/bash
 .DELETE_ON_ERROR:
 .DEFAULT_GOAL := help
 
-TOP         := croc_soc
+TOP         := $(shell python3 scripts/lib/config.py get TOP_MODULE)
 WORK_DIR    := work
 # the step logs, copied into outputs/<run>/logs/ by scripts/utils/archive_run.sh at the end of finish
 LOGS_DIR    := $(WORK_DIR)/logs

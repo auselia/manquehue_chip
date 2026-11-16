@@ -13,7 +13,7 @@ netlist=$(readlink -f "${1:?usage: icarus_macro.sh <croc_soc.v> <work dir>}")
 work=${2:?usage: icarus_macro.sh <croc_soc.v> <work dir>}
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 program=${PROG_HEX:-$repo/sim/sw/gls_mini/bin/gls_mini.hex}
-pdk=$HOME/.ciel/gf180mcuD/libs.ref
+pdk=${PDK_ROOT:-$HOME/.ciel}/gf180mcuD/libs.ref
 cell_models=$pdk/gf180mcu_fd_sc_mcu7t5v0/verilog
 models=$repo/scripts/signoff/gate_models.py
 

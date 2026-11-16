@@ -11,15 +11,17 @@ eval "$(python3 "$REPO/scripts/lib/config.py" sh)"
 [ -f "$REPO/scripts/utils/local.env" ] && . "$REPO/scripts/utils/local.env"
 
 # The run under test and where its checks write
-TOP=croc_soc
+TOP=$TOP_MODULE
 RUN=$(readlink -f "${RUN:-$REPO/outputs/latest}" 2>/dev/null || true)
 CHECKS_OUT=${CHECKS_OUT:-$RUN/checks}
 CACHE=$REPO/outputs/.cache
 
-# PDK data. The PDK has the SRAM as .lib only: sram_db converts it into SRAM_DB.
+# PDK data: the ciel PDK and the Synopsys technology data (ICV_PDK_HOME is the older name of the second).
+# The PDK has the SRAM as .lib only: sram_db converts it into SRAM_DB.
 PDK_ROOT=${PDK_ROOT:-$HOME/.ciel}
-PDK_DB=${PDK_DB:-$HOME/pdk_synopsys/db}
-PT_SRAM_LIB=${PT_SRAM_LIB:-$HOME/pdk_synopsys/lib/$SRAM_LIB.lib}
+PDK_SYNOPSYS=${PDK_SYNOPSYS:-${ICV_PDK_HOME:-$HOME/pdk_synopsys}}
+PDK_DB=${PDK_DB:-$PDK_SYNOPSYS/db}
+PT_SRAM_LIB=${PT_SRAM_LIB:-$PDK_SYNOPSYS/lib/$SRAM_LIB.lib}
 SRAM_DB=$CACHE/$SRAM_LIB.db
 
 # Synopsys tools. PT_HOME_DIR is the name that the Makefile of waferspace_manquehue passes.

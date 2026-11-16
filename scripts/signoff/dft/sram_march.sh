@@ -12,7 +12,7 @@ netlist=$(readlink -f "${1:?croc_soc.v}")
 work=${2:?work dir}
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../../utils/env.sh"
-pdk=$HOME/.ciel/gf180mcuD/libs.ref
+pdk=$PDK_ROOT/gf180mcuD/libs.ref
 cell_models=$pdk/gf180mcu_fd_sc_mcu7t5v0/verilog
 models=$REPO/scripts/signoff/gate_models.py
 

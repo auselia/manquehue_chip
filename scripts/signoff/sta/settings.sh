@@ -11,8 +11,8 @@ VLOG=${VLOG-$RUN/$TOP.v}
 SDC=${SDC-$RUN/$TOP.sdc}
 SPEC_SDC=${SPEC_SDC-$RUN/${TOP}_${SPEC_PERIOD%.0}ns.sdc}
 
-# The .db folder of the PDK. Its default follows ICV_PDK_HOME, as the IC Validator decks do.
-PDK_DB=${PT_PDK_DB_DIR-${ICV_PDK_HOME-$HOME/pdk_synopsys}/db}
+# The .db folder of the PDK (PT_PDK_DB_DIR is the name that the Makefile of waferspace_manquehue passes)
+PDK_DB=${PT_PDK_DB_DIR-$PDK_SYNOPSYS/db}
 
 # corner_inputs <corner> <run folder>: set SC_DB, IO_DB and SPEF of the corner
 corner_inputs() {

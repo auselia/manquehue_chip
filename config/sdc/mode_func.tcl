@@ -1,9 +1,8 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# Constraints of the functional mode: clocks, uncertainty, IO delays, false paths, design rules
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Functional-mode constraints for croc_soc
-###############################################################################
-
+# usage: source in lib/mcmm.tcl (all scenarios of mode func)
+# in:  config/clocks.tcl
+# out: the constraints of mode func
 current_mode func
 
 # Clock ports, periods, margins and the budget outside the macro: config/clocks.tcl (sourced by setup.tcl).
@@ -11,9 +10,7 @@ current_mode func
 # Design rule constraints: per scenario in design_rules.tcl (section 11).
 
 
-################################################################################
 # 1. Clocks
-################################################################################
 
 create_clock -name clock \
              -period $CLOCK_PERIOD \
@@ -32,9 +29,7 @@ create_clock -name jtag_tck \
 create_generated_clock -name adc_sclk -source [get_ports $CLOCK_PORT_NAME] -divide_by 1 -invert \
              [get_ports spi_sck_o]
 
-################################################################################
 # 2. Clock properties
-################################################################################
 
 set_clock_uncertainty -mode func -setup $SETUP_UNCERT [get_clocks clock]
 set_clock_uncertainty -mode func -hold  $HOLD_UNCERT  [get_clocks clock]
@@ -45,15 +40,10 @@ set_clock_uncertainty -mode func -setup $JTAG_SETUP_UNCERT [get_clocks jtag_tck]
 set_clock_uncertainty -mode func -hold  $JTAG_HOLD_UNCERT  [get_clocks jtag_tck]
 
 set_clock_transition $CLOCK_IDEAL_TRAN [get_clocks *]
-
-
-
-################################################################################
 # 3. Clock groups
 #
 # clk_i and jtag_tck_i have no phase relation. The RTL crosses safely (cdc_2phase and the reset controller in
 # i_dmi_jtag, i_dmi_cdc), so the crossing is not timed.
-################################################################################
 
 # adc_sclk is derived from clk_i, so it is synchronous to it and in the same group.
 set GRP_SYS [get_clocks {clock adc_sclk}]
@@ -61,23 +51,15 @@ set GRP_SYS [get_clocks {clock adc_sclk}]
   set_clock_groups -asynchronous -name async_domains \
     -group $GRP_SYS \
     -group [get_clocks jtag_tck]
-
-
-
-################################################################################
 # 4. Case analysis, functional mode
 #
 # testmode_i is 0 in operation. It drives i_rstgen.test_mode_i, the SRAM test bypass and the ICG test-enable
 # pins, so those paths are not timed and need no false path.
-################################################################################
 
 set_case_analysis 0 [get_ports testmode_i]
 
 # scan_se_i is 0: the scan muxes and the reset and set gating are timed in their functional position.
 set_case_analysis 0 [get_ports scan_se_i]
-
-
-################################################################################
 # 5. Port classification
 #
 # Ports of croc_soc.sv:
@@ -89,7 +71,6 @@ set_case_analysis 0 [get_ports scan_se_i]
 #        qspi_clk_o qspi_sd_o[3:0] qspi_sd_en_o[3:0] qspi_csn_o[2:0]
 #        gpio_o[15:0] gpio_out_en_o[15:0]
 #        spi_sck_o spi_sd_o spi_cs0_o spi_cs1_o rf_rstn_o
-################################################################################
 
 set CLK_PORTS [get_ports [list $CLOCK_PORT_NAME $JTAG_TCK_PORT]]
 
@@ -129,9 +110,7 @@ foreach coll [list $JTAG_OUT $ADC_OUT] {
 }
 
 
-################################################################################
 # 6. Asynchronous and static inputs: false paths
-################################################################################
 
 set_false_path -from [get_ports rst_ni]
 set_false_path -from [get_ports jtag_trst_ni]
@@ -147,18 +126,14 @@ source [file dirname [info script]]/sclk_gating.tcl
 # the reset pins of the flops stay timed against `clock`.
 
 
-################################################################################
 # 7. Functional I/O, clk_i domain
-################################################################################
 
 set IO_DELAY [expr {$IO_DELAY_FRAC * $CLOCK_PERIOD}]
 
 set_input_delay  -mode func -clock clock $IO_DELAY $FUNC_IN
 set_output_delay -mode func -clock clock $IO_DELAY $FUNC_OUT
 
-################################################################################
 # 8. JTAG I/O, against tck
-################################################################################
 
 set JTAG_IO_DELAY [expr {$IO_DELAY_FRAC * $JTAG_TCK_PERIOD}]
 
@@ -167,15 +142,12 @@ set_input_delay -mode func -clock jtag_tck $JTAG_IO_DELAY $JTAG_IN
 
 # The TAP launches TDO on the falling edge of TCK (IEEE 1149.1).
 set_output_delay -mode func -clock jtag_tck -clock_fall $JTAG_IO_DELAY $JTAG_OUT
-
-################################################################################
 # 9. ADS7057 interface, against adc_sclk
 #
 # Datasheet SBAS821 tables 6.5 to 6.7 and the off-chip budget of
 # sim/experiments/fwd_clock/constraints.sdc: pad out 7 to 12 ns on
 # every output, so 5 ns of spread between the CS pad and the SCLK pad, pad in
 # 3 ns, level translator 5 ns, trace 1 ns.
-################################################################################
 
 set ADC_PAD_SPREAD 5.0
 # CS low at least 7 ns before the first SCLK falling edge (tsu_CSCK) and high at least 8 ns after the last
@@ -215,13 +187,9 @@ set RF_SCLK_FLOPS [get_cells -quiet -hierarchical -filter "is_sequential == true
 if {[sizeof_collection $RF_SCLK_FLOPS] > 0} {
   set_max_delay [expr {$CLOCK_PERIOD - $IO_DELAY}] -from $RF_SCLK_FLOPS -to [get_ports spi_sck_o]
 }
-
-
-################################################################################
 # 10. Drive and load
 #
 # Without them the tool assumes an ideal driver and no load.
-################################################################################
 
 # set_load applies to the current corner and set_input_transition to the current scenario, so set them in every
 # scenario (else only fast, the current one, gets them).
@@ -234,9 +202,7 @@ foreach_in_collection scenario [all_scenarios] {
 current_scenario $previous_scenario
 
 
-################################################################################
 # 11. Design rule constraints
-################################################################################
 
 # Per scenario, from the library limits (design_rules.tcl). The clock tree has the CTS targets of 04_cts.tcl.
 source [file dirname [info script]]/design_rules.tcl

@@ -8,7 +8,7 @@
 # It saves nothing: the taps and the result exist only in this session. The result shows if the top-level supply
 # pins of the macro are enough.
 
-source [file dirname [info script]]/../../common/open_lib.tcl
+source [file dirname [info script]]/../../impl/lib/open_lib.tcl
 open_block finish
 
 # A new session that opens finish has no parasitic model (TLUP-032 on open). The dynamic analysis needs one ("No

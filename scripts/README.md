@@ -12,5 +12,6 @@ make gui_cts              # the block of a step in the FC GUI
 - In: `rtl/`, `flists/croc.flist`, `config/`. Out: one block per step in `work/design.dlib`. `06_finish` writes
   the run folder `outputs/croc_soc_<timestamp>/`: GDS, netlist, LEF, black box, SDC and SPEF of every corner.
 - `common/` has what more than one step uses: setup, corners and modes, constraints, power grid, DFT, ECOs.
-- `chip/padring.txt` sets the pin positions: each pin faces its pad on the AC3E ring.
+- `config/padring.txt` sets the pin positions: each pin faces its pad on the AC3E ring. The constraints are in
+  `config/sdc/`.
 - A change in a step script runs that step and the steps after it again.

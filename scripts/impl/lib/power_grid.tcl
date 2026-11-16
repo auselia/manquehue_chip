@@ -1,12 +1,9 @@
-###############################################################################
-# Croc SoC Physical Design Flow (Block Level)
+# Power grid of the macro: VDD and VSS rings, the SRAM pin connections, the Metal4/Metal5 mesh and the rails
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Power Grid Creation and Connection (INCREMENTAL)
-###############################################################################
-
-##############################################################
+# usage: source in 02_floorplan.tcl
+# in:  the floorplan block
+# out: the power grid in the block
 # Reset grid & Connect Nets
-##############################################################
 remove_pg_strategies -all
 remove_pg_patterns -all
 remove_pg_regions -all
@@ -24,11 +21,6 @@ connect_pg_net -net VSS [get_pins -of_objects $all_macros -physical_context -fil
 
 connect_pg_net -automatic
 
-# Chip floorplan: supply pins of the pad ring (chip/chip_pg_pads.tcl)
-if {$CHIP_FLOORPLAN} {
-    source [file dirname [info script]]/../chip/chip_pg_pads.tcl
-    chip_connect_pads
-}
 
 # V3.2b/V4.2b: cuts in a 4x4 or larger array need 0.36 um spacing (default is the 0.26 um minimum)
 set PG_VIA_CUT_SPACING {0.36 0.36}
@@ -36,9 +28,7 @@ set_pg_via_master_rule via_master_mesh_top -contact_code Via4_VV -cut_spacing $P
 set_pg_via_master_rule via_master_sram_v3 -contact_code Via3_VV -cut_spacing $PG_VIA_CUT_SPACING
 set_pg_via_master_rule via_master_sram_v4 -contact_code Via4_VV -cut_spacing $PG_VIA_CUT_SPACING
 
-##############################################################
 # 1. Power Ring around Design Boundary
-##############################################################
 create_pg_ring_pattern main_ring_pattern -nets {VDD VSS} \
     -horizontal_layer Metal5 -horizontal_width 10 -horizontal_spacing 2 \
     -vertical_layer Metal4   -vertical_width 10   -vertical_spacing 2 \
@@ -49,31 +39,8 @@ set_pg_strategy main_ring_strategy -core -pattern {{pattern: main_ring_pattern} 
 # ---> COMPILE STEP 1
 compile_pg -strategies main_ring_strategy
 
-# Chip floorplan: straps from the inner-edge pins of the CROC power pads to the ring of the same net. The pins are
-# on Metal2 (DVDD/DVSS), on Metal3 for the rotated west and east pads. VDD goes to the inner ring, VSS to the outer.
-if {$CHIP_FLOORPLAN} {
-    # The strap vias are large arrays: V2.2b/V3.2b/V4.2b want the 0.36 um cut spacing (PG_VIA_CUT_SPACING)
-    set_pg_via_master_rule via_master_pad_v2 -contact_code Via2_HH -cut_spacing $PG_VIA_CUT_SPACING
-    set_pg_via_master_rule via_master_pad_v3 -contact_code Via3_HH -cut_spacing $PG_VIA_CUT_SPACING
-    set_pg_via_master_rule via_master_pad_v4 -contact_code Via4_HH -cut_spacing $PG_VIA_CUT_SPACING
-    create_pg_macro_conn_pattern croc_pad_conn -pin_conn_type scattered_pin -nets {VDD VSS} \
-        -layers {Metal3 Metal2} -width 10 \
-        -via_rule {{intersection: all} {via_master: {via_master_pad_v2 via_master_pad_v3 via_master_pad_v4}}}
-    set_pg_strategy croc_pad_strategy -macros [get_cells {pad_CROC_vdd_* pad_CROC_vss_*}] \
-        -pattern {{pattern: croc_pad_conn} {nets: {VDD VSS}}} -extension {{stop: innermost_ring}}
-    # vias between the straps and the existing ring, with the same spaced masters
-    set_pg_strategy_via_rule croc_pad_to_ring -via_rule { \
-        {{{strategies: croc_pad_strategy}} {{existing: ring}} \
-         {via_master: {via_master_pad_v2 via_master_pad_v3 via_master_pad_v4}}} \
-        {{{strategies: croc_pad_strategy}} {{macro_pins: all}} \
-         {via_master: {via_master_pad_v2 via_master_pad_v3 via_master_pad_v4}}} \
-    }
-    compile_pg -strategies croc_pad_strategy -via_rule croc_pad_to_ring
-}
 
-##############################################################
 # 2. Macro Scattered Pins Connection (SRAMs)
-##############################################################
 create_pg_ring_pattern sram_inner_ring_pat \
     -nets {VDD VSS} \
     -horizontal_layer Metal5 \
@@ -102,9 +69,7 @@ set_pg_strategy_via_rule ring_to_macro_vias \
 
 compile_pg -strategies {sram_inner_ring_strat} -via_rule {ring_to_macro_vias}
 
-##############################################################
 # 3. Global Power Mesh
-##############################################################
 create_pg_mesh_pattern mesh_pattern_top -via_rule {{intersection: adjacent} {via_master: via_master_mesh_top}} \
     -layers { \
         {{horizontal_layer: Metal5 } {width: 3} {pitch: 40} {spacing: interleaving} } \
@@ -124,9 +89,7 @@ set_pg_strategy_via_rule via_mesh_to_ring -via_rule { \
 
 compile_pg -strategies mesh_strategy_top -via_rule via_mesh_to_ring
 
-##############################################################
 # 4. Std rail
-##############################################################
 create_pg_std_cell_conn_pattern M1_rail -layers {Metal1}
 
 set_pg_strategy M1_rail_strategy -core -pattern {{name: M1_rail} {nets: VDD VSS}} \
@@ -142,9 +105,7 @@ set_pg_strategy_via_rule via_rail_to_mesh -via_rule { \
 
 compile_pg -strategies M1_rail_strategy -via_rule via_rail_to_mesh
 
-##############################################################
 # Verification
-##############################################################
 check_pg_missing_vias
 check_pg_drc -ignore_std_cells
 check_pg_connectivity -check_std_cell_pins none

@@ -1,18 +1,16 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# Sign-off DRC ECOs in 06_finish.tcl: reroute under KLayout markers, cell moves, filler swaps, SRAM clock
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Sign-off DRC ECOs (sourced by 06_finish.tcl)
-###############################################################################
-
+# usage: source in 06_finish.tcl, then call the procs
+# in:  the KLayout deck of setup.tcl (DRC_DECK, DRC_ECO_DECKS), utils/drc_markers.py
+# out: the ECOs in the block, <run>/drc_eco/ (the DRC runs of every pass)
 # drc_eco_reroute: the FC router knows only the rules of the technology file, so a routed net can break a foundry
 # rule (for example V1.3c, CO.6a). Runs the wafer.space KLayout deck on the routing rules, reroutes the signal nets
 # under each marker and checks again. A marker that comes back after a reroute moves the logic cell under it to
 # the nearest free place in its row (fillers out, cell moved, gap filled again, route_eco).
 
-set DRC_ECO_HELPER [file normalize [file join [file dirname [info script]] .. utils drc_markers.py]]
+set DRC_ECO_HELPER [file normalize [file join [file dirname [info script]] .. .. utils drc_markers.py]]
 
-# Only standard cells move: never a pad (gf180mcu_fd_io__*) or any fixed cell. A marker at a pad is a pad-ring or
-# abutment problem (for example a DC-DC wrapper against the pads), not one a cell move can fix.
+# Only standard cells move, never a fixed cell or a pad cell.
 proc drc_eco_reroute {run_dir} {
   global TOP_MODULE PDK_DIR ICC2GDS_LAYERMAP KLAYOUT_BIN DRC_DECK DRC_ECO_DECKS DRC_ECO_MAX_PASSES DRC_ECO_HELPER
   global DCAP_CELLS FILL_CELLS
@@ -21,7 +19,6 @@ proc drc_eco_reroute {run_dir} {
   file mkdir $eco_dir
   set helper $DRC_ECO_HELPER
   set gds_list [glob ${PDK_DIR}/gds/*.gds]
-  if {$::CHIP_FLOORPLAN} { set gds_list [chip_gds_files] }
   set site_w [get_attribute [index_collection [get_site_defs] 0] width]
   set prev [list]
   set swapped [dict create]
@@ -143,13 +140,10 @@ proc drc_eco_reroute {run_dir} {
   }
   puts "WARNING: DRC ECO: violations remain after $DRC_ECO_MAX_PASSES pass(es), see $eco_dir"
 }
-
-###############################################################################
 # Placement ECO for base-layer rules from two cells in neighbouring rows, for example DF.6_5V: the poly end of a gate
 # in one row is 0.395 um from the COMP of a cell in the row above (minimum 0.4 um). Runs the COMP deck of the
 # wafer.space rules, moves the smaller logic cell under each marker by two sites, legalizes, repairs the routes and
 # checks again. Sourced from 06_finish.tcl before the fillers.
-###############################################################################
 
 # Legalization with no site near a cell can send it far away, and that breaks timing and transition limits. It also
 # fills the hole of the cell, so a second legalization cannot bring it back. The positions at the start of a pass are
@@ -182,7 +176,6 @@ proc drc_eco_move_cells {eco_dir rules} {
 
   file mkdir $eco_dir
   set gds_list [glob ${PDK_DIR}/gds/*.gds]
-  if {$::CHIP_FLOORPLAN} { set gds_list [chip_gds_files] }
   set site_w [get_attribute [index_collection [get_site_defs] 0] width]
   # A marker that comes back gets the next cell under it, moved the other way: legalization can put the same cell back.
   set tries [dict create]
@@ -279,7 +272,6 @@ proc drc_eco_swap_fillcaps {eco_dir} {
 
   file mkdir $eco_dir
   set gds_list [glob ${PDK_DIR}/gds/*.gds]
-  if {$::CHIP_FLOORPLAN} { set gds_list [chip_gds_files] }
 
   for {set pass 1} {$pass <= $DRC_ECO_MAX_PASSES} {incr pass} {
     set gds   [file join $eco_dir fill_pass${pass}.gds]
@@ -313,21 +305,9 @@ proc drc_eco_swap_fillcaps {eco_dir} {
   puts "WARNING: filler DRC ECO: markers remain after $DRC_ECO_MAX_PASSES pass(es), see $eco_dir"
 }
 
-###############################################################################
-# Hand ECO of the macro on the routed block, before the fillers. Nets over the library limits in PrimeTime get a buffer
-# after their driver, so the weak driver sees one small load. Cells under a marker that the automatic ECOs cannot clear
-# move far enough to leave the neighbouring cell. Names and positions are from the build of the run in the comments.
-###############################################################################
-# A cell by its flat name from the sign-off netlist (i_croc_..._reg_17_), at any stage of the hierarchy.
-# Chip flow, after the DRC ECO and before the fillers. Two kinds of long wire that the optimization does not fix:
-# - the SRAM CLK pins (library limit 1.55 ns, up to 1.82 ns at slow on the chip of 7 Nov 2026): a clkbuf_8 next to
-#   each pin, as hand_eco does on the macro route;
-# - the core-side inputs A, OE, IE of the IO pads (library limit 1.0 ns, up to 1.25 ns): the pads are IO cells,
-#   so compile_fusion does not fix their design rules. A buf_12 at the point of the core area closest to the pin:
-#   PrimeTime converts the slew between the thresholds of the standard cell and of the IO library, a buf_4 edge of
-#   0.81 ns became 1.12 ns at the pad pin over a 5 fF wire.
-# Names and coordinates come from the block, so this works on any chip route.
-proc chip_finish_buffers {} {
+# finish_sram_clk_buffers: a clkbuf_8 next to the CLK pin of every SRAM, then route_eco. Without it the long clock
+# wire to the pin breaks the slew limit of the SRAM (1.55 ns), and the optimization does not fix it.
+proc finish_sram_clk_buffers {} {
   set new [list]
   set clkbuf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__clkbuf_8]
   foreach_in_collection m [get_cells -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] {
@@ -338,116 +318,17 @@ proc chip_finish_buffers {} {
     set_cell_location -coordinates [lindex [get_attribute $p bbox] 0] $c
     lappend new [get_object_name $c]
   }
-  lassign [get_attribute [current_block] core_area_bbox] cll cur
-  set buf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__buf_12]
-  foreach_in_collection p [get_pins -quiet -of_objects [get_cells -quiet pad_* -filter "ref_name =~ gf180mcu_fd_io__*"] -filter "name == A || name == OE || name == IE"] {
-    set net [get_nets -quiet -of_objects $p]
-    if {[sizeof_collection $net] == 0} { continue }
-    set drv [get_pins -quiet -leaf -of_objects $net -filter "direction == out"]
-    if {[sizeof_collection $drv] == 0 || [string match *tie* [get_attribute [get_cells -of_objects $drv] ref_name]]} { continue }
-    lassign [lindex [get_attribute $p bbox] 0] x y
-    set x [expr {min(max($x, [lindex $cll 0] + 2.0), [lindex $cur 0] - 12.0)}]
-    set y [expr {min(max($y, [lindex $cll 1] + 2.0), [lindex $cur 1] - 6.0)}]
-    set tag eco_padin_[llength $new]
-    add_buffer -new_cell_names $tag -lib_cell $buf $p
-    set c [get_cells ${tag}*]
-    set_cell_location -coordinates [list $x $y] $c
-    lappend new [get_object_name $c]
-  }
   legalize_placement
   foreach n $new {
     set c [get_cells $n]
-    puts "INFO: chip finish buffer $n ([get_attribute $c ref_name]) at [get_attribute $c origin]"
+    puts "INFO: SRAM clock buffer $n ([get_attribute $c ref_name]) at [get_attribute $c origin]"
   }
   route_eco
 }
 
-proc hand_eco_cell {flat} {
-  set key [string trimright [regsub -all {[^A-Za-z0-9]+} $flat _] _]
-  foreach_in_collection c [get_cells -hierarchical -filter "is_hard_macro == false"] {
-    if {[string trimright [regsub -all {[^A-Za-z0-9]+} [get_object_name $c] _] _] eq $key} { return $c }
-  }
-  error "hand ECO: no cell $flat"
-}
-
-proc hand_eco {} {
-  # Route of croc_soc_20261104_181238. Names and coordinates are valid for that route only.
-  # Slow and fast transition over the library limit, on weak drivers with many loads.
-  set new [list]
-  set buf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__buf_4]
-  foreach drv {A63704/ZN A63752/ZN A59937/ZN ctmi_58336/Z} {
-    set tag eco_drv_[string map {/ _} $drv]
-    set bb [get_attribute [get_cells -of_objects [get_pins $drv]] boundary_bbox]
-    add_buffer -new_cell_names $tag -lib_cell $buf [get_pins $drv]
-    set c [get_cells ${tag}*]
-    set_cell_location -coordinates [lindex $bb 0] $c
-    lappend new [get_object_name $c]
-  }
-  # SRAM CLK 1.64 ns against 1.55 ns at slow, from a long wire: a buffer next to each pin.
-  set clkbuf [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__clkbuf_8]
-  foreach_in_collection m [get_cells -filter "ref_name =~ gf180mcu_fd_ip_sram__*"] {
-    set p [get_pins [get_object_name $m]/CLK]
-    set tag eco_sramclk_[llength $new]
-    add_buffer -new_cell_names $tag -lib_cell $clkbuf $p
-    set c [get_cells ${tag}*]
-    lassign [get_attribute $p bbox] ll ur
-    set_cell_location -coordinates $ll $c
-    lappend new [get_object_name $c]
-  }
-  # Scan hold at fast, -0.02 ns on two SI pins: a clkbuf_1 (about 0.17 ns) in front of each.
-  set dly [get_lib_cells */gf180mcu_fd_sc_mcu7t5v0__clkbuf_1]
-  foreach flop {i_user_i_fft_hwpe_i_core_gcnt_q_reg_1_ i_croc_i_dm_top_i_dm_top_i_dm_csrs_progbuf_q_reg_2__28_} {
-    set c [hand_eco_cell $flop]
-    set tag eco_scanhold_[llength $new]
-    add_buffer -new_cell_names $tag -lib_cell $dly [get_pins [get_object_name $c]/SI]
-    set b [get_cells ${tag}*]
-    set_cell_location -coordinates [lindex [get_attribute $c boundary_bbox] 0] $b
-    lappend new [get_object_name $b]
-  }
-  # A full legalization: with -cells only, the new buffers went up to 340 um away, the rows near them are full.
-  legalize_placement
-  foreach n $new {
-    set c [get_cells $n]
-    puts "INFO: hand ECO: $n ([get_attribute $c ref_name]) at [get_attribute $c origin]"
-  }
-  # DF.6: COMP and poly corners of two cells 0.3995 um apart. One site clears each one, from a search on the GDS. No
-  # legalization after this: these sites are free and it could undo the move.
-  set site_w [get_attribute [index_collection [get_site_defs] 0] width]
-  # One move per marker, the first candidate that overlaps no other cell. Candidates come from a search on the GDS
-  # (each one clears the marker). Taps are placed already, the fillers come later. A33481 +1 site was clean, the
-  # flip-flop +1 moves overlapped a tap and an and2 (LVS mismatch), A65851 -1 gave a short at its left pin.
-  foreach {marker cands} {
-    m933 {A33481 1 A33481 2 A33481 3}
-    m624 {i_croc_i_dm_top_i_dm_top_i_dm_mem_rdata_q_reg_17_ 1 i_croc_i_dm_top_i_dm_top_i_dm_mem_rdata_q_reg_17_ -1
-          i_croc_i_dm_top_i_dm_top_i_dm_mem_rdata_q_reg_17_ -2 A65851 -1}
-    m748 {i_user_i_obi_qspi_addr_q_reg_11_ 1 i_user_i_obi_qspi_addr_q_reg_11_ -1 i_user_i_obi_qspi_addr_q_reg_11_ -2
-          A62732 -2 A62732 -1}
-  } {
-    set done 0
-    foreach {cell sites} $cands {
-      set c [hand_eco_cell $cell]
-      move_objects -delta [list [expr {$sites * $site_w}] 0] $c
-      lassign [get_attribute $c boundary_bbox] ll ur
-      set box [list [list [expr {[lindex $ll 0] + 0.05}] [expr {[lindex $ll 1] + 0.05}]] [list [expr {[lindex $ur 0] - 0.05}] [expr {[lindex $ur 1] - 0.05}]]]
-      set hit [remove_from_collection [get_cells -hierarchical -quiet -intersect $box -filter "is_hard_macro == false"] $c]
-      if {[sizeof_collection $hit] == 0} {
-        puts "INFO: hand ECO: $marker, [get_object_name $c] moved by $sites site(s), now at [get_attribute $c origin]"
-        set done 1
-        break
-      }
-      puts "INFO: hand ECO: $marker, [get_object_name $c] by $sites site(s) overlaps [get_object_name $hit], not used"
-      move_objects -delta [list [expr {-$sites * $site_w}] 0] $c
-    }
-    if {!$done} { puts "WARNING: hand ECO: $marker stays open, no free candidate" }
-  }
-  route_eco
-}
-
-###############################################################################
 # Scan-shift hold
-###############################################################################
 # In scan shift every flop captures the Q of its neighbour, mostly a straight Q to SI wire. route_opt leaves some of
-# them with negative hold in the scan scenarios (9 Nov 2026 route: -0.70 ns slow, -0.49 ns fast, clock skew of up to
+# them with negative hold in the scan scenarios (up to -0.70 ns at slow and -0.49 ns at fast, clock skew of up to
 # 2.4 ns between neighbours in the chain). Found in the block, so any route gets the fix: each scan end point (SI
 # pin, or D pin of a plain flop of the chain) with scan hold slack under the margin (0.05 ns: Fusion Compiler
 # is about 0.1 ns more pessimistic than PrimeTime on these paths) gets a delay cell in front of it,
@@ -520,9 +401,7 @@ proc finish_scan_hold_fix {{margin 0.05} {setup_keep 2.0}} {
   puts "INFO: scan hold fix: [llength $new] cell(s), scan hold WNS after route_eco [format %.3f [get_attribute $w slack]] ns"
 }
 
-###############################################################################
 # Max transition and max capacitance after route_opt
-###############################################################################
 # route_opt leaves weak drivers over the limits (24 nets on the 8 Nov 2026 route, 25 -> 30 during route_opt), FC has
 # no fix_eco_drc. Found in the block, so any route gets the fix.
 # Nets over max transition or max capacitance in the scenarios that check them: the driver gets the next drive

@@ -41,7 +41,7 @@ if header is None or not decls:
 
 ports = [p.strip() for p in re.search(r"\((.*)\)", header, re.S).group(1).split(",")]
 with open(dst, "w") as f:
-    f.write("// Blackbox stub of %s, written by scripts/common/write_blackbox.py from %s.\n" % (top, src.split("/")[-1]))
+    f.write("// Blackbox stub of %s, written by scripts/impl/lib/write_blackbox.py from %s.\n" % (top, src.split("/")[-1]))
     f.write("// Port list and directions of the gate-level netlist of the same run. Do not edit.\n\n")
     f.write("(* blackbox *)\nmodule %s (\n" % top)
     f.write(",\n".join("    " + p for p in ports) + "\n);\n\n")

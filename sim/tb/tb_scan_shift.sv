@@ -1,7 +1,7 @@
 // Gate-level scan-shift test of the croc_soc macro netlist.
 //
 // Puts the macro in shift state (testmode_i = 1, scan_se_i = 1), toggles both shift clocks with the
-// waveforms declared to the DFT tool (set_dft_signal -type ScanClock in scripts/common/dft_scan.tcl:
+// waveforms declared to the DFT tool (set_dft_signal -type ScanClock in scripts/impl/lib/dft_scan.tcl:
 // clk_i rises at 50 ns and falls at 70 ns, jtag_tck_i rises at 75 ns and falls at 90 ns, 100 ns
 // period) and pushes a pseudo-random bit stream through scan_si_i. A working chain returns the same
 // stream on scan_so_o, delayed by exactly the number of scan cells, inverted if the chain has an odd number of

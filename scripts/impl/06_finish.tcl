@@ -1,34 +1,22 @@
-# -----------------------------------------------------------------------------
-# This file was created at the Institute of Microelectronic Systems,
-# Leibniz University Hannover. It is provided "as is" without
-# warranty of any kind, express or implied, including but not
-# limited to correctness or fitness for a particular purpose.
-#
-# Author: Viktor Schneider
-# -----------------------------------------------------------------------------
-
-source [file dirname [info script]]/common/open_lib.tcl
+# Step 6: finish: DRC ECOs, fillers, export of the run (GDS, netlist, LEF, black box, SDC, SPEF, test protocol)
+# Author: Viktor Schneider (IMS, Leibniz University Hannover). Adapted by Nicolás Villegas - Universidad de los Andes
+# usage: make finish      (fc_shell in work/)
+# in:  block route
+# out: block finish, outputs/croc_soc_<timestamp>/ and the link outputs/latest
+source [file dirname [info script]]/lib/open_lib.tcl
 open_block route
-# Chip floorplan: the chip GDS list for the DRC ECOs, the pad supplies and the open DC-DC pad inputs
-if {$CHIP_FLOORPLAN} {
-    source [file dirname [info script]]/chip/chip_export.tcl
-    source [file dirname [info script]]/chip/chip_pg_pads.tcl
-}
 
 # Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.
-source [file dirname [info script]]/common/drc_eco.tcl
+source [file dirname [info script]]/lib/drc_eco.tcl
 drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
-# SRAM CLK buffers (and, on the chip, the pad input buffers): found in the block, so any route gets them.
-# hand_eco (common/drc_eco.tcl) names the cells of one old macro route and is not called.
-chip_finish_buffers
+# A clock buffer next to the CLK pin of every SRAM: the long clock wire to the pin breaks the slew limit of the SRAM
+finish_sram_clk_buffers
 # Scan-shift hold: a delay cell in front of each scan end point under 0.05 ns of scan hold slack, then route_eco.
 finish_scan_hold_fix
 # Weak drivers over max transition or max capacitance: next drive strength (or a buf_4), then route_eco.
 finish_drv_fix
 
-###################################
-# FILLER Cell Insertion
-###################################
+# Fillers: decap fillers first, at 20 % of the free area, then plain fillers
 
 set DCAP_CELLS [get_object_name [sort_collection -descending [get_lib_cells *mcu${STDCELL_TRACK_SIZE}t5v0__fillcap*] area]]
 set FILL_CELLS [get_object_name [sort_collection -descending [get_lib_cells *mcu${STDCELL_TRACK_SIZE}t5v0__fill_*] area]]
@@ -85,11 +73,6 @@ connect_pg_net -automatic
 remove_stdcell_fillers_with_violation
 create_stdcell_fillers -lib_cells $FILL_CELLS
 connect_pg_net -automatic
-# connect_pg_net -automatic puts every IO cell on VDD and may tie the DC-DC pad inputs
-if {$CHIP_FLOORPLAN} {
-    chip_connect_pads
-    chip_float_dcdc_pins
-}
 
 # Second pass: remove_stdcell_fillers_with_violation can take away the decaps that a tap or an endcap counted on. That
 # happens next to the SRAMs, where the routing over the row rejects every filler. What has no device left within 15 um
@@ -99,38 +82,13 @@ connect_pg_net -automatic
 
 # DF.13 / DF.14 that the fillers make: the decap fillers under a marker become plain fillers
 drc_eco_swap_fillcaps [file join [pwd] drc_eco_fill]
-if {$CHIP_FLOORPLAN} {
-    chip_connect_pads
-    chip_float_dcdc_pins
-}
 
 route_detail -incremental true
 
 change_names -rules verilog
 
-# Chip floorplan: the DRC reroute ECO and the chip views. The rest of this script is for the croc_soc macro (power
-# pins, LEF, outputs/latest, PrimeTime inputs).
-if {$CHIP_FLOORPLAN} {
-    set CHIP_DIR [file normalize ../outputs/chip_final]
-    drc_eco_reroute $CHIP_DIR
-    chip_connect_pads
-    chip_float_dcdc_pins
-    write_verilog -include all \
-        -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
-        $CHIP_DIR/$TOP_MODULE.v
-    write_chip_views $CHIP_DIR $TOP_MODULE
-    # the shrunk_* routing blockages over the SRAMs (02_floorplan.tcl) are not layout: check_lvs reports each overlap
-    # with the SRAM metal as a short (336 on 7 Nov 2026). Routing is done, so they go before the check.
-    set rb [get_routing_blockages -quiet shrunk_*]
-    if {[sizeof_collection $rb] > 0} { remove_routing_blockages $rb }
-    redirect -file $CHIP_DIR/check_lvs.rpt { check_lvs -checks {open short} -max_errors 5000 }
-    save_block -as finish
-    return
-}
 
-###################################
 # Top-level power pins
-###################################
 # write_gds writes pin text for terminals, and LVS needs it to name the VDD and VSS ports.
 set outline [get_attribute [current_block] boundary_bbox]
 foreach {net pins} [pg_pins [lindex $outline 1 0] [lindex $outline 1 1]] {
@@ -144,11 +102,9 @@ foreach {net pins} [pg_pins [lindex $outline 1 0] [lindex $outline 1 1]] {
   }
 }
 
-# -----------------------------------------------------------------------------
-# Export into outputs/<TOP>_<YYYYMMDD_HHMMSS>/ (one folder per run, the checks write their results into it) and
-# point outputs/latest at it. Older runs stay: make drc RUN=<TOP>_<timestamp>.
-# -----------------------------------------------------------------------------
-set OUTPUTS_DIR [file normalize [file join [file dirname [info script]] .. outputs]]
+# Export into outputs/<TOP>_<YYYYMMDD_HHMMSS>/ (one folder per run, the checks write their results into it) and point
+# outputs/latest at it. Older runs stay: make drc RUN=<TOP>_<timestamp>.
+set OUTPUTS_DIR [file normalize [file join [file dirname [info script]] .. .. outputs]]
 file mkdir $OUTPUTS_DIR
 
 set RUN_STAMP [clock format [clock seconds] -format "%Y%m%d_%H%M%S"]
@@ -171,11 +127,11 @@ if {[file isdirectory reports]} {
 }
 
 # Reroute nets that violate routing rules FC cannot see (checked with the wafer.space KLayout deck).
-source [file dirname [info script]]/common/drc_eco.tcl
+source [file dirname [info script]]/lib/drc_eco.tcl
 drc_eco_reroute $RUN_DIR
 
-# Stripe vias that Magic merges with a macro pin connection (scripts/common/pg_via_eco.tcl).
-source [file dirname [info script]]/common/pg_via_eco.tcl
+# Stripe vias that Magic merges with a macro pin connection (lib/pg_via_eco.tcl).
+source [file dirname [info script]]/lib/pg_via_eco.tcl
 pg_via_eco_remove_close_stripe_vias
 
 set GDS_OUT   [file join $RUN_DIR "${TOP_MODULE}.gds"]
@@ -189,7 +145,7 @@ write_verilog -include all \
 
 # Blackbox stub (ports only) for the chip-level flow, from the netlist of this run.
 set BB_OUT [file join $RUN_DIR "${TOP_MODULE}_bb.v"]
-puts [exec python3 [file dirname [info script]]/common/write_blackbox.py $VLOG_OUT $BB_OUT $TOP_MODULE]
+puts [exec python3 [file dirname [info script]]/lib/write_blackbox.py $VLOG_OUT $BB_OUT $TOP_MODULE]
 
 # The parent flow (LibreLane Magic.StreamOut) reads the bounding box of the macro from a PR boundary shape in the GDS
 # top cell. write_gds does not write that shape for the top block.
@@ -234,10 +190,17 @@ puts "INFO: Wrote LEF      -> $LEF_OUT"
 puts "INFO: latest run     -> outputs/latest -> ${RUN_NAME}/"
 
 set ACTIVE_STEP "06_finish"
-source [file dirname [info script]]/common/reporting.tcl
+source [file dirname [info script]]/lib/reporting.tcl
 
 save_block -as finish
 
 # Sign-off inputs for PrimeTime and PrimePower (SDC, sign-off SDC, scan SDC, SPEF per corner), next to the GDS. After
 # save_block: the sign-off hold uncertainty it sets does not go into the saved finish block.
-source [file dirname [info script]]/common/export_signoff.tcl
+source [file dirname [info script]]/lib/export_signoff.tcl
+
+# The test protocol of the scan chain for make dft (signoff/dft/dft.sh reads <run>/croc_soc.stil). It comes last:
+# the DFT signals of dft_spec.tcl must not reach the SDC files above.
+source [file dirname [info script]]/lib/dft_spec.tcl
+create_test_protocol
+dft_drc
+write_test_protocol -output [file join $RUN_DIR "${TOP_MODULE}.stil"]

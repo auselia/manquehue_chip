@@ -50,7 +50,7 @@ collects them in `outputs/<run>/report.md`.
 
 ## Setup
 
-- `TECHLIB_DATA_DIR` in `scripts/common/setup.tcl`: the Synopsys technology data (NDM libraries, tech file, GDS).
+- `TECHLIB_DATA_DIR` in `scripts/impl/lib/setup.tcl`: the Synopsys technology data (NDM libraries, tech file, GDS).
 - `scripts/utils/env.sh`: the tool and PDK paths. Put your own values in `scripts/utils/local.env` (not in git).
 
 ## Credits

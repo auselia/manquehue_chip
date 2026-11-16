@@ -1,4 +1,4 @@
-# PrimeTime sign-off STA of one corner: setup at slow and typical, hold at fast, as in common/mcmm.tcl
+# PrimeTime sign-off STA of one corner: setup at slow and typical, hold at fast, as in impl/lib/mcmm.tcl
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
 # usage: pt_shell -x "set CORNER ...; ...; source sta_corner.tcl"      (sta.sh does it for every corner)
 # in:  CORNER, TOP, VLOG, SDC_FILE (the sign-off SDC), SPEF_FILE, SC_DB, IO_DB, SRAM_DB, REPORT_DIR
@@ -13,8 +13,8 @@ file mkdir $REPORT_DIR
 read_design
 read_sdc $SDC_FILE
 # The SDC of Fusion Compiler has the SCLK gating constraint only for a netlist that Fusion Compiler built
-source [file dirname [info script]]/../../common/sclk_gating.tcl
-source [file dirname [info script]]/../../common/sram_derate.tcl
+source [file dirname [info script]]/../../../config/sdc/sclk_gating.tcl
+source [file dirname [info script]]/../../../config/sdc/sram_derate.tcl
 sram_derate $CORNER
 read_parasitics -format SPEF $SPEF_FILE
 update_timing -full

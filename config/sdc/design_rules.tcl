@@ -1,9 +1,8 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# Design rules of every scenario: max transition and max capacitance at 0.9 x the library limit
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Design rules of the implementation, per scenario
-###############################################################################
-
+# usage: source, then call design_rules (mode_func.tcl, 04_cts.tcl, 05_route.tcl)
+# in:  the scenarios
+# out: the design rules
 # Max transition is 0.9 times the library limit of the corner (gf180mcu_fd_sc_mcu7t5v0: 7.0 ns ss, 4.0 ns tt, 2.6 ns
 # ff), so Fusion Compiler fixes the nets that PrimeTime finds just over the library limit. A fixed 1.5 ns is far too
 # strict at ss 125 C: 57732 nets go over it.

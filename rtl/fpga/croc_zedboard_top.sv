@@ -4,7 +4,7 @@
 // whose pad ring is built from ASIC-specific IO cells and does not exist
 // on Xilinx parts) with:
 //   - an MMCM that derives the 20 MHz system clock croc was closed at
-//     (see scripts/common/mode_func.tcl, CLOCK_PERIOD = 50.0 ns) from the
+//     (see config/clocks.tcl, CLOCK_PERIOD = 50.0 ns) from the
 //     ZedBoard's onboard 100 MHz oscillator (GCLK, pin Y9)
 //   - an async-assert/sync-deassert reset synchronizer
 //   - explicit IOBUF primitives on every pin that is logically bidirectional

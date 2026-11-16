@@ -1,9 +1,8 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# Timing derate of the SRAM at the slow and fast corners (the PDK has only its tt view)
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Timing derate of the SRAM macros at the slow and fast corners
-###############################################################################
-
+# usage: source, then call sram_derate <corner> (lib/mcmm.tcl, signoff/sta/sta_corner.tcl)
+# in:  the corner
+# out: the derate on the SRAM cells
 # The PDK has only a tt view of the SRAM (25 C, 5.0 V), so every corner links it. The standard cells of the same PDK
 # are 1.79 times slower at ss 125 C 4.5 V (median over 2060 arcs, at most 1.92) and 0.64 times as fast at ff -40 C
 # 5.5 V (at least 0.60). The SRAM is taken to scale the same way:

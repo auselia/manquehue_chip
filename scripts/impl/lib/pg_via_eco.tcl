@@ -1,3 +1,8 @@
+# Remove the stripe vias that Magic merges with a macro pin connection
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: source in 06_finish.tcl, then call pg_via_eco_remove_close_stripe_vias
+# in:  the open block
+# out: the vias removed from the block
 # Stripe vias too close to a macro pin connection (Magic DRC "Via4 width < 0.56").
 #
 # At the SRAM rings the power grid puts two via arrays on the same Metal5 ring: the macro pin connection from the SRAM

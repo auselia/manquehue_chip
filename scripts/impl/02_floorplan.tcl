@@ -1,51 +1,12 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# Step 2: floorplan of the croc_soc macro: outline, pins facing their pads, SRAM placement, taps, power grid
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Floorplanning and Power Grid
-###############################################################################
-
-source [file dirname [info script]]/common/open_lib.tcl
+# usage: make floorplan      (fc_shell in work/)
+# in:  block read_rtl, config/padring.txt
+# out: blocks floorplan_pre_pg and floorplan
+source [file dirname [info script]]/lib/open_lib.tcl
 open_block read_rtl
 
-set SITE_DEF unit
-
-if {$CHIP_FLOORPLAN} {
-# Chip floorplan: croc is the whole die, on the AC3E pad ring, with the DC-DC wrappers in the north
-# (chip/chip_floorplan.tcl), and the CROC power grid. 03 to 06 continue on work/chip.dlib.
-# The reference library stays in chip.dlib after the first chip run
-if {[sizeof_collection [get_libs -quiet chip_macros]] == 0} {
-    set_ref_libs -add [file normalize chip_macros.ndm]
-}
-source [file dirname [info script]]/chip/chip_floorplan.tcl
-set_dont_touch [get_cells -filter "ref_name =~ gf180mcu_fd_io__* || ref_name =~ gf180mcu_ws_ip__*"] true
-foreach m $CHIP_DCDC_MACROS { set_dont_touch [get_cells u_$m] true }
-
-compile_fusion -to initial_map
-source [file dirname [info script]]/chip/chip_pg_pads.tcl
-chip_float_dcdc_pins
-check_design_states -verbose
-
-# Pads connected to croc: Y drives croc logic, A is driven by croc logic (not by a tie cell)
-set pads_in {}
-set pads_out {}
-foreach_in_collection p [get_cells pad_*] {
-    set n [get_object_name $p]
-    set y [get_pins -quiet $n/Y]
-    if {[sizeof_collection $y] && [sizeof_collection [get_nets -quiet -of $y]]} {
-        set loads [get_pins -quiet -leaf -of [get_nets -of $y] -filter "direction == in && cell.full_name !~ pad_*"]
-        if {[sizeof_collection $loads]} { lappend pads_in $n }
-    }
-    set a [get_pins -quiet $n/A]
-    if {[sizeof_collection $a] && [sizeof_collection [get_nets -quiet -of $a]]} {
-        set drv [get_pins -quiet -leaf -of [get_nets -of $a] -filter "direction == out && cell.ref_name !~ *tie*"]
-        if {[sizeof_collection $drv]} { lappend pads_out $n }
-    }
-}
-puts "INFO: pads driving croc ([llength $pads_in]): [lsort $pads_in]"
-puts "INFO: pads driven by croc ([llength $pads_out]): [lsort $pads_out]"
-} else {
-
-# Macro outline: CROC_MACRO_SIZE (setup.tcl). The cell area of the elaborated netlist (report_area, before mapping)
+# Macro outline: CROC_MACRO_SIZE (lib/setup.tcl). The cell area of the elaborated netlist (report_area, before mapping)
 # gives the utilization of that outline, as a check.
 lassign $CROC_MACRO_SIZE macro_width macro_height
 redirect -variable area_rpt {report_area}
@@ -66,17 +27,17 @@ check_design_states -verbose
 # than the pin. Left and right edges get horizontal Metal3 pins, top and bottom get vertical Metal2.
 set_block_pin_constraints -self -allowed_layers {Metal2 Metal3} -pin_spacing 2
 
-# Pin positions: every pin faces its pad on the AC3E ring (chip/padring.txt), with the macro lower-left corner at
+# Pin positions: every pin faces its pad on the AC3E ring (config/padring.txt), with the macro lower-left corner at
 # CROC_MACRO_LL in the die. The CROC pads are on the west (bottom part), south and east (bottom part) sides, so the
 # north edge has no pins. Pins of one pad (a bidirectional pad has out, in and enable) are spread around the pad
 # centre, pin_step apart.
-source [file dirname [info script]]/chip/padring.tcl
+source [file dirname [info script]]/lib/padring.tcl
 lassign $CROC_MACRO_LL croc_llx croc_lly
 set pad_width 75.0
 set pin_step  6.0
 set pin_edge  10.0
 
-# pad signal -> macro ports (the same pins as chip/gen_chip_top.py)
+# pad signal -> macro ports
 set pad_ports {
     rf_rstn_o rf_rstn_o
     rf_dio0_i rf_dio0_i
@@ -162,17 +123,14 @@ dict for {port t} $pin_offsets {
 puts [format "INFO: pins placed, largest distance from the pad target %.2f um" $pin_dev_max]
 
 shape_blocks
-}
 
 set all_macros [get_cells -hierarchical -filter "is_hard_macro && !is_physical_only && ref_name =~ gf180mcu_fd_ip_sram__*"]
 create_keepout_margin -type hard_macro -outer {10 10 10 10} $all_macros
 create_keepout_margin -type hard -outer {10 10 10 10} $all_macros
 
-# Partial placement blockage at the point where the channel between the SRAM columns meets the gap between the rows:
-# nearly all routing DRCs of the macro are there (x 496 to 620, y 1164 to 1293), and the router cannot clear them.
-if {!$CHIP_FLOORPLAN} {
-    create_placement_blockage -type partial -blocked_percentage 50 -boundary {{490 1150} {630 1300}} -name sram_channel_blk
-}
+# Partial placement blockage where the channel between the SRAM columns meets the gap between the rows: nearly all
+# routing DRCs of the macro were there (x 496 to 620, y 1164 to 1293), and the router could not clear them.
+create_placement_blockage -type partial -blocked_percentage 50 -boundary {{490 1150} {630 1300}} -name sram_channel_blk
 
 # Places the macros in the floorplan
 create_placement -floorplan
@@ -180,42 +138,28 @@ create_placement -floorplan
 # Locks the macros in place so their coordinates do not change
 set_fixed_objects [get_flat_cells -filter "is_hard_macro"]
 
+# A routing blockage on all layers over each SRAM, 17 um inside its edge: the router stays off the SRAM and still
+# reaches its pins from the edge band.
 set blocked_layers {Metal1 Metal2 Metal3 Metal4 Metal5}
-
+set sram_edge_band 17
 foreach_in_collection macro $all_macros {
-    
     set macro_basename [get_attribute $macro base_name]
     set ref_name       [get_attribute $macro ref_name]
-
-    # Safely extract the bbox list: {{llx lly} {urx ury}}
     set bbox [get_attribute $macro bbox]
-    set llx [lindex $bbox 0 0]
-    set lly [lindex $bbox 0 1]
-    set urx [lindex $bbox 1 0]
-    set ury [lindex $bbox 1 1]
-
-    # Shrink by 17.0 total (10um for the keepout margin + 5um for the internal margin)
-    set new_llx [expr {$llx + 17}]
-    set new_lly [expr {$lly + 17}]
-    set new_urx [expr {$urx - 17}]
-    set new_ury [expr {$ury - 17}]
-
-    # The macro must be large enough, or the shrink inverts the box
+    set new_llx [expr {[lindex $bbox 0 0] + $sram_edge_band}]
+    set new_lly [expr {[lindex $bbox 0 1] + $sram_edge_band}]
+    set new_urx [expr {[lindex $bbox 1 0] - $sram_edge_band}]
+    set new_ury [expr {[lindex $bbox 1 1] - $sram_edge_band}]
     if {($new_urx > $new_llx) && ($new_ury > $new_lly)} {
-        
-        set new_boundary [list [list $new_llx $new_lly] [list $new_urx $new_ury]]
-
-        create_routing_blockage -boundary $new_boundary \
-                                -layers $blocked_layers \
-                                -name_prefix "shrunk_${macro_basename}"
-                                
-        puts "INFO: Created 5um shrunk routing blockage for SRAM: $macro_basename (Type: $ref_name)"
+        create_routing_blockage -boundary [list [list $new_llx $new_lly] [list $new_urx $new_ury]] \
+                                -layers $blocked_layers -name_prefix "shrunk_${macro_basename}"
+        puts "INFO: routing blockage over SRAM $macro_basename ($ref_name), $sram_edge_band um inside its edge"
     } else {
-        puts "WARNING: Skipping $macro_basename because its size is too small for a 15um shrink."
+        puts "WARNING: $macro_basename is too small for a routing blockage $sram_edge_band um inside its edge"
     }
 }
 
-# 5. Boundary and Tap Cells
+# Boundary and tap cells
 set BOUNDARY_CELL [get_lib_cells *mcu${STDCELL_TRACK_SIZE}t5v0__endcap]
 set TAP_CELL      [get_lib_cells *mcu${STDCELL_TRACK_SIZE}t5v0__filltie]
 
@@ -226,22 +170,12 @@ create_tap_cells -lib_cell $TAP_CELL -pattern stagger -distance 40
 
 set_app_options -name place.legalize.enable_advanced_legalizer -value true
 
-if {$CHIP_FLOORPLAN} {
-save_block -as floorplan_pre_pg
-source [file dirname [info script]]/common/power_grid.tcl
-save_block -as floorplan
-source [file dirname [info script]]/chip/chip_export.tcl
-write_chip_views [file normalize ../outputs/chip_floorplan] chip_floorplan
-print_message_info -ids * -summary
-return
-}
-
 save_block -as floorplan_pre_pg
 
-source [file dirname [info script]]/common/power_grid.tcl
+source [file dirname [info script]]/lib/power_grid.tcl
 
 set ACTIVE_STEP "02_floorplan"
-source [file dirname [info script]]/common/reporting.tcl
+source [file dirname [info script]]/lib/reporting.tcl
 
 save_block -as floorplan
 print_message_info -ids * -summary

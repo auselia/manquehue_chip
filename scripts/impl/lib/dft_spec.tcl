@@ -1,23 +1,18 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# The DFT configuration: test pins, scan clocks and resets, AutoFix
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: DFT signal declarations (scan ports, clocks, reset, AutoFix)
-###############################################################################
+# usage: source in dft_scan.tcl, 06_finish.tcl and signoff/dft/export_stil.tcl
+# in:  the open block
+# out: the DFT signals in the session
+# DFT signals and scan configuration. Sourced by dft_scan.tcl (synthesis) and export_stil.tcl.
 
-# DFT signals and scan configuration. Sourced by scripts/common/dft_scan.tcl (synthesis) and export_stil.tcl.
-
-###############################################################################
 # 1. Test I/O pins
-###############################################################################
 # Dedicated ports (created in 01_read_rtl.tcl). Shared GPIOs put the flops into scan mode when the GPIO
 # input was 1 in normal operation. mode_func.tcl ties scan_se_i to 0.
 set_dft_signal -view spec -type ScanDataIn  -port {scan_si_i}
 set_dft_signal -view spec -type ScanEnable  -port {scan_se_i} -active_state 1
 set_dft_signal -view spec -type ScanDataOut -port {scan_so_o}
 
-###############################################################################
 # 2. Clocks and reset
-###############################################################################
 # The functional clocks shift the chain. The -timing values are positions in FC's 100 ns test period, not real
 # timing: the two windows do not overlap, so FC can order the cells and place the lock-up latches.
 set_dft_signal -view existing_dft -type ScanClock -port clk_i      -timing {50 70}
@@ -33,9 +28,7 @@ set_dft_signal -view spec -type TestMode -usage autofix -port testmode_i -active
 
 set_scan_configuration -chain_count 1 -clock_mixing mix_clocks
 
-###############################################################################
 # 3. AutoFix of the reset and set pins
-###############################################################################
 # Most flops are reset through the 4-stage synchronizer of i_rstgen, which DFT DRC cannot control in a scan
 # cycle (D2/D3 on almost every flop). AutoFix gates each reset and set pin with testmode_i. The gate method
 # keeps the functional reset path when testmode_i is 0. testmode_i is 1 in every test state, so the resets

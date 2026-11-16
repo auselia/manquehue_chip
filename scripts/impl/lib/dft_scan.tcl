@@ -1,9 +1,8 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# Scan insertion: one chain through all flops, with the dedicated scan ports
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Scan Chain Insertion (one internal chain, no compression)
-###############################################################################
-
+# usage: source in 03_synthesis.tcl
+# in:  dft_spec.tcl
+# out: the scan chain in the block
 # Sourced by 03_synthesis.tcl between compile_fusion -to logic_opto and -from initial_place, as in the FC DFT
 # User Guide (chapter 1, figure 1). One multiplexed flip-flop chain lets a bring-up engineer stop the chip and
 # shift the full flop state in and out on a few pins.
@@ -11,9 +10,7 @@
 # Sections 1 to 3 (test pins, clocks and reset, AutoFix): dft_spec.tcl, also read by the STIL export.
 source [file dirname [info script]]/dft_spec.tcl
 
-###############################################################################
 # 4. Insertion
-###############################################################################
 # AutoFix needs two passes: insert_dft -autofix adds the gates, the second insert_dft stitches the chain.
 create_test_protocol
 

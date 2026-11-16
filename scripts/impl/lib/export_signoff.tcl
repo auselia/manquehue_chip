@@ -1,9 +1,8 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# Write the PrimeTime inputs of a run: SDC, sign-off SDC, scan SDC, SPEF of every corner
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Sign-off inputs for PrimeTime and PrimePower (SDC and SPEF next to the GDS)
-###############################################################################
-
+# usage: source in 06_finish.tcl after save_block, and in utils/pt_export.tcl
+# in:  RUN_DIR, the finish block
+# out: <run>/croc_soc.sdc, croc_soc_55ns.sdc, croc_soc_scan.sdc, croc_soc.<spef>.spef
 # Sourced by 06_finish.tcl after save_block -as finish, and by scripts/utils/pt_export.tcl (make pt_export). Needs
 # RUN_DIR, the run folder of the GDS and netlist. Writes:
 #   <run>/<TOP>.sdc              mode func, propagated clocks, implementation period
@@ -49,16 +48,18 @@ proc write_pt_sdc { sdc_out } {
   set SDC_LINES [split [read $SDC_FH] "\n"]
   close $SDC_FH
   set SDC_FH [open $sdc_out w]
-  set SKIP_CONTINUATION 0
+  # The max transition limits at 0.9 x library of one scenario are for implementation: PrimeTime checks every corner
+  # on its library limit. A dropped command takes all its lines with it: write_sdc continues a long pin list on new
+  # lines inside braces, with no backslash, so the command ends where it is complete for Tcl.
+  set dropped ""
   foreach line $SDC_LINES {
-    # the limits at 0.9 x library of one scenario are for implementation: PrimeTime checks every corner on its library limit
-    # A dropped command takes its continuation lines with it (write_sdc splits long pin lists over several lines).
-    if { [regexp {^(set_max_transition|set_clock_latency)\M} $line] } {
-      set SKIP_CONTINUATION [expr {[string index $line end] == "\\"}]
+    if { $dropped != "" } {
+      append dropped "\n" $line
+      if { [info complete $dropped] } { set dropped "" }
       continue
     }
-    if { $SKIP_CONTINUATION } {
-      set SKIP_CONTINUATION [expr {[string index $line end] == "\\"}]
+    if { [regexp {^(set_max_transition|set_clock_latency)\M} $line] } {
+      if { ![info complete $line] } { set dropped $line }
       continue
     }
     puts $SDC_FH $line

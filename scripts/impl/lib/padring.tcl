@@ -1,9 +1,9 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# The AC3E pad ring table and the pad positions, for the macro pins that face their pads
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: The AC3E pad ring table (padring.txt) and the pad positions, for the chip and the macro pins
-###############################################################################
-# Sourced by chip_floorplan.tcl, chip_pg_pads.tcl and 02_floorplan.tcl (macro pins facing their pads). Sets:
+# usage: source in 02_floorplan.tcl
+# in:  config/padring.txt
+# out: chip_pads and the proc pad_side_loc
+# Sets:
 #   chip_pads      {number signal cell} per pad
 #   chip_breakers  {instance pad} per breaker: a brk5 in the gap after the pad
 #   chip_segments  pad number -> supply net of its ring segment
@@ -11,7 +11,7 @@
 set chip_pads {}
 set chip_breakers {}
 set chip_segments [dict create]
-set f [open [file dirname [info script]]/padring.txt]
+set f [open $CONFIG_DIR/padring.txt]
 foreach line [split [read $f] "\n"] {
     set line [string trim $line]
     if {$line eq "" || [string index $line 0] eq "#"} { continue }

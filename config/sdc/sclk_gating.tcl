@@ -1,9 +1,8 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# No clock gating check on the SCLK mux of the ADC reader
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: No clock gating check on the ADC SCLK mux (adc_rdr.sv, i_sclk_mux)
-###############################################################################
-
+# usage: source in mode_func.tcl, 04_cts.tcl and signoff/sta/sta_corner.tcl
+# in:  the open design
+# out: the constraint
 # The SCLK mux selects the gated clock (gclk) or SCLK_HALF with fhalf_q. fhalf_q changes only at the start of a
 # frame, while gate_en_q is 0 and gclk is still, so the switch cannot glitch. The tools put a clock gating check on
 # the gates of that mux as if gclk ran: it is not a real check, and hold fixing on it only adds delay cells.

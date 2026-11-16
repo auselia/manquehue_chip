@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # List the DRC markers of the top cell in a KLayout .lyrdb, one "llx lly urx ury category" line each (um)
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# usage: drc_markers.py <file.lyrdb> <top cell> [--ignore <prefix,...>]      (called by common/drc_eco.tcl)
+# usage: drc_markers.py <file.lyrdb> <top cell> [--ignore <prefix,...>]      (called by impl/lib/drc_eco.tcl)
 # in:  the .lyrdb of a KLayout DRC run
 # out: stdout
 #

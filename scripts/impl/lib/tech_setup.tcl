@@ -1,13 +1,8 @@
-# -----------------------------------------------------------------------------
-# This file was created at the Institute of Microelectronic Systems,
-# Leibniz University Hannover. It is provided "as is" without
-# warranty of any kind, express or implied, including but not
-# limited to correctness or fitness for a particular purpose.
-#
-# Author: Viktor Schneider
-# -----------------------------------------------------------------------------
-
-# Technology settings, loaded after elaboration
+# Technology settings after elaboration: parasitics, routing directions, tracks, antenna rules
+# Author: Viktor Schneider (IMS, Leibniz University Hannover). Adapted by Nicolás Villegas - Universidad de los Andes
+# usage: source in 01_read_rtl.tcl
+# in:  LPE_* of setup.tcl
+# out: the settings in the block
 read_parasitic_tech -layermap ${LPE_LAYERMAP} -tlup ${LPE_NXTGRD} -name ${LPE_SPEC}
 
 # Routing direction of each metal layer

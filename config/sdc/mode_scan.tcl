@@ -1,15 +1,14 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# Constraints of the scan shift (mode scan): shift clocks, hold margins, shift state
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: Scan-shift constraints for croc_soc (mode `scan`)
-###############################################################################
-
+# usage: source in lib/mcmm.tcl (the scan scenarios)
+# in:  config/clocks.tcl
+# out: the constraints of mode scan
 # During shift every flop captures the Q of its neighbour one clock later, a flop-to-flop path with no logic.
 # Only hold matters (clock skew), so only hold is checked (mcmm.tcl).
 
 current_mode scan
 
-# Shift clocks. Keep the names `clock` and `jtag_tck`: 04_cts.tcl and common/export_signoff.tcl set the
+# Shift clocks. Keep the names `clock` and `jtag_tck`: 04_cts.tcl and lib/export_signoff.tcl set the
 # uncertainties by name. The waveforms are the ones of dft_scan.tcl: clk_i at 50-70 ns, jtag_tck_i at 75-90 ns of
 # 100 ns.
 create_clock -name clock -period 100 -waveform {50 70} [get_ports $CLOCK_PORT_NAME]

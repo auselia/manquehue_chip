@@ -1,18 +1,16 @@
-###############################################################################
-# Croc SoC Physical Design Flow
+# QoR and check reports of a step (ACTIVE_STEP)
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# Description: QoR and check reports of every step (sourced with ACTIVE_STEP set)
-###############################################################################
+# usage: set ACTIVE_STEP, then source at the end of every step
+# in:  the open block
+# out: work/reports/<step>/, or <run>/reports/<step>/ in 06_finish.tcl
 puts "================================================================"
 puts "INFO: Executing Automated Reporting Engine for stage: $ACTIVE_STEP"
 puts "================================================================"
 
-# -----------------------------------------------------------------------------
 # Report location
-# -----------------------------------------------------------------------------
 # 01_read_rtl to 05_route run before the run folder exists: their reports go to work/reports/<step>/ and
 # 06_finish.tcl copies them into outputs/<run>/reports/<step>/. 06_finish sets RUN_DIR and writes there directly. The
-# parasitics report is in reports/export_signoff/ (common/export_signoff.tcl).
+# parasitics report is in reports/export_signoff/ (lib/export_signoff.tcl).
 if {[info exists RUN_DIR] && [file isdirectory $RUN_DIR]} {
     set REPORT_DIR [file join $RUN_DIR reports ${ACTIVE_STEP}]
 } else {
@@ -20,10 +18,8 @@ if {[info exists RUN_DIR] && [file isdirectory $RUN_DIR]} {
 }
 file mkdir $REPORT_DIR
 
-# -----------------------------------------------------------------------------
 # Helper: some reports (check_pg_connectivity) put thousands of names on one comma-separated line. Write such a
 # line as one entry per line under its label. Normal lines stay as they are.
-# -----------------------------------------------------------------------------
 proc reflow_long_lines {filename {threshold 300}} {
     if {[catch {open $filename r} fh]} { return }
     set out {}
@@ -43,9 +39,7 @@ proc reflow_long_lines {filename {threshold 300}} {
     close $fh
 }
 
-# -----------------------------------------------------------------------------
 # Global Must-Haves (Run for everything except RTL read-in)
-# -----------------------------------------------------------------------------
 # Not for 03_synthesis: report_qor -summary below gives the same WNS and TNS there, per corner.
 if {$ACTIVE_STEP != "01_read_rtl" && $ACTIVE_STEP != "03_synthesis"} {
     puts "INFO: Generating Global QoR Snapshot..."
@@ -53,9 +47,7 @@ if {$ACTIVE_STEP != "01_read_rtl" && $ACTIVE_STEP != "03_synthesis"} {
     redirect -file ${REPORT_DIR}/global_qor_snapshot.rpt { report_qor_snapshot -name ${ACTIVE_STEP}_snapshot }
 }
 
-# -----------------------------------------------------------------------------
 # Stage-specific checks
-# -----------------------------------------------------------------------------
 puts "INFO: Running targeted metrics for $ACTIVE_STEP..."
 
 switch $ACTIVE_STEP {

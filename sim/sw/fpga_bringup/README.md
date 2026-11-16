@@ -202,16 +202,13 @@ All in `scripts/fpga/bench/`.
 | Tool | Use |
 |---|---|
 | `scope.py` | SCPI to the MSOX4024A (192.168.140.102:5025), for example `python3 scope.py ":WGEN:OUTP 0"` |
-| `ad2_uart.py`, `ad2_bittime.py` | UART receiver on AD2 DIO 0, and the bit time on the line |
-| `adc_point.sh`, `adc_fit.py` | one frequency-response point: WaveGen sine, step 3 with `-DDUMP=8` in the flash, sine fit of the blocks |
-| `wake_probe.tcl` | WAKE_N flag and pin level through croc over JTAG |
-| `trig_test.tcl` | the WAKE_N-triggered ADC capture set up over JTAG, no program |
-| `flash_status.tcl` | W25Q JEDEC ID and status registers through the command engine over JTAG |
-| `cav_arb.py`, `cav_run.sh`, `cav_compare.py` | a scope capture played by the WaveGen (8192 points, 4 kHz): the ADC and FFT of croc against the expected chain |
-| `event_arb.py`, `event_run.sh`, `event_check.py` | step 7: synthetic hits or captures played once per 2 ms, the FFT checked against `sim/fft/model/aefft_model.py`, the envelope features recomputed |
-| `gen_dash_data.py` | the CSV files of the results page from the logs |
+| `ad2_uart.py` | UART receiver on AD2 DIO 0 |
+| `serial_read.py` | the serial port of the Heltec receiver or bridge |
+| `load.sh` | a bring-up step over the J-Link |
+| `heltec/` | the firmware of the Heltec receiver and bridge (PlatformIO) |
 
-The tools that use numpy need a Python 3 with numpy (on the Mac: a venv).
+The measurement tools of the 9 Nov 2026 results below (bit time, ADC sine fit, WAKE_N probes, flash status,
+cavitation and event tests, results page data) are in the git history: `git log --diff-filter=D -- scripts/fpga/bench`.
 
 Step 7 on the board (9 Nov 2026): the FFT equals the model and the envelope features equal the recomputed ones on
 every event. 250 kHz hit (20 us rise, 80 us decay): rise 15 to 16 us, fall 173 to 176 us, duration 68 to 70 us (ideal

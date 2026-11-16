@@ -9,7 +9,7 @@ scripts/fpga/bench/load.sh s0_hello         # load it over the J-Link (on the Ma
 ```
 
 - `zedboard.xdc` maps the croc ports to the board. `openocd-croc.cfg` is the one OpenOCD configuration.
-- `bench/` has the host tools: `load.sh`, the scope and AD2 tools, the OpenOCD probes and the Heltec sketches.
+- `bench/` has the host tools: `load.sh`, `scope.py`, `ad2_uart.py`, `serial_read.py` and the Heltec firmware.
 - `load.sh` reads the images from `sim/sw/fpga_bringup/bin`. Copy that folder from Rocky to the Mac first.
 - `sim/sw/fpga_bringup/README.md` is the reference: the steps, the pins, the results on the board.
 - The UART runs at 113636 baud: 20 MHz / (16 x 115200), rounded to 11. That is 1.4 % below 115200, so a 115200

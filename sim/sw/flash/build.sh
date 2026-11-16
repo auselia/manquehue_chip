@@ -1,32 +1,30 @@
 #!/bin/bash
-# Build programs that run from the QSPI flash (link_flash.ld, crt0_flash.S, uart library of ../lib).
-# usage: ./build.sh [prog.c ...]   default: flash_hello.c
-#   -> bin/<prog>.elf, bin/<prog>.dump, bin/<prog>.flash.bin (raw image), bin/<prog>.flash.hex (objcopy -O verilog, addresses relative to
-#      0x2000_0000, for the flash model: scripts/sim/run_verilator.sh with FLASH=bin/<prog>.flash.hex)
-#   RISCV_PREFIX (default riscv32-none-elf-), MARCH (default rv32i_zicsr), EXTRA (more sources, for example
-#   ../aefft_bench/mulsi3.S), NAME (output name, one program only), DEFS (compiler defines)
+# Build programs that run from the QSPI flash (crt0_flash.S, link_flash.ld)
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: ./build.sh [program.c ...]      (default flash_hello.c; env: MARCH (default rv32i_zicsr), DEFS,
+#        EXTRA (more sources, for example ../aefft_bench/mulsi3.S), NAME (the output name, one program only))
+# in:  the program sources
+# out: bin/<program>.{elf,dump}, bin/<program>.flash.hex (for the flash model: run_verilator.sh with FLASH=...),
+#      bin/<program>.flash.bin (for a flash programmer)
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
-LIB=../lib
-PFX=${RISCV_PREFIX:-riscv32-none-elf-}
-FLAGS="-march=${MARCH:-rv32i_zicsr} -mabi=ilp32 -mcmodel=medany -static -std=gnu99 -Os -nostdlib -fno-builtin -ffreestanding -ffunction-sections -fdata-sections"
-PROGS=${*:-flash_hello.c}
-mkdir -p build bin
-${PFX}gcc $FLAGS -c crt0_flash.S -o build/crt0_flash.o
-${PFX}gcc $FLAGS -I$LIB/inc -I$LIB -c $LIB/src/uart.c -o build/uart.o
-extra_objs=""
-for e in ${EXTRA:-}; do
-  ${PFX}gcc $FLAGS -c $e -o build/$(basename ${e%.*}).o
-  extra_objs="$extra_objs build/$(basename ${e%.*}).o"
+. ../lib/firmware.sh
+set_march "${MARCH:-rv32i_zicsr}"
+programs=${*:-flash_hello.c}
+
+compile crt0_flash.S
+compile "$LIB/src/uart.c"
+extra_objects=""
+for source in ${EXTRA:-}; do
+  compile "$source"
+  extra_objects="$extra_objects build/$(basename "${source%.*}").o"
 done
-for src in $PROGS; do
-  t=${NAME:-$(basename ${src%.*})}     # NAME= names the output when building one program
-  ${PFX}gcc $FLAGS ${DEFS:-} -I$LIB/inc -I$LIB -I$(dirname $src) -c $src -o build/$t.o
-  ${PFX}gcc $FLAGS -nostartfiles -Wl,--gc-sections -Tlink_flash.ld -o bin/$t.elf \
-    build/crt0_flash.o build/$t.o build/uart.o $extra_objs
-  ${PFX}objdump -D -s bin/$t.elf > bin/$t.dump
-  ${PFX}objcopy -O verilog --change-addresses -0x20000000 bin/$t.elf bin/$t.flash.hex
-  # raw image from the flash offset 0, for a physical flash programmer (ZedBoard QSPI Pmod)
-  ${PFX}objcopy -O binary bin/$t.elf bin/$t.flash.bin
-  ${PFX}size -A bin/$t.elf | awk -v t=$t '$1 ~ /^\./ && $2 > 0 {printf "%s %-14s %6d bytes at 0x%08x\n", t, $1, $2, $3}'
+for source in $programs; do
+  program=${NAME:-$(basename "${source%.*}")}
+  # shellcheck disable=SC2086  # DEFS is a list of options
+  compile "$source" "$program" -- ${DEFS:-} -I"$(dirname "$source")"
+  # shellcheck disable=SC2086
+  link "$program" link_flash.ld build/crt0_flash.o "build/$program.o" build/uart.o $extra_objects
+  flash_images "$program"
+  ${PFX}size -A "bin/$program.elf" | awk -v t="$program" '$1 ~ /^\./ && $2 > 0 {printf "%s %-14s %6d bytes at 0x%08x\n", t, $1, $2, $3}'
 done

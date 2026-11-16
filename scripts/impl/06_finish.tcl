@@ -1,0 +1,206 @@
+# Step 6: finish: DRC ECOs, fillers, export of the run (GDS, netlist, LEF, black box, SDC, SPEF, test protocol)
+# Author: Viktor Schneider (IMS, Leibniz University Hannover). Adapted by Nicolás Villegas - Universidad de los Andes
+# usage: make finish      (fc_shell in work/)
+# in:  block route
+# out: block finish, outputs/croc_soc_<timestamp>/ and the link outputs/latest
+source [file dirname [info script]]/lib/open_lib.tcl
+open_block route
+
+# Cell pairs in neighbouring rows that break a base-layer rule (DF.6_5V): move one cell, before the fillers.
+source [file dirname [info script]]/lib/drc_eco.tcl
+drc_eco_move_cells [file join [pwd] drc_eco_place] {DF.6_*}
+# A clock buffer next to the CLK pin of every SRAM: the long clock wire to the pin breaks the slew limit of the SRAM
+finish_sram_clk_buffers
+# Scan-shift hold: a delay cell in front of each scan end point under 0.05 ns of scan hold slack, then route_eco.
+finish_scan_hold_fix
+# Weak drivers over max transition or max capacitance: next drive strength (or a buf_4), then route_eco.
+finish_drv_fix
+
+# Fillers: decap fillers first, at 20 % of the free area, then plain fillers
+
+set DCAP_CELLS [get_object_name [sort_collection -descending [get_lib_cells *mcu${STDCELL_TRACK_SIZE}t5v0__fillcap*] area]]
+set FILL_CELLS [get_object_name [sort_collection -descending [get_lib_cells *mcu${STDCELL_TRACK_SIZE}t5v0__fill_*] area]]
+
+create_stdcell_fillers -lib_cells $DCAP_CELLS -type_utilization [list $DCAP_CELLS 20]
+connect_pg_net -automatic
+
+# DF.12 / DF.13: every tap needs a transistor within 15 um. Remove the taps that have none.
+# A hard macro (SRAM) does not count: its box reaches the tap, but its own diffusion can be farther than 15 um.
+set TAP_DEVICE_DISTANCE 15.0
+proc remove_orphan_taps {ref_filter distance what} {
+  set orphan_taps {}
+  foreach_in_collection tap [get_cells -physical_context -filter $ref_filter] {
+    set bbox [get_attribute $tap bbox]
+    set area [list [list [expr {[lindex $bbox 0 0] - $distance}] [expr {[lindex $bbox 0 1] - $distance}]] \
+                   [list [expr {[lindex $bbox 1 0] + $distance}] [expr {[lindex $bbox 1 1] + $distance}]]]
+    set nearby [get_objects_by_location -classes cell -intersect $area -quiet]
+    if {[sizeof_collection $nearby] > 0} {
+      set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_* && !is_hard_macro"]
+    }
+    if {[sizeof_collection $nearby] == 0} { lappend orphan_taps $tap }
+  }
+  puts "INFO: removing [llength $orphan_taps] $what with no device within $distance um"
+  if {[llength $orphan_taps] > 0} { remove_cells [add_to_collection {} $orphan_taps] }
+}
+remove_orphan_taps "ref_name =~ *filltie*" $TAP_DEVICE_DISTANCE "taps"
+
+# DF.13 / DF.14 for the taps that stay: the endcaps and the filltie cells. An endcap is an N-well tap and a substrate
+# tap, and it cannot be removed. The deck measures from the tap diffusion to a MOS diffusion in a 15 um box. Cell boxes are
+# larger than their diffusions, so a decap cell 14 um away can be out of reach. A tap with no device cell within
+# TAP_DEVICE_SURE gets decap fillers around it at full utilization.
+set TAP_DEVICE_SURE   12.0
+set ENDCAP_DCAP_REACH 10.0
+set lonely_endcaps 0
+foreach_in_collection ec [get_cells -physical_context -filter "ref_name =~ *endcap* || ref_name =~ *filltie*"] {
+  # Same row only (conservative: the rule box also reaches into the rows above and below). The 1 um inset skips the
+  # 0.86 um bbox overlap with the rows above and below.
+  set bbox [get_attribute $ec bbox]
+  set area [list [list [expr {[lindex $bbox 0 0] - $TAP_DEVICE_SURE}] [expr {[lindex $bbox 0 1] + 1.0}]] \
+                 [list [expr {[lindex $bbox 1 0] + $TAP_DEVICE_SURE}] [expr {[lindex $bbox 1 1] - 1.0}]]]
+  set nearby [get_objects_by_location -classes cell -intersect $area -quiet]
+  if {[sizeof_collection $nearby] > 0} {
+    set nearby [filter_collection $nearby "ref_name !~ *filltie* && ref_name !~ *endcap* && ref_name !~ *fill_* && !is_hard_macro"]
+  }
+  if {[sizeof_collection $nearby] > 0} { continue }
+  incr lonely_endcaps
+  set reach [list [list [expr {[lindex $bbox 0 0] - $ENDCAP_DCAP_REACH}] [lindex $bbox 0 1]] \
+                  [list [expr {[lindex $bbox 1 0] + $ENDCAP_DCAP_REACH}] [lindex $bbox 1 1]]]
+  create_stdcell_fillers -lib_cells $DCAP_CELLS -bboxes $reach -prefix endcap_dcap
+}
+puts "INFO: decap fillers next to $lonely_endcaps endcap(s) or tap(s) with no device within $TAP_DEVICE_SURE um"
+connect_pg_net -automatic
+
+remove_stdcell_fillers_with_violation
+create_stdcell_fillers -lib_cells $FILL_CELLS
+connect_pg_net -automatic
+
+# Second pass: remove_stdcell_fillers_with_violation can take away the decaps that a tap or an endcap counted on. That
+# happens next to the SRAMs, where the routing over the row rejects every filler. What has no device left within 15 um
+# goes.
+remove_orphan_taps "ref_name =~ *filltie* || ref_name =~ *endcap*" $TAP_DEVICE_DISTANCE "taps or endcaps left after the fillers"
+connect_pg_net -automatic
+
+# DF.13 / DF.14 that the fillers make: the decap fillers under a marker become plain fillers
+drc_eco_swap_fillcaps [file join [pwd] drc_eco_fill]
+
+route_detail -incremental true
+
+change_names -rules verilog
+
+
+# Top-level power pins
+# write_gds writes pin text for terminals, and LVS needs it to name the VDD and VSS ports.
+set outline [get_attribute [current_block] boundary_bbox]
+foreach {net pins} [pg_pins [lindex $outline 1 0] [lindex $outline 1 1]] {
+  foreach pin $pins {
+    lassign $pin layer x0 y0 x1 y1
+    set area [list [list $x0 $y0] [list $x1 $y1]]
+    if {[sizeof_collection [get_shapes -intersect $area -filter "layer_name == $layer && net.name == $net" -quiet]] == 0} {
+      error "power pin $net {$pin} is not on a $layer shape of net $net"
+    }
+    create_terminal -port [get_ports $net] -boundary $area -layer [get_layers $layer]
+  }
+}
+
+# Export into outputs/<TOP>_<YYYYMMDD_HHMMSS>/ (one folder per run, the checks write their results into it) and point
+# outputs/latest at it. Older runs stay: make drc RUN=<TOP>_<timestamp>.
+set OUTPUTS_DIR [file normalize [file join [file dirname [info script]] .. .. outputs]]
+file mkdir $OUTPUTS_DIR
+
+set RUN_STAMP [clock format [clock seconds] -format "%Y%m%d_%H%M%S"]
+set RUN_NAME  "${TOP_MODULE}_${RUN_STAMP}"
+set RUN_DIR   [file join $OUTPUTS_DIR $RUN_NAME]
+file mkdir $RUN_DIR
+
+# Take the reports of steps 01 to 05 (staged in work/reports/<step>/ by reporting.tcl) into the run folder. Files above
+# 5 MB are compressed: the PG DRC report of the floorplan is about 190 MB.
+if {[file isdirectory reports]} {
+  file mkdir [file join $RUN_DIR reports]
+  foreach d [lsort [glob -nocomplain -directory reports -type d *]] {
+    set dst [file join $RUN_DIR reports [file tail $d]]
+    file delete -force $dst
+    file copy -force $d $dst
+    foreach f [glob -nocomplain -directory $dst *] {
+      if {[file isfile $f] && [file size $f] > 5000000} { exec gzip -f $f }
+    }
+  }
+}
+
+# Reroute nets that violate routing rules FC cannot see (checked with the wafer.space KLayout deck).
+source [file dirname [info script]]/lib/drc_eco.tcl
+drc_eco_reroute $RUN_DIR
+
+# Stripe vias that Magic merges with a macro pin connection (lib/pg_via_eco.tcl).
+source [file dirname [info script]]/lib/pg_via_eco.tcl
+pg_via_eco_remove_close_stripe_vias
+
+set GDS_OUT   [file join $RUN_DIR "${TOP_MODULE}.gds"]
+set VLOG_OUT  [file join $RUN_DIR "${TOP_MODULE}.v"]
+
+# The fillcap cells stay in the netlist, unlike fill, filltie and endcap, which have no devices. The fillcap cells are
+# VDD-VSS capacitors: without them LVS finds about 2,970 layout instances with no schematic match.
+write_verilog -include all \
+    -exclude_cells [get_cells -of_references [get_lib_cells {*fill_* *filltie* *endcap*}]] \
+    $VLOG_OUT
+
+# Blackbox stub (ports only) for the chip-level flow, from the netlist of this run.
+set BB_OUT [file join $RUN_DIR "${TOP_MODULE}_bb.v"]
+puts [exec python3 [file dirname [info script]]/lib/write_blackbox.py $VLOG_OUT $BB_OUT $TOP_MODULE]
+
+# The parent flow (LibreLane Magic.StreamOut) reads the bounding box of the macro from a PR boundary shape in the GDS
+# top cell. write_gds does not write that shape for the top block.
+create_shape -shape_type rect -layer PR_bndry -boundary [get_attribute [current_block] boundary_bbox]
+
+# The SRAM layouts come from the official PDK, not from the Synopsys-prepared copy in ${PDK_DIR}/gds. That copy has
+# 5 extra diffusion contacts per SRAM, which give 268 Magic DRC errors in the chip run (MV Diffusion contact width,
+# CO.1 + 2 * CO.6). With the official SRAM GDS Magic reports none of them.
+# The standard cells in the Synopsys copy are identical to the official ones (checked by XOR).
+set GDS_FILE_LIST [lsearch -all -inline -not -glob [glob ${PDK_DIR}/gds/*.gds] *gf180mcu_fd_ip_sram__*]
+lappend GDS_FILE_LIST {*}[glob ${SRAM_GDS_DIR}/gf180mcu_fd_ip_sram__*.gds]
+# 1 nm database unit: the wafer.space precheck and LibreLane's Magic step both require it.
+write_gds -units 1000 -merge_files $GDS_FILE_LIST -merge_gds_top_cell $TOP_MODULE \
+    -layer_map ${ICC2GDS_LAYERMAP} -long_names $GDS_OUT
+
+# Abstract (LEF) for placing croc_soc as a hard macro in the wafer.space chip_top.
+# create_frame keeps the pins and turns the rest into zero-spacing blockages. On Metal4 and Metal5
+# the blockage starts PG_PIN_BAND um inside the edge, leaving the ring pins open to the parent.
+set LEF_OUT [file join $RUN_DIR "${TOP_MODULE}.lef"]
+create_frame -block_core_margin [list [list Metal4 $PG_PIN_BAND] [list Metal5 $PG_PIN_BAND]]
+write_lef -design [current_block] -include cell $LEF_OUT
+
+# write_lef declares an OVERLAP layer and uses it in the OBS. LibreLane's Magic cannot parse it.
+set lef_fh [open $LEF_OUT r]
+set lef_text [read $lef_fh]
+close $lef_fh
+regsub -all {LAYER OVERLAP\n  TYPE OVERLAP ;\nEND OVERLAP\n\n?} $lef_text "" lef_text
+regsub -all {    LAYER OVERLAP ;\n(?:      [^\n]*\n)+} $lef_text "" lef_text
+set lef_fh [open $LEF_OUT w]
+puts -nonewline $lef_fh $lef_text
+close $lef_fh
+
+# The link targets the bare folder name, so it stays valid if outputs/ moves.
+set LATEST_LINK [file join $OUTPUTS_DIR "latest"]
+catch { file delete -- $LATEST_LINK }
+exec ln -sfn $RUN_NAME $LATEST_LINK
+
+puts "INFO: Wrote GDS      -> $GDS_OUT"
+puts "INFO: Wrote netlist  -> $VLOG_OUT"
+puts "INFO: Wrote stub     -> $BB_OUT"
+puts "INFO: Wrote LEF      -> $LEF_OUT"
+puts "INFO: latest run     -> outputs/latest -> ${RUN_NAME}/"
+
+set ACTIVE_STEP "06_finish"
+source [file dirname [info script]]/lib/reporting.tcl
+
+save_block -as finish
+
+# Sign-off inputs for PrimeTime and PrimePower (SDC, sign-off SDC, scan SDC, SPEF per corner), next to the GDS. After
+# save_block: the sign-off hold uncertainty it sets does not go into the saved finish block.
+source [file dirname [info script]]/lib/export_signoff.tcl
+
+# The test protocol of the scan chain for make dft (signoff/dft/dft.sh reads <run>/croc_soc.stil). It comes last:
+# the DFT signals of dft_spec.tcl must not reach the SDC files above.
+source [file dirname [info script]]/lib/dft_spec.tcl
+create_test_protocol
+dft_drc
+write_test_protocol -output [file join $RUN_DIR "${TOP_MODULE}.stil"]

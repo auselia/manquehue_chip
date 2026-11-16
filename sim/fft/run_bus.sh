@@ -1,25 +1,28 @@
 #!/bin/bash
-# Bus-level RTL simulation of fft_hwpe with Verilator.  Usage: sim/fft/run_bus.sh [RSP_LAT=2] [RANDOM_GNT=1]
+# Bus-level RTL test of the FFT accelerator (fft_hwpe) in Verilator, against the vectors of the bit-exact model
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: sim/fft/run_bus.sh [response latency, default 2] [random grant 0|1, default 1]
+# in:  rtl/user_domain/fft/, sim/fft/vectors/, env RTL_DIR, TB_FILE, SIM_CXX
+# out: sim/build/fft_bus/verilator.log, the test bench output on stdout (PASS or FAIL)
 set -e
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
-RTL="${RTL_DIR:-$ROOT/rtl/user_domain/fft}"
-BUILD="$HERE/build/bus"
-NB=$(wc -l < "$HERE/vectors/names.txt" | tr -d ' ')
-LAT="${1:-2}"
-RG="${2:-1}"
-# g++ with -fcoroutines (Verilator --timing), as in scripts/sim/run_verilator.sh. SIM_CXX overrides it.
-GXX=${SIM_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bin/g++}
-[ -x "$GXX" ] || GXX=g++
-mkdir -p "$BUILD"
-cd "$BUILD"
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$here/../../scripts/utils/env.sh"
+rtl=${RTL_DIR:-$REPO/rtl/user_domain/fft}
+build=$REPO/sim/build/fft_bus
+response_latency=${1:-2}
+random_grant=${2:-1}
+blocks=$(wc -l < "$here/vectors/names.txt" | tr -d ' ')
+
+mkdir -p "$build"
+cd "$build"
 rm -rf obj
-verilator --binary --timing -MAKEFLAGS "CXX=$GXX LINK=$GXX" -Wall -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY \
-  -Wno-PROCASSINIT -Wno-SYNCASYNCNET -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC \
-  +incdir+$ROOT/rtl/obi/include \
-  -GNB=$NB -GVDIR="\"$HERE/vectors\"" -GRSP_LAT=$LAT -GRANDOM_GNT=$RG \
+verilator --binary --timing -MAKEFLAGS "CXX=$SIM_CXX LINK=$SIM_CXX" -Wall -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL \
+  -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-PROCASSINIT -Wno-SYNCASYNCNET -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC \
+  +incdir+"$REPO/rtl/obi/include" \
+  -GNB="$blocks" -GVDIR="\"$here/vectors\"" -GRSP_LAT="$response_latency" -GRANDOM_GNT="$random_grant" \
   --top-module tb_fft_hwpe -Mdir obj \
-  $ROOT/rtl/obi/obi_pkg.sv $ROOT/rtl/common_cells/cf_math_pkg.sv $ROOT/rtl/croc_pkg.sv \
-  $RTL/fft_cos_rom.sv $RTL/fft_trig.sv $RTL/fft_hwpe_core.sv $RTL/fft_hwpe_regs.sv \
-  $RTL/fft_hwpe.sv ${TB_FILE:-$HERE/tb/tb_fft_hwpe.sv} > verilator.log 2>&1 || { echo "verilator failed, see $BUILD/verilator.log"; grep -m5 "%Error" verilator.log; exit 1; }
+  "$REPO/rtl/obi/obi_pkg.sv" "$REPO/rtl/common_cells/cf_math_pkg.sv" "$REPO/rtl/croc_pkg.sv" \
+  "$rtl/fft_cos_rom.sv" "$rtl/fft_trig.sv" "$rtl/fft_hwpe_core.sv" "$rtl/fft_hwpe_regs.sv" "$rtl/fft_hwpe.sv" \
+  "${TB_FILE:-$here/tb/tb_fft_hwpe.sv}" > verilator.log 2>&1 \
+  || { echo "verilator failed, see $build/verilator.log"; grep -m5 "%Error" verilator.log; exit 1; }
 ./obj/Vtb_fft_hwpe

@@ -1,52 +1,30 @@
 #!/bin/bash
-set -e  # Exit immediately if a command fails
+# RTL simulation of croc in VCS with the SoC test bench: build the model, then run a program
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: scripts/sim/run_vcs.sh [program.hex]      (make sim-vcs, make run-vcs)
+# in:  env BIN or HEX (the program, default helloworld), BUILD_ONLY=1, SKIP_BUILD=1
+# out: sim/build/vcs/simv, the test bench output on stdout
+set -e
+. "$(dirname "${BASH_SOURCE[0]}")/../utils/env.sh"
+build_dir=$REPO/sim/build/vcs
+model=$build_dir/simv
 
-# Resolve repo root from this script's location (scripts/sim -> repo root)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+program=${1:-${BIN:-${HEX:-$REPO/sim/sw/hello_world/bin/helloworld.hex}}}
+[[ $program = /* ]] || program=$PWD/$program
 
-# Changed build directory and binary name conventions for VCS
-BUILD_DIR="$ROOT/sim/build/vcs"
-SIM_BIN="$BUILD_DIR/simv"
-
-# Which hex to load. Priority: CLI arg > BIN env > HEX env > helloworld default.
-HEX="${1:-${BIN:-${HEX:-$ROOT/sim/sw/hello_world/bin/helloworld.hex}}}"
-case "$HEX" in
-  /*) ;;                  # already absolute
-  *)  HEX="$PWD/$HEX" ;;  # relative -> absolute w.r.t. current shell
-esac
-
-# Compile the VCS model unless SKIP_BUILD=1
-if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  echo "=> Setting up VCS build workspace..."
-  mkdir -p "$BUILD_DIR"
-  cd "$BUILD_DIR"
-  
-  echo "=> Compiling cycle-accurate hardware model with VCS..."
-  vcs -sverilog -full64 \
-    -j 4\
-    -F "$ROOT/flists/croc_sim_vcs.flist" \
-    -timescale=1ns/1ps \
-    -top tb_croc_soc \
-    -debug_access+pp \
-    -o "$SIM_BIN"
+if [ "${SKIP_BUILD:-0}" != 1 ]; then
+  echo "=> Compiling the VCS model in $build_dir"
+  mkdir -p "$build_dir"
+  cd "$build_dir"
+  vcs -sverilog -full64 -j 4 -F "$REPO/flists/croc_sim_vcs.flist" -timescale=1ns/1ps -top tb_croc_soc \
+    -debug_access+pp -o "$model"
 fi
-
-# Stop here if we only wanted to compile
-if [ "${BUILD_ONLY:-0}" = "1" ]; then
+if [ "${BUILD_ONLY:-0}" = 1 ]; then
   echo "=> Build complete (BUILD_ONLY)."
   exit 0
 fi
+need "$model" SIM "no VCS model in $build_dir. Run make vcs-compile (or make sim-vcs) first."
 
-if [ ! -x "$SIM_BIN" ]; then
-  echo "ERROR: sim binary not found at $SIM_BIN" >&2
-  echo "       Run the build script first to compile it." >&2
-  exit 1
-fi
-
-echo "=> Running Simulation with: $HEX"
-# Run from sim/build so the testbench's default '../sw/bin/...' path also resolves.
-cd "$ROOT/sim/build"
-
-# Run the generated simulation executable and pass the plusarg
-"$SIM_BIN" +binary="$HEX"
+echo "=> Running Simulation with: $program"
+cd "$REPO/sim/build"
+"$model" +binary="$program"

@@ -8,7 +8,7 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 . "$REPO/scripts/utils/env.sh"
 OUT=${OUT:-$REPO/sim/build/regress}
 mkdir -p "$OUT"; S=$OUT/summary.txt; : > "$S"
-export PATH=${VERILATOR_BIN:-/nix/store/i5hjqqy2qk6jac8mnnaxnlh8yfi49wjh-verilator-5.052/bin}:$PATH
+export PATH=$VERILATOR_BIN:$PATH
 ST=PASS
 
 # check <name> <pass pattern> <command...>: PASS when the log has the pattern and no FAIL line
@@ -24,7 +24,8 @@ check() {
 
 cd "$REPO" || exit 1
 check spi_block "^PASS" bash scripts/sim/run_obi_spi_tb.sh "$OUT/spi_block"
-check fft_block "^PASS" bash sim/fft/run_bus.sh
+# the FFT bus test at response latencies 1 to 3, with and without random grant
+check fft_block "^PASS" bash sim/fft/run_all.sh
 check models    "^PASS: models self-test" bash sim/models/run_models.sh "$OUT/models"
 if [ "${BRINGUP:-1}" != 0 ]; then
   # the bring-up steps of the ZedBoard in the RTL test bench: every step line says OK

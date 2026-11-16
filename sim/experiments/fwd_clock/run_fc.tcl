@@ -3,14 +3,14 @@
 #   fc_shell -batch -f ../run_fc.tcl
 set HERE [file normalize [file dirname [info script]]]
 set REPO [file normalize $HERE/../../..]
-source $REPO/scripts/common/setup.tcl         ;# TECH_FILE, REFERENCE_LIBRARY, layer maps, SYN_IGNORE_CELLS, CTS_CELLS
+source $REPO/scripts/impl/lib/setup.tcl         ;# TECH_FILE, REFERENCE_LIBRARY, layer maps, SYN_IGNORE_CELLS, CTS_CELLS
 set TOP fwd_clk_toy
 if {[file exists toy.dlib]} { file delete -force toy.dlib }
 create_lib -technology $TECH_FILE -ref_libs $REFERENCE_LIBRARY toy.dlib
 analyze -format verilog $HERE/fwd_clk_toy.v
 elaborate $TOP
 set_top_module $TOP
-source $REPO/scripts/common/tech_setup.tcl
+source $REPO/scripts/impl/lib/tech_setup.tcl
 
 # corners and scenarios as in mcmm.tcl (functional mode only)
 remove_scenarios -all; remove_corners -all; remove_modes -all

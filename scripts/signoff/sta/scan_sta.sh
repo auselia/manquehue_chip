@@ -1,54 +1,52 @@
 #!/bin/bash
-# Scan-shift STA of a run: scan_se_i = 1, testmode_i = 1, both shift clocks timed against each other.
-# Same netlist, libraries and parasitics as the signoff STA, SDC = <run>/croc_soc_scan.sdc (written by 06_finish, common/export_signoff.tcl).
+# STA of the scan shift of a run (scan_se_i = 1, testmode_i = 1) at every corner, in parallel
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
 # usage: scripts/signoff/sta/scan_sta.sh      (env: RUN)
+# in:  <run>/croc_soc.v, <run>/croc_soc_scan.sdc, <run>/croc_soc.<spef>.spef of every corner
+# out: <run>/checks/scan_sta/: summary.txt, results.txt, the log of every corner
 set -e
-. "$(dirname "${BASH_SOURCE[0]}")/../../utils/env.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/settings.sh"
 step_begin scan_sta
-O=$STEP_DIR
-cat > "$O/scan_sta.tcl" <<'TCL'
-set link_library "* $SC_DB $IO_DB $SRAM_DB"
-set target_library "$SC_DB"
-read_verilog $VLOG
-current_design croc_soc
-link_design
-read_sdc $SDC_FILE
-read_parasitics -format SPEF $SPEF_FILE
-update_timing -full
-# The shift path ends at SI of a scan flop, or at D of a plain flop in the chain (its scan multiplexer is outside
-# the cell, or it is a shift register stage). Every D of a plain flop is timed: the ones outside the chain also clock
-# during the shift, so a hold violation there is worth knowing too.
-set si [get_pins -hierarchical */SI]
-set dplain [get_pins -quiet -of_objects [get_cells -hierarchical -filter "ref_name =~ *__dff*"] -filter "lib_pin_name == D"]
-puts "RESULT corner=$CORNER SI_pins=[sizeof_collection $si] plain_D_pins=[sizeof_collection $dplain]"
-set si [add_to_collection $si $dplain]
-foreach {kind dt} {hold min setup max} {
-  set all  [get_timing_paths -delay_type $dt -to $si -max_paths 100000 -nworst 1 -slack_lesser_than 1000]
-  set viol [get_timing_paths -delay_type $dt -to $si -max_paths 100000 -nworst 1 -slack_lesser_than 0]
-  set w [get_timing_paths -delay_type $dt -to $si -max_paths 1]
-  puts "RESULT corner=$CORNER $kind: timed_endpoints=[sizeof_collection $all] violators=[sizeof_collection $viol] worst_slack=[get_attribute $w slack]"
-}
-redirect -file $REPORT_DIR/worst_hold.$CORNER.rpt { report_timing -delay_type min -to $si -max_paths 3 -input_pins -transition_time }
-exit
-TCL
-run() { # corner
-  local lib=CORNER_$1_LIB spef=CORNER_$1_SPEF
-  # pt_shell writes its command logs into the working directory: one folder per corner (they run in parallel)
-  mkdir -p "$O/pt_$1" && cd "$O/pt_$1"
+sram_db SCAN-STA
+
+# run_corner <corner>: one pt_shell in its own folder (pt_shell writes its command log into the working folder)
+run_corner() {
+  local corner=$1
+  corner_inputs "$corner" "$RUN"
+  mkdir -p "$STEP_DIR/pt_$corner"
+  cd "$STEP_DIR/pt_$corner"
   PATH=$PT_HOME/bin:$PATH pt_shell -x "
-    set CORNER $1; set VLOG $RUN/croc_soc.v; set SDC_FILE $RUN/croc_soc_scan.sdc; set SPEF_FILE $RUN/croc_soc.${!spef}.spef
-    set SC_DB $PDK_DB/${SC_LIB}__${!lib}.db; set IO_DB $PDK_DB/${IO_LIB}__${!lib}.db; set SRAM_DB $SRAM_DB
-    set REPORT_DIR $O
-    source $O/scan_sta.tcl" > "$O/$1.log" 2>&1
+    set CORNER $corner; set TOP $TOP; set VLOG $RUN/$TOP.v; set SDC_FILE $RUN/${TOP}_scan.sdc; set SPEF_FILE $SPEF
+    set SC_DB $SC_DB; set IO_DB $IO_DB; set SRAM_DB $SRAM_DB; set REPORT_DIR $STEP_DIR
+    source $REPO/scripts/signoff/sta/scan_sta_corner.tcl" > "$STEP_DIR/$corner.log" 2>&1
 }
-LOGS=()
-for c in $CORNERS; do run "$c" & LOGS+=("$O/$c.log"); done
+
+logs=()
+for corner in $CORNERS; do
+  run_corner "$corner" &
+  logs+=("$STEP_DIR/$corner.log")
+done
 wait
-grep -h "^RESULT" "${LOGS[@]}" | sed 's/^RESULT //' > "$O/results.txt"
-cat "$O/results.txt"
-HV=$(awk '/ hold:/{split($0,a,"violators="); split(a[2],b," "); s+=b[1]} END{print s+0}' "$O/results.txt")
-SV=$(awk '/ setup:/{split($0,a,"violators="); split(a[2],b," "); s+=b[1]} END{print s+0}' "$O/results.txt")
-N=$(grep -c "hold:" "$O/results.txt")
-summary hold_violators "$HV"; summary setup_violators "$SV"; summary corners_timed "$N"
-sed -n 's/.* hold: .*worst_slack=\(.*\)/\1/p' "$O/results.txt" | paste -sd' ' | sed "s/^/hold_worst_slack_ns($CORNERS): /" >> "$SUMMARY"
-if [ "$N" = "${#LOGS[@]}" ] && [ "$HV" = 0 ] && [ "$SV" = 0 ]; then summary status PASS; else summary status FAIL; fi
+
+results=$STEP_DIR/results.txt
+grep -h "^RESULT" "${logs[@]}" | sed 's/^RESULT //' > "$results"
+cat "$results"
+
+# count_violators <hold|setup>: the sum of violators=N over all corners
+count_violators() {
+  grep " $1:" "$results" | sed 's/.*violators=\([0-9]*\).*/\1/' | awk '{ sum += $1 } END { print sum + 0 }'
+}
+hold_violators=$(count_violators hold)
+setup_violators=$(count_violators setup)
+corners_timed=$(grep -c "hold:" "$results")
+hold_worst_slack=$(sed -n 's/.* hold: .*worst_slack=\(.*\)/\1/p' "$results" | paste -sd' ')
+
+summary hold_violators "$hold_violators"
+summary setup_violators "$setup_violators"
+summary corners_timed "$corners_timed"
+summary "hold_worst_slack_ns($CORNERS)" "$hold_worst_slack"
+if [ "$corners_timed" = "${#logs[@]}" ] && [ "$hold_violators" = 0 ] && [ "$setup_violators" = 0 ]; then
+  summary status PASS
+else
+  summary status FAIL
+fi

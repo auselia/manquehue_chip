@@ -60,7 +60,7 @@ FOLDED_SC_CDL=$CACHE/$SC_LIB.folded.cdl
 
 # IC Validator: a second DRC and LVS engine with the ICV decks of the Synopsys PDK. LVS uses the same
 # verilog2spice.py and fold_wells.py, without the model rename.
-ICV_PDK_HOME=${ICV_PDK_HOME-$HOME/pdk_synopsys}
+ICV_PDK_HOME=${ICV_PDK_HOME-$PDK_SYNOPSYS}
 ICV_HOST_INIT=${ICV_HOST_INIT-4}
 # Optional runset config for icv -runset_config (a path in the repo). Empty: the decks run as they are. The GDS of
 # 06_finish.tcl has the 1 nm database unit that the decks expect.

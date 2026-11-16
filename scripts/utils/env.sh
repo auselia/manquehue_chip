@@ -1,40 +1,88 @@
-# Shared settings of the verification scripts. Source it. Every value can be overridden from the environment or
-# from scripts/utils/local.env (not in git). No script writes to /tmp: results go to <run>/checks/<step>/.
+# Shared settings and helpers of the check scripts. Source it, do not run it.
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# in:  env RUN (default outputs/latest), config/*.tcl, scripts/utils/local.env (optional, not in git)
+# out: variables and the functions need, summary and step_begin
+#
+# Every setting below keeps a value that is already in the environment. local.env can set any of them.
+# shellcheck shell=bash disable=SC2034  # the scripts that source this file read the variables
+
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-# corners, libraries and clocks (config/*.tcl): CORNERS, SC_LIB, CORNER_<corner>_LIB, ...
 eval "$(python3 "$REPO/scripts/lib/config.py" sh)"
 [ -f "$REPO/scripts/utils/local.env" ] && . "$REPO/scripts/utils/local.env"
 
-TOP=croc_soc
-CACHE=$REPO/outputs/.cache                                    # converted libraries and folded CDLs
-# the Fusion Compiler run under test (outputs/<run>, outputs/latest is the newest)
+# The run under test and where its checks write
+TOP=$TOP_MODULE
 RUN=$(readlink -f "${RUN:-$REPO/outputs/latest}" 2>/dev/null || true)
 CHECKS_OUT=${CHECKS_OUT:-$RUN/checks}
+CACHE=$REPO/outputs/.cache
 
-# tools and data
+# PDK data: the ciel PDK and the Synopsys technology data (ICV_PDK_HOME is the older name of the second).
+# The PDK has the SRAM as .lib only: sram_db converts it into SRAM_DB.
 PDK_ROOT=${PDK_ROOT:-$HOME/.ciel}
-PDK_DB=${PDK_DB:-$HOME/pdk_synopsys/db}                      # Synopsys .db of the PDK (sta, lec, etm)
-SRAM_DB=${SRAM_DB:-$CACHE/$SRAM_LIB.db}
-[ -e "$SRAM_DB" ] || SRAM_DB=$HOME/Documents/manquehue_chip/outputs/.cache/$SRAM_LIB.db
-PT_HOME=${PT_HOME:-${PT_HOME_DIR:-/usr/synopsys/prime/Y-2026.03-SP2}}   # PT_HOME_DIR: the old name, still read
-LC_HOME=${LC_HOME:-${LC_HOME_DIR:-/usr/synopsys/lc/Y-2026.03-SP1}}         # Library Compiler (SRAM .lib to .db)
+PDK_SYNOPSYS=${PDK_SYNOPSYS:-${ICV_PDK_HOME:-$HOME/pdk_synopsys}}
+PDK_DB=${PDK_DB:-$PDK_SYNOPSYS/db}
+PT_SRAM_LIB=${PT_SRAM_LIB:-$PDK_SYNOPSYS/lib/$SRAM_LIB.lib}
+SRAM_DB=$CACHE/$SRAM_LIB.db
+
+# Synopsys tools. PT_HOME_DIR is the name that the Makefile of waferspace_manquehue passes.
+PT_HOME=${PT_HOME:-${PT_HOME_DIR:-/usr/synopsys/prime/Y-2026.03-SP2}}
+LC_HOME=${LC_HOME:-${LC_HOME_DIR:-/usr/synopsys/lc/Y-2026.03-SP1}}
 ICV_HOME_DIR=${ICV_HOME_DIR:-/usr/synopsys/icvalidator/Y-2026.03-SP2}
 TMAX_HOME=${TMAX_HOME:-/usr/synopsys/txs/Y-2026.03-SP2}
-VCS_HOME=${VCS_HOME:-/usr/synopsys/vcs/Y-2026.03-SP2}            # always with -full64 (no 32-bit install)
+VCS_HOME=${VCS_HOME:-/usr/synopsys/vcs/Y-2026.03-SP2}   # 64-bit only: call vcs with -full64
 SNPSLMD_LICENSE_FILE=${SNPSLMD_LICENSE_FILE:-27020@localhost}
-TEMPLATE_DIR=${TEMPLATE_DIR:-$HOME/Documents/waferspace_manquehue}   # wafer.space template (chip flow, simulators via nix-shell)
-PRECHECK_DIR=${PRECHECK_DIR:-$HOME/Documents/gf180mcu-precheck}
-PRECHECK_PYTHONPATH=${PRECHECK_PYTHONPATH:-/nix/store/mxgvi3js4wjqh7azybkj4zx3fixh2cvb-python3.13-qrcode-8.2/lib/python3.13/site-packages}
-SLOT=${SLOT:-0p5x1}
-JOBS=${JOBS:-9}                                               # parallel simulations (pattern replay, March test)
-NPAT=${NPAT:-100000}                                          # patterns replayed in the gate-level simulation (default: all)
-DFT_REPLAY=${DFT_REPLAY:-parallel}                            # parallel: chain loaded by force (seconds), serial: shifted (hours)
-IVERILOG_BIN=${IVERILOG_BIN:-$(ls -d /nix/store/*-iverilog-*/bin 2>/dev/null | head -1)}
-[ -n "$IVERILOG_BIN" ] && PATH=$IVERILOG_BIN:$PATH
+
+# Open-source simulators: Icarus from the Nix store, Verilator through the nix-shell of the wafer.space template
+# or from VERILATOR_BIN. Verilator --timing needs a g++ with -fcoroutines (the system g++ 8.5 of Rocky has none).
+VERILATOR_BIN=${VERILATOR_BIN:-/nix/store/i5hjqqy2qk6jac8mnnaxnlh8yfi49wjh-verilator-5.052/bin}
+SIM_CXX=${SIM_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bin/g++}
+[ -x "$SIM_CXX" ] || SIM_CXX=g++
+TEMPLATE_DIR=${TEMPLATE_DIR:-$HOME/Documents/waferspace_manquehue}
+iverilog_bin=$(ls -d /nix/store/*-iverilog-*/bin 2>/dev/null | head -1)
+[ -n "$iverilog_bin" ] && PATH=$iverilog_bin:$PATH
+
+# DFT and simulation options
+JOBS=${JOBS:-9}                     # parallel simulations (pattern replay, March test)
+NPAT=${NPAT:-100000}                # patterns replayed on the netlist (the default replays all)
+DFT_REPLAY=${DFT_REPLAY:-parallel}  # parallel: chain loaded by force (minutes), serial: shifted (hours)
+
 export SNPSLMD_LICENSE_FILE PDK_ROOT PATH
 
 # need <path> <tag> <message>: stop with the message when the file or folder does not exist
-need() { [ -e "$1" ] || { echo "[$2] ERROR: $3"; exit 1; }; }
-# print "key: value" to the summary file of a step
-summary() { echo "$1: $2" >> "$SUMMARY"; }
-step_begin() { [ -d "$RUN" ] || { echo "RUN folder not found: '$RUN' (set RUN=outputs/<run> or an absolute path)" >&2; exit 1; }; STEP=$1; STEP_DIR=$CHECKS_OUT/$STEP; mkdir -p "$STEP_DIR"; SUMMARY=$STEP_DIR/summary.txt; : > "$SUMMARY"; summary run "$RUN"; summary date "$(date -Is)"; summary commit "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"; }
+need() {
+  [ -e "$1" ] && return 0
+  echo "[$2] ERROR: $3"
+  exit 1
+}
+
+# sram_db <tag>: convert the SRAM .lib into SRAM_DB (Library Compiler) when the .db is missing or older
+sram_db() {
+  [ -e "$SRAM_DB" ] && [ ! "$PT_SRAM_LIB" -nt "$SRAM_DB" ] && return 0
+  mkdir -p "$CACHE"
+  echo "[$1] Compiling the SRAM liberty into a .db (Library Compiler): $SRAM_DB"
+  # lc_shell writes its own log files into the folder it runs in
+  ( cd "$CACHE" && PATH="$LC_HOME/bin:$PATH" lc_shell -x \
+      "read_lib $PT_SRAM_LIB; write_lib $SRAM_LIB -format db -output $SRAM_DB; exit" ) 2>&1 | tee "$CACHE/lc_sram.log"
+  need "$SRAM_DB" "$1" "SRAM .db compile failed, see $CACHE/lc_sram.log"
+}
+
+# summary <key> <value>: add a "key: value" line to the summary of the current check
+summary() {
+  echo "$1: $2" >> "$SUMMARY"
+}
+
+# step_begin <check>: create <run>/checks/<check>/ and start its summary.txt (sets STEP_DIR and SUMMARY)
+step_begin() {
+  local check=$1
+  if [ ! -d "$RUN" ]; then
+    echo "RUN folder not found: '$RUN' (set RUN=outputs/<run> or an absolute path)" >&2
+    exit 1
+  fi
+  STEP_DIR=$CHECKS_OUT/$check
+  SUMMARY=$STEP_DIR/summary.txt
+  mkdir -p "$STEP_DIR"
+  : > "$SUMMARY"
+  summary run "$RUN"
+  summary date "$(date -Is)"
+  summary commit "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
+}

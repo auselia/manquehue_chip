@@ -18,9 +18,9 @@ RAIL_VOLTAGE_DROP=${RAIL_VOLTAGE_DROP-static}
 RAIL_TECH_FILE=${RAIL_TECH_FILE-scripts/signoff/irdrop/tech/gf180mcu.itf}
 cd "$REPO" || exit 1
 command -v fc_shell > /dev/null || { echo "[RAIL] ERROR: fc_shell not found on PATH."; exit 1; }
-[ -e work/design.dlib/finish ] || { echo "[RAIL] ERROR: no block finish in work/design.dlib. Run make finish first."; exit 1; }
-[ -x "$RAIL_REDHAWK_PATH/redhawk_sc" ] || { echo "[RAIL] ERROR: redhawk_sc not found in RAIL_REDHAWK_PATH=$RAIL_REDHAWK_PATH."; exit 1; }
-[ -n "$RAIL_TECH_FILE" ] && [ -e "$RAIL_TECH_FILE" ] || { echo "[RAIL] ERROR: RAIL_TECH_FILE not found: '$RAIL_TECH_FILE'."; exit 1; }
+need work/design.dlib/finish RAIL "no block finish in work/design.dlib. Run make finish first."
+need "$RAIL_REDHAWK_PATH/redhawk_sc" RAIL "redhawk_sc not found in RAIL_REDHAWK_PATH=$RAIL_REDHAWK_PATH."
+need "${RAIL_TECH_FILE:-/nonexistent}" RAIL "RAIL_TECH_FILE not found: '$RAIL_TECH_FILE'."
 set -o pipefail
 OUT=outputs/latest/rail_rh
 mkdir -p "$OUT"

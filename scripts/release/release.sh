@@ -24,7 +24,7 @@ fi
 for c in $CORNERS; do
   [ -e "$RUN/etm/${TOP}_$c.lib" ] || { "$REPO/scripts/signoff/sta/extract_models.sh" "$RUN" || exit 1; break; }
 done
-[ -e "$RUN/${TOP}_bb.v" ] || python3 "$REPO/scripts/common/write_blackbox.py" "$RUN/$TOP.v" "$RUN/${TOP}_bb.v" "$TOP" || exit 1
+[ -e "$RUN/${TOP}_bb.v" ] || python3 "$REPO/scripts/impl/lib/write_blackbox.py" "$RUN/$TOP.v" "$RUN/${TOP}_bb.v" "$TOP" || exit 1
 
 mkdir -p "$OUT"
 rm -f "$OUT/$TOP".* "$OUT/${TOP}"_*.lib "$OUT/${TOP}_blackbox.v" "$OUT/sha256sums.txt"

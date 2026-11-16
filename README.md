@@ -50,10 +50,9 @@ collects them in `outputs/<run>/report.md`.
 
 ## Setup
 
-- `TECHLIB_DATA_DIR` in `scripts/common/setup.tcl`: the Synopsys technology data (NDM libraries, tech file, GDS).
+- The PDK folders: `PDK_ROOT` (the ciel PDK, default `~/.ciel`) and `PDK_SYNOPSYS` (the Synopsys technology data,
+  default `~/pdk_synopsys`). Fusion Compiler and the check scripts read them from the environment.
 - `scripts/utils/env.sh`: the tool and PDK paths. Put your own values in `scripts/utils/local.env` (not in git).
-- In a new worktree, copy `outputs/.cache` or run `make sta-pt` first. LEC and the timing models read the SRAM
-  timing from there.
 
 ## Credits
 

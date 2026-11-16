@@ -1,65 +1,77 @@
 #!/bin/bash
-# Gate-level simulation of a run: Verilator (full-SoC testbench, program prints GLS OK), boot from the QSPI flash
-# model (flash_hello prints FLASH OK, no JTAG load), scan shift, the Icarus macro-level JTAG boot test, and the same
-# boot in VCS with the SDF delays of PrimeTime (min and max). The
-# chip-level test (pad ring) is in waferspace_manquehue: it needs the chip netlist.
+# Gate-level simulation checks of a run: Verilator boot over JTAG and from the QSPI flash, scan shift, Icarus macro
+# boot over JTAG, and the same boot in VCS with the SDF delays of PrimeTime (min and max)
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
 # usage: scripts/signoff/gls/gls.sh      (env: RUN)
+# in:  <run>/croc_soc.v, <run>/logs/synthesis.log (scan cells), <run>/sta_pt/croc_soc.typical.sdf, sim/sw programs
+# out: <run>/checks/gls/: summary.txt and one folder and log per test
+#
+# The chip-level test through the pads is in waferspace_manquehue: it needs the chip netlist.
 set -e
-HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-. "$HERE/../../utils/env.sh"
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+. "$here/../../utils/env.sh"
 step_begin gls
-O=$STEP_DIR
-# the program: the 2 KB bring-up program, built from source (needs riscv32-none-elf-gcc)
-HEX=$REPO/sim/sw/gls_mini/bin/gls_mini.hex
-"$REPO/scripts/sim/build_sw.sh" gls_mini > "$O/gls_mini_build.log" 2>&1 || true
-nixrun() { ( cd "$TEMPLATE_DIR" && nix-shell --run "$*" ); }
-ST=PASS
+out=$STEP_DIR
+status=PASS
 
-# a. Verilator, vendor models with 0.5 ns flop delay (see README.md)
-nixrun "GLS_RUN=$RUN $HERE/verilator.sh $HEX $O/verilator" > "$O/verilator.log" 2>&1 || true
-L=$(grep -h "GLS OK" "$O/verilator/run.log" 2>/dev/null | head -1)
-summary verilator_boot "${L:-no GLS OK}"; [ -n "$L" ] || ST=FAIL
+# nixrun <command>: run a command in the nix-shell of the wafer.space template (Verilator, Icarus)
+nixrun() {
+  ( cd "$TEMPLATE_DIR" && nix-shell --run "$*" )
+}
 
-# a2. boot from the QSPI flash: the bootrom finds the image magic and runs flash_hello from the flash model
-#     (sim/sw/flash, needs riscv32-none-elf-gcc)
-FHEX=$REPO/sim/sw/flash/bin/flash_hello.flash.hex
-"$REPO/sim/sw/flash/build.sh" > "$O/flash_build.log" 2>&1 || true
-if [ -f "$FHEX" ]; then
-  nixrun "GLS_RUN=$RUN GLS_PLUSARGS=+flash=$FHEX $HERE/verilator.sh $HEX $O/flash_boot" > "$O/flash_boot.log" 2>&1 || true
-  F=$(grep -h "FLASH OK" "$O/flash_boot/run.log" 2>/dev/null | head -1)
-else
-  F=""
+# The programs, built from source: gls_mini prints GLS OK and fits the 2 KB SRAM, flash_hello runs from the flash
+program=$REPO/sim/sw/gls_mini/bin/gls_mini.hex
+flash_program=$REPO/sim/sw/flash/bin/flash_hello.flash.hex
+"$REPO/scripts/sim/build_sw.sh" gls_mini > "$out/gls_mini_build.log" 2>&1 || true
+"$REPO/sim/sw/flash/build.sh" > "$out/flash_build.log" 2>&1 || true
+
+# Verilator: boot over JTAG
+nixrun "GLS_RUN=$RUN $here/verilator.sh $program $out/verilator" > "$out/verilator.log" 2>&1 || true
+result=$(grep -h "GLS OK" "$out/verilator/run.log" 2>/dev/null | head -1)
+summary verilator_boot "${result:-no GLS OK}"
+[ -n "$result" ] || status=FAIL
+
+# Verilator: boot from the QSPI flash. The bootrom finds the image and runs it from the flash model, no JTAG load.
+result=""
+if [ -f "$flash_program" ]; then
+  nixrun "GLS_RUN=$RUN GLS_PLUSARGS=+flash=$flash_program $here/verilator.sh $program $out/flash_boot" \
+    > "$out/flash_boot.log" 2>&1 || true
+  result=$(grep -h "FLASH OK" "$out/flash_boot/run.log" 2>/dev/null | head -1)
 fi
-summary flash_boot "${F:-no FLASH OK}"; [ -n "$F" ] || ST=FAIL
+summary flash_boot "${result:-no FLASH OK}"
+[ -n "$result" ] || status=FAIL
 
-# b. scan shift (0 mismatches, lag = number of scan cells)
-# scan cells of this run, from the DFT trace in its synthesis log ("Chain 1 successfully traced with N scan_cells").
-# It changes with every block that adds flops. 3964 is the count of the baseline netlist.
-SCAN_CELLS=$(zcat -f "$RUN"/logs/synthesis.log* 2>/dev/null | grep -o "successfully traced with [0-9]* scan_cells" | grep -o "[0-9]*" | tail -1)
-SCAN_CELLS=${SCAN_CELLS:-3964}
-nixrun "EXPECTED_LAG=$SCAN_CELLS GLS_RUN=$RUN $HERE/scan_shift.sh $O/scan_shift" > "$O/scan_shift.log" 2>&1 || true
-R=$(tail -n 3 "$O/scan_shift.log" | grep -o "ALL PASS\|FAILED" | head -1)
-summary scan_shift "${R:-no result}"; [ "$R" = "ALL PASS" ] || ST=FAIL
+# Scan shift: the stream comes out of the chain delayed by the number of scan cells that synthesis traced
+scan_cells=$(zcat -f "$RUN"/logs/synthesis.log* 2>/dev/null | grep -o "successfully traced with [0-9]* scan_cells" \
+  | grep -o "[0-9]*" | tail -1)
+result=""
+if [ -n "$scan_cells" ]; then
+  nixrun "EXPECTED_LAG=$scan_cells GLS_RUN=$RUN $here/scan_shift.sh $out/scan_shift" > "$out/scan_shift.log" 2>&1 || true
+  result=$(tail -n 3 "$out/scan_shift.log" | grep -o "ALL PASS\|FAILED" | head -1)
+fi
+summary scan_shift "${result:-no result (no scan cell count in the synthesis log)}"
+[ "$result" = "ALL PASS" ] || status=FAIL
 
-# c. Icarus, JTAG through the macro ports, program loaded over the debug module, GLS OK on uart_tx_o
-nixrun "PROG_HEX=$HEX $HERE/icarus_macro.sh none $RUN/croc_soc.v $O/icarus_macro" > "$O/icarus_macro.log" 2>&1 || true
-P=$(grep -h "PASS: GLS OK" "$O/icarus_macro.log" | head -1)
-summary icarus_macro_boot "${P:-no PASS}"; [ -n "$P" ] || ST=FAIL
+# Icarus: JTAG through the macro ports, program loaded over the debug module, GLS OK on uart_tx_o
+nixrun "PROG_HEX=$program $here/icarus_macro.sh $RUN/croc_soc.v $out/icarus_macro" > "$out/icarus_macro.log" 2>&1 || true
+result=$(grep -h "PASS: GLS OK" "$out/icarus_macro.log" | head -1)
+summary icarus_macro_boot "${result:-no PASS}"
+[ -n "$result" ] || status=FAIL
 
-# e. the same boot in VCS with the delays of PrimeTime at the typical corner (SDF of make sta-pt), with the min and
-#    the max values of the SDF, timing checks on. PASS needs GLS OK and 0 timing violations.
-#    (Icarus is not used here: it reads the typical value of an SDF triple, PrimeTime leaves it empty, and Icarus
-#    then keeps the 1 ns default of the cell models with no message, a unit-delay simulation.)
-SDF=$(ls $RUN/sta_pt/croc_soc.typical.sdf 2>/dev/null | head -1)
-if [ -n "$SDF" ]; then
-  for M in min max; do
-    PROG_HEX=$HEX "$HERE/vcs_sdf.sh" "$RUN/croc_soc.v" "$SDF" $M "$O/vcs_macro_sdf_$M" > "$O/vcs_macro_sdf_$M.log" 2>&1 || true
-    P=$(grep -h "PASS: GLS OK" "$O/vcs_macro_sdf_$M.log" | head -1)
-    V=$(grep -h "^timing violations:" "$O/vcs_macro_sdf_$M.log" | grep -o "[0-9]*" | head -1)
-    summary vcs_macro_boot_sdf_$M "${P:-no PASS}, timing violations: ${V:-?}"
-    [ -n "$P" ] && [ "$V" = "0" ] || ST=FAIL
+# VCS: the same boot with the typical SDF of make sta-pt, at its min and its max values, timing checks on.
+# PASS needs GLS OK and 0 timing violations. Icarus cannot do this: it reads the typical value of an SDF triple,
+# PrimeTime leaves it empty, and Icarus keeps the 1 ns default of the cell models without a message.
+sdf=$RUN/sta_pt/croc_soc.typical.sdf
+if [ -f "$sdf" ]; then
+  for delays in min max; do
+    log=$out/vcs_macro_sdf_$delays.log
+    PROG_HEX=$program "$here/vcs_sdf.sh" "$RUN/croc_soc.v" "$sdf" $delays "$out/vcs_macro_sdf_$delays" > "$log" 2>&1 || true
+    result=$(grep -h "PASS: GLS OK" "$log" | head -1)
+    violations=$(grep -h "^timing violations:" "$log" | grep -o "[0-9]*" | head -1)
+    summary vcs_macro_boot_sdf_$delays "${result:-no PASS}, timing violations: ${violations:-?}"
+    [ -n "$result" ] && [ "$violations" = 0 ] || status=FAIL
   done
 else
   summary vcs_macro_boot_sdf "not run (no SDF, run make sta-pt)"
 fi
-summary status $ST
+summary status $status

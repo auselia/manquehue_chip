@@ -1,5 +1,8 @@
 #!/bin/sh
-# Local job submission for FC set_host_options -submit_command. analyze_rail submits its worker job with rsh by
-# default, even on one machine. Rocky has no rsh and no passwordless ssh to itself (the job then waits for a worker,
-# GRD.013), so this runs the job command as a local subprocess.
+# Run a RedHawk-SC worker job on this machine (the submit command of set_host_options in analyze_rail.tcl)
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: local_submit.sh <job command...>
+#
+# analyze_rail starts its worker with rsh, even on one machine. Rocky has no rsh and no passwordless ssh to itself,
+# so the job waits for a worker forever (GRD.013).
 exec "$@"

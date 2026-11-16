@@ -127,6 +127,8 @@ module tb_croc_soc #(
 
   `ifdef TARGET_NETLIST_YOSYS
   \croc_soc$croc_chip.i_croc_soc i_croc_soc (
+  `elsif TARGET_GLS
+  croc_soc i_croc_soc (
   `else
   croc_soc #(
     .GpioCount ( GpioCount )
@@ -136,6 +138,12 @@ module tb_croc_soc #(
     .rst_ni        ( rst_n       ),
     .ref_clk_i     ( ref_clk     ),
     .testmode_i    ( 1'b0        ),
+  `ifdef TARGET_GLS
+    // the netlist has the scan ports of the DFT insertion: no shift in normal operation
+    .scan_si_i     ( 1'b0        ),
+    .scan_se_i     ( 1'b0        ),
+    .scan_so_o     (             ),
+  `endif
     .status_o      (             ),
     .jtag_tck_i    ( jtag_tck    ),
     .jtag_tdi_i    ( jtag_tdi    ),
@@ -354,5 +362,10 @@ module tb_croc_soc #(
       $dumpflush;
     `endif
   end
+
+  `ifdef TARGET_GLS
+  // progress marker of the long gate-level run
+  initial forever begin #100us; $display("PROG %0t", $time); end
+  `endif
 
 endmodule

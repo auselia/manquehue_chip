@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+# Trace the scan chain of the croc_soc netlist from scan_so_o back to scan_si_i
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: scan_chain_trace.py <croc_soc.v>      (scan_shift.sh)
+# in:  the netlist of a run
+# out: stdout: cells=<all cells> scan=<N> nonscan=<M> inversions=<K>
 """Trace the scan chain of the croc_soc netlist from scan_so_o back to scan_si_i.
-
-usage: scan_chain_trace.py <croc_soc.v>
 prints: cells=<scan cells + non-scan cells> scan=<N> nonscan=<M> inversions=<K>
 
 The chain runs through the SI pin of each scan flop. Fusion Compiler keeps registers that already shift (shift

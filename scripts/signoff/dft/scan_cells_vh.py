@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+# Write the scan-cell include of the parallel-load test bench (sim/tb/tb_atpg.v with +define+PARALLEL)
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: scan_cells_vh.py scan_cells.rpt croc_soc_atpg.v <out dir>      (sim_patterns.sh)
+# in:  scan_cells.rpt (report_scan_cells of atpg.tcl), the ATPG netlist
+# out: <out dir>/tb_atpg_cells.vh
 """Write the scan-cell include of the parallel-load test bench (sim/tb/tb_atpg.v with +define+PARALLEL).
-
-usage: scan_cells_vh.py scan_cells.rpt croc_soc_atpg.v <out dir>
 
 scan_cells.rpt is `report_scan_cells -all` of TestMAX (atpg.tcl): chain, cell, type, inv, gate, instance (type).
 Cell 0 is at scan_so_o. The inversions along the chain come from the netlist: the scan path from the Q of each cell
@@ -10,7 +13,8 @@ to the scan input of the next (SI, or D of a plain flop), through buffers, inver
 The serial load does not always move a value by one cell per shift. Each shift cycle pulses clk_i (high 50-70 ns)
 and then jtag_tck_i (high 75-90 ns). A cell clocked later in the cycle than the cell before it takes the new value
 of that cell, so one value of the string is lost there. This script traces the clock of every cell to its port
-through buffers, inverters, clock gates and xor gates with a static input (testmode_i), and gives each cell the time of its clock edge. Then it simulates the
+through buffers, inverters, clock gates and xor gates with a static input (testmode_i), and gives each cell the
+time of its clock edge. Then it simulates the
 LEN shifts of a load and of an unload on symbols:
   load    the value of every cell after the load, as a bit of the load string (or a constant where it depends only
           on the state before the load, which the patterns do not set)
@@ -176,7 +180,7 @@ load = state
 # unload: symbol ("c", p) is the captured value of cell p, observed at scan_so_o (inversion of cell 0 to the output)
 state = [(("c", p), 0) for p in range(LEN)]
 unload = []
-for j in range(LEN):
+for _ in range(LEN):
     v = state[0]
     unload.append(None if v is None else (v[0], v[1] ^ inv_out))
     state = shift(state, None)

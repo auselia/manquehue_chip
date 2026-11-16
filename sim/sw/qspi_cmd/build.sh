@@ -1,30 +1,23 @@
 #!/bin/bash
-# Build the QSPI command engine test for the 2 KB SRAM (RTL simulation, or over JTAG on the ZedBoard).
-# Compressed instructions (rv32ic): with rv32i the code (about 2 KB) does not fit next to the 256 B sample buffer
-# and the stack. The CVE2 core always has the C extension.
-# usage: ./build.sh   -> bin/qspi_cmd_test.{elf,hex,dump}
-#        RISCV_PREFIX   default riscv32-none-elf-
-#        DEFS           for example -DFRF=0xD90000u (868 MHz), -DNPKT=100, or "-DCLK_HZ=20000u -DNPKT=2" (simulation)
-#        NAME           output name (default fft_lora)
+# Build the test of the QSPI command engine for the 2 KB SRAM (RTL simulation, or over JTAG on the ZedBoard)
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: ./build.sh      (env: DEFS, NAME (the output name, default qspi_cmd_test))
+# in:  qspi_cmd_test.c, the linker script of gls_mini
+# out: bin/<name>.{elf,dump,hex}
+#
+# Compressed instructions (rv32ic): with rv32i the code does not fit below the stack. The CVE2 core has the C extension.
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
-LIB=../lib
-PFX=${RISCV_PREFIX:-riscv32-none-elf-}
-# the soft-float rv32 toolchain (the gcc 16 of the nix profile has a double-float libgcc)
-NOLIBC=$(ls -d /nix/store/*-riscv32-none-elf-nolibc-gcc-15*/bin 2>/dev/null | head -1)
-[ -n "$NOLIBC" ] && export PATH=$NOLIBC:$PATH
-T=${NAME:-qspi_cmd_test}
-FLAGS="-march=rv32ic_zicsr -mabi=ilp32 -mcmodel=medany -static -std=gnu99 -Os -nostdlib -fno-builtin -ffreestanding -ffunction-sections -fdata-sections"
-mkdir -p build bin
-for f in $LIB/crt0.S $LIB/src/uart.c; do
-  ${PFX}gcc $FLAGS -I$LIB/inc -I$LIB -c $f -o build/$(basename ${f%.*}).o
-done
-${PFX}gcc $FLAGS ${DEFS:-} -I$LIB/inc -I$LIB -c qspi_cmd_test.c -o build/$T.o
-${PFX}gcc $FLAGS -nostartfiles -Wl,--gc-sections -T../gls_mini/link.ld -o bin/$T.elf build/crt0.o build/$T.o build/uart.o -lgcc
-${PFX}objdump -D -s bin/$T.elf > bin/$T.dump
-${PFX}objcopy -O verilog bin/$T.elf bin/$T.hex
-# the code and its data must leave room for the stack (256 B) at the top of the 2 KB SRAM
-END=$(${PFX}nm -n -S bin/$T.elf | awk '$3 ~ /^[tTdDbBrR]$/ {e = strtonum("0x" $1) + strtonum("0x" $2)} END {printf "%08x", e}')
-${PFX}size bin/$T.elf
-[ $((16#$END)) -gt $((16#10000700)) ] && { echo "ERROR: code and data end at 0x$END, above 0x10000700"; exit 1; }
-echo "ok: $T, code and data end at 0x$END"
+. ../lib/firmware.sh
+use_soft_float_gcc
+set_march rv32ic_zicsr
+program=${NAME:-qspi_cmd_test}
+
+compile "$LIB/crt0.S"
+compile "$LIB/src/uart.c"
+# shellcheck disable=SC2086  # DEFS is a list of options
+compile qspi_cmd_test.c "$program" -- ${DEFS:-}
+link "$program" ../gls_mini/link.ld build/crt0.o "build/$program.o" build/uart.o -lgcc
+sram_image "$program"
+${PFX}size "bin/$program.elf"
+check_end "$program" 0x10000700 "the stack (256 B at the top of the SRAM)"

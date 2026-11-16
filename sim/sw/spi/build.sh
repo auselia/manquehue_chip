@@ -1,22 +1,20 @@
 #!/bin/bash
-# Build the SPI block tests for the 2 KB SRAM (link script of gls_mini, library of ../lib):
-#   spi_regs  register test from the CPU
-#   spi_adc   ADC capture into the SRAM (needs the ADS7057 model of sim/tb/tb_croc_soc.sv)
-# usage: ./build.sh   -> bin/<test>.{elf,hex,dump}
-#        RISCV_PREFIX   default riscv32-none-elf- (nix toolchain on Rocky)
+# Build the SPI block tests for the 2 KB SRAM: spi_regs (registers from the CPU) and spi_adc (ADC capture into the
+# SRAM, with the ADS7057 model of sim/tb/tb_croc_soc.sv)
+# Author: Nicolás Villegas - Universidad de los Andes, Chile
+# usage: ./build.sh
+# in:  spi_regs.c, spi_adc.c, the linker script of gls_mini
+# out: bin/<test>.{elf,dump,hex}
 set -e
 cd "$(dirname "${BASH_SOURCE[0]}")"
-LIB=../lib
-PFX=${RISCV_PREFIX:-riscv32-none-elf-}
-FLAGS="-march=rv32i_zicsr -mabi=ilp32 -mcmodel=medany -static -std=gnu99 -Os -nostdlib -fno-builtin -ffreestanding -ffunction-sections -fdata-sections"
-mkdir -p build bin
-for f in $LIB/crt0.S $LIB/src/uart.c; do
-  ${PFX}gcc $FLAGS -I$LIB/inc -I$LIB -c $f -o build/$(basename ${f%.*}).o
-done
-for t in spi_regs spi_adc; do
-  ${PFX}gcc $FLAGS -I$LIB/inc -I$LIB -c $t.c -o build/$t.o
-  ${PFX}gcc $FLAGS -nostartfiles -Wl,--gc-sections -T../gls_mini/link.ld -o bin/$t.elf build/crt0.o build/$t.o build/uart.o -lgcc
-  ${PFX}objdump -D -s bin/$t.elf > bin/$t.dump
-  ${PFX}objcopy -O verilog bin/$t.elf bin/$t.hex
-  ${PFX}size bin/$t.elf | tail -1
+. ../lib/firmware.sh
+set_march rv32i_zicsr
+
+compile "$LIB/crt0.S"
+compile "$LIB/src/uart.c"
+for program in spi_regs spi_adc; do
+  compile "$program.c"
+  link "$program" ../gls_mini/link.ld build/crt0.o "build/$program.o" build/uart.o -lgcc
+  sram_image "$program"
+  ${PFX}size "bin/$program.elf" | tail -1
 done

@@ -31,6 +31,10 @@ VCS_HOME=${VCS_HOME:-/usr/synopsys/vcs/Y-2026.03-SP2}   # 64-bit only: call vcs 
 SNPSLMD_LICENSE_FILE=${SNPSLMD_LICENSE_FILE:-27020@localhost}
 
 # Open-source simulators: Icarus from the Nix store, Verilator through the nix-shell of the wafer.space template
+# or from VERILATOR_BIN. Verilator --timing needs a g++ with -fcoroutines (the system g++ 8.5 of Rocky has none).
+VERILATOR_BIN=${VERILATOR_BIN:-/nix/store/i5hjqqy2qk6jac8mnnaxnlh8yfi49wjh-verilator-5.052/bin}
+SIM_CXX=${SIM_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bin/g++}
+[ -x "$SIM_CXX" ] || SIM_CXX=g++
 TEMPLATE_DIR=${TEMPLATE_DIR:-$HOME/Documents/waferspace_manquehue}
 iverilog_bin=$(ls -d /nix/store/*-iverilog-*/bin 2>/dev/null | head -1)
 [ -n "$iverilog_bin" ] && PATH=$iverilog_bin:$PATH

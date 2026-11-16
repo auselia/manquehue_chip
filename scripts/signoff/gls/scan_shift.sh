@@ -18,7 +18,8 @@ expected_lag=${EXPECTED_LAG:?set EXPECTED_LAG to the number of scan cells}
 pdk=${PDK_ROOT:-$HOME/.ciel}/gf180mcuD/libs.ref
 cell_models=$pdk/gf180mcu_fd_sc_mcu7t5v0/verilog
 sram_models=$pdk/gf180mcu_fd_ip_sram/verilog
-cxx=${GLS_CXX:-/nix/store/vr15iyyykg9zai6fpgvhcgyw7gckl78w-gcc-wrapper-14.3.0/bin/g++}
+. "$repo/scripts/utils/env.sh"
+cxx=${GLS_CXX:-$SIM_CXX}
 models=$repo/scripts/signoff/gate_models.py
 
 mkdir -p "$work"

@@ -53,7 +53,6 @@ _temp/
 ._*
 sim/sw/*/bin/
 sim/sw/*/build/
-build/
 *_command.log
 formality.log
 lec_work_*/
@@ -65,5 +64,3 @@ __pycache__/
 # logs of the bench tools and PlatformIO builds of the Heltec sketches
 scripts/fpga/bench/logs/
 scripts/fpga/bench/heltec/*/.pio/
-# test bench build folder of scripts/sim/run_obi_spi_tb.sh (moves to work/ in Phase 2)
-/build/

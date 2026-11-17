@@ -2,7 +2,7 @@
 # Gate-level simulation of the croc_soc netlist in VCS with the SDF delays of PrimeTime and the timing checks on:
 # the test of icarus_macro.sh (sim/tb/tb_macro.v, program over JTAG, GLS OK on uart_tx_o) with real delays
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
-# usage: scripts/signoff/gls/vcs_sdf.sh <croc_soc.v> <file.sdf> <min|max> <work dir>      (env: PROG_HEX)
+# usage: scripts/signoff/gls/vcs_sdf.sh <croc_soc.v> <file.sdf> <min|max> <work dir>      (env: PROG_HEX, VCS_EXTRA)
 # in:  the netlist, the typical SDF of make sta-pt, the PDK cell and SRAM models with their specify blocks
 # out: <work dir>/run.log, compile.log, and "timing violations: N" on stdout
 #
@@ -38,7 +38,8 @@ sync_flops=$(grep -oE "\bi_[A-Za-z0-9_]*sync[A-Za-z0-9_]*_reg_0_\b" macro_nl.v |
 echo "instance {$sync_flops} {noTiming};" > tcheck_off.cfg
 echo "synchronizer first stages without timing checks: $(echo "$sync_flops" | tr , '\n' | grep -c .)"
 
-vcs -full64 -sverilog -timescale=1ns/1ps +neg_tchk +"${delays}"delays -sdf_retain +optconfigfile+tcheck_off.cfg \
+# shellcheck disable=SC2086  # VCS_EXTRA is a list of options
+vcs -full64 -sverilog -timescale=1ns/1ps ${VCS_EXTRA:-} +neg_tchk +"${delays}"delays -sdf_retain +optconfigfile+tcheck_off.cfg \
   "+define+SDF_FILE=\"$sdf\"" +define+USE_POWER_PINS -pvalue+tb_macro.NWORDS="$program_words" -top tb_macro \
   primitives.v cells.v sram.v macro_nl.v tb_macro.v -o simv -l compile.log > /dev/null 2>&1 \
   || { tail -30 compile.log; exit 1; }

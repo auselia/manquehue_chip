@@ -5,7 +5,7 @@
 # out: outputs/<run>/{drc,lvs,sta_pt,lec_fm,...}/ and outputs/<run>/checks/<check>/summary.txt
 
 ##@ Sign-off of a run (RUN=<run>, default outputs/latest)
-.PHONY: signoff scan-sta gls dft dft-serial drc lvs sta-pt lec drc-icv lvs-icv fill-icv power-pp rail
+.PHONY: signoff scan-sta gls dft dft-serial drc lvs sta-pt lec drc-icv lvs-icv fill-icv power-pp power-saif rail
 signoff: drc lvs sta-pt lec ## KLayout DRC and LVS, PrimeTime STA at 3 corners, Formality, then the summary
 	RUN=$(RUN_DIR) scripts/signoff/signoff_summary.py
 scan-sta: ## scan-shift STA, 3 corners
@@ -32,5 +32,7 @@ fill-icv: ### IC Validator metal fill into fill_icv/filled.gds (the GDS of the r
 	RUN=$(RUN_DIR) scripts/signoff/pv/fill_icv.sh
 power-pp: ### PrimePower, vectorless (PP_SAIF=<file> for real activity, PP_CORNERS="slow typical fast")
 	RUN=$(RUN_DIR) scripts/signoff/power/power.sh
+power-saif: ### PrimePower with the activity of a VCS gate-level boot: active and idle (WFI) power (needs make sta-pt)
+	RUN=$(RUN_DIR) scripts/signoff/power/saif_power.sh
 rail: ### RedHawk-SC voltage drop of the finish block in work/ (RAIL_VOLTAGE_DROP=static)
 	scripts/signoff/irdrop/rail.sh

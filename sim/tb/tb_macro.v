@@ -113,6 +113,27 @@ module tb_macro;
   reg [31:0] rdata, dmstat;
   reg [31:0] prog [0:NWORDS-1];
   integer k;
+`ifdef SAIF
+  // Switching activity for PrimePower (scripts/signoff/power/saif_power.sh), in two windows: active from the resume
+  // until GLS OK (the core runs and polls the UART), idle for 1 ms after status_o falls (the core waits in WFI).
+  reg saif_done = 0;
+  initial begin
+    $set_toggle_region(dut);
+    wait (sample_en);
+    $toggle_start;
+    wait (uart_ok);
+    $toggle_stop;
+    $toggle_report("active.saif", 1.0e-9, "tb_macro.dut");
+    wait (!status);
+    $display("%0t  [SAIF] core in WFI: idle window starts", $time);
+    $toggle_reset;
+    $toggle_start;
+    #1000000;
+    $toggle_stop;
+    $toggle_report("idle.saif", 1.0e-9, "tb_macro.dut");
+    saif_done = 1;
+  end
+`endif
 `ifdef SDF_FILE
   // gate-level simulation with timing (scripts/signoff/gls/vcs_sdf.sh, VCS): the delays of PrimeTime
   initial $sdf_annotate(`SDF_FILE, dut);
@@ -170,6 +191,9 @@ module tb_macro;
       dmi_rd(7'h11, dmstat);            $display("%0t  [DBG] dmstatus     = 0x%08h (allhalted %0d, allrunning %0d)", $time, dmstat, dmstat[9], dmstat[11]);
       $display("%0t  [DBG] uart_tx = %b, status = %b", $time, uart_tx, status);
     end
+`ifdef SAIF
+    if (uart_ok) wait (saif_done);
+`endif
     $finish;
   end
 endmodule

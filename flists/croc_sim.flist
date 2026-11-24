@@ -6,6 +6,7 @@
 
 # ---- include dirs ----
 +incdir+../rtl/apb/include
++incdir+../rtl/apb_i2c
 +incdir+../rtl/common_cells/include
 +incdir+../rtl/cve2/include
 +incdir+../rtl/idma/include
@@ -133,6 +134,9 @@
 ../rtl/obi/obi_rready_converter.sv
 ../rtl/obi/apb_to_obi.sv
 ../rtl/obi/obi_to_apb.sv
+../rtl/apb_i2c/i2c_master_bit_ctrl.sv
+../rtl/apb_i2c/i2c_master_byte_ctrl.sv
+../rtl/apb_i2c/apb_i2c.sv
 ../rtl/obi/obi_atop_resolver.sv
 ../rtl/obi/obi_cut.sv
 ../rtl/obi/obi_demux.sv

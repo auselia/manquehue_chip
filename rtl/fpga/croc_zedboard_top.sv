@@ -226,6 +226,12 @@ module croc_zedboard_top (
     .uart_rx_i      ( uart_rx_i    ),
     .uart_tx_o      ( uart_tx_o    ),
 
+    // I2C not on the board yet (v1.1 step 7 adds the Pmod pins): idle lines
+    .i2c_scl_i      ( 1'b1         ),
+    .i2c_scl_oe_o   (              ),
+    .i2c_sda_i      ( 1'b1         ),
+    .i2c_sda_oe_o   (              ),
+
     .qspi_clk_o     ( qspi_clk_o   ),
     .qspi_sd_o      ( qspi_sd_o    ),
     .qspi_sd_i      ( qspi_sd_i    ),

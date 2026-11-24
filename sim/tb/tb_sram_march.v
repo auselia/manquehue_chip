@@ -24,7 +24,8 @@ module tb_sram_march;
     .qspi_clk_o(), .qspi_sd_o(), .qspi_sd_i(4'b0000), .qspi_sd_en_o(), .qspi_csn_o(),
     .spi_sck_o(), .spi_sd_o(), .spi_sd_i(1'b0), .spi_cs0_o(), .spi_cs1_o(), .afe_irq_i(1'b1),
     .rf_dio0_i(1'b0), .rf_rstn_o(),
-    .gpio_i(2'b00), .gpio_o(), .gpio_out_en_o(),
+    .gpio_i(7'b0), .gpio_o(), .gpio_out_en_o(),
+    .i2c_scl_i(1'b1), .i2c_scl_oe_o(), .i2c_sda_i(1'b1), .i2c_sda_oe_o(),
     .scan_si_i(1'b0), .scan_se_i(1'b0), .scan_so_o(scan_so)
   );
   always #25 clk = ~clk;

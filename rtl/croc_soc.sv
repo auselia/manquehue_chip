@@ -6,7 +6,7 @@
 // - Philippe Sauter <phsauter@iis.ee.ethz.ch>
 
 module croc_soc import croc_pkg::*; #(
-  parameter int unsigned GpioCount = 2
+  parameter int unsigned GpioCount = 7
 ) (
   input  logic clk_i,
   input  logic rst_ni,
@@ -22,6 +22,12 @@ module croc_soc import croc_pkg::*; #(
 
   input  logic uart_rx_i,
   output logic uart_tx_o,
+
+  // I2C host, open drain: *_oe_o = 1 pulls the line low (pad A tied to 0), pull-ups on the board
+  input  logic i2c_scl_i,
+  output logic i2c_scl_oe_o,
+  input  logic i2c_sda_i,
+  output logic i2c_sda_oe_o,
 
   output logic       qspi_clk_o,
   output logic [3:0] qspi_sd_o,
@@ -89,6 +95,11 @@ croc_domain #(
 
   .uart_rx_i,
   .uart_tx_o,
+
+  .i2c_scl_i,
+  .i2c_scl_oe_o,
+  .i2c_sda_i,
+  .i2c_sda_oe_o,
 
   .gpio_i,
   .gpio_o,

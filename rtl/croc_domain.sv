@@ -645,7 +645,7 @@ module croc_domain import croc_pkg::*; #(
   `APB_TYPEDEF_ALL(i2c_apb, logic [SbrObiCfg.AddrWidth-1:0], logic [SbrObiCfg.DataWidth-1:0],
                    logic [SbrObiCfg.DataWidth/8-1:0])
   i2c_apb_req_t  i2c_apb_req;
-  i2c_apb_resp_t i2c_apb_rsp;
+  i2c_apb_resp_t i2c_apb_rsp, i2c_apb_rsp_core;
   logic          i2c_scl_oen, i2c_sda_oen;
 
   obi_to_apb #(
@@ -673,9 +673,9 @@ module croc_domain import croc_pkg::*; #(
     .PWRITE       ( i2c_apb_req.pwrite       ),
     .PSEL         ( i2c_apb_req.psel         ),
     .PENABLE      ( i2c_apb_req.penable      ),
-    .PRDATA       ( i2c_apb_rsp.prdata       ),
-    .PREADY       ( i2c_apb_rsp.pready       ),
-    .PSLVERR      ( i2c_apb_rsp.pslverr      ),
+    .PRDATA       ( i2c_apb_rsp_core.prdata  ),
+    .PREADY       ( i2c_apb_rsp_core.pready  ),
+    .PSLVERR      ( i2c_apb_rsp_core.pslverr ),
     .interrupt_o  ( i2c_irq                  ),
     .scl_pad_i    ( i2c_scl_i                ),
     .scl_pad_o    (                          ),
@@ -684,6 +684,15 @@ module croc_domain import croc_pkg::*; #(
     .sda_pad_o    (                          ),
     .sda_padoen_o ( i2c_sda_oen              )
   );
+  // apb_i2c ties PREADY to 1. obi_to_apb starts the access phase only when PREADY is low in the setup phase
+  // (tsxn_in_progress <= psel & ~pready, the same in pulp-platform/obi master), so with PREADY always 1 it never
+  // raised PENABLE and the OBI response never came: the core hung on the first I2C access. APB gives PREADY a
+  // meaning only in the access phase, so masking it with PENABLE is legal: every access takes 2 APB cycles.
+  assign i2c_apb_rsp = '{
+    pready:  i2c_apb_rsp_core.pready & i2c_apb_req.penable,
+    prdata:  i2c_apb_rsp_core.prdata,
+    pslverr: i2c_apb_rsp_core.pslverr
+  };
   assign i2c_scl_oe_o = ~i2c_scl_oen;
   assign i2c_sda_oe_o = ~i2c_sda_oen;
 

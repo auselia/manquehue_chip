@@ -12,6 +12,9 @@ models in the work directory; the repo is not touched. See the script header for
 
 - Program: `sim/sw/gls_mini/build.sh` builds a 272-byte program that prints `GLS OK` on the UART and fits the
   2 KB SRAM. It needs `riscv64-unknown-elf-gcc` (on Rocky: build it on the Mac and copy `bin/gls_mini.hex`).
+- I2C: `make gls` also runs `sim/sw/i2c_test` (2 KB) against the I2C target model of `tb_croc_soc` (write, register
+  read with a repeated START, NACK, at 100 and 400 kHz). PASS is `Simulation finished: SUCCESS`. About 2.6 ms of
+  simulated time, so about 20 minutes.
 - RTL passes with this program, and so does the gate-level netlist with the same timestamps (`GLS OK` at
   914450 ns, finish at 934200 ns) when the flop output delay is 0.5 ns (`FLOPDELAY`, the default). With 0.1 ns the
   core diverged after the wake-up: the vendor SRAM model samples address and data at CLK + 100 ps, the instant

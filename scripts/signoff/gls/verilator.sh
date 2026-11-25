@@ -56,6 +56,7 @@ $repo/sim/models/spi_flash_model.v
 $repo/sim/models/spi_psram_model.v
 $repo/sim/models/sx1276_model.v
 $repo/sim/models/sx1262_model.v
+$repo/sim/models/i2c_target_model.v
 $repo/sim/tb/tb_croc_soc.sv
 $cell_models/primitives.v
 $work/cells.v

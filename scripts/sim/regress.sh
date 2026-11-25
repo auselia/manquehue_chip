@@ -27,6 +27,8 @@ check spi_block "^PASS" bash scripts/sim/run_obi_spi_tb.sh "$OUT/spi_block"
 # the FFT bus test at response latencies 1 to 3, with and without random grant
 check fft_block "^PASS" bash sim/fft/run_all.sh
 check models    "^PASS: models self-test" bash sim/models/run_models.sh "$OUT/models"
+# the I2C host against sim/models/i2c_target_model.v: write, register read, NACK, at 100 and 400 kHz
+check i2c       "Simulation finished: SUCCESS" make sim BIN=sim/sw/i2c_test/bin/i2c_test.hex
 if [ "${BRINGUP:-1}" != 0 ]; then
   # the bring-up steps of the ZedBoard in the RTL test bench: every step line says OK
   OUT=$OUT/bringup bash scripts/sim/run_bringup_sim.sh > "$OUT/bringup.log" 2>&1

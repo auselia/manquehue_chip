@@ -37,6 +37,7 @@
 ../sim/models/spi_psram_model.v
 ../sim/models/sx1276_model.v
 ../sim/models/sx1262_model.v
+../sim/models/i2c_target_model.v
 ../sim/tb/tb_croc_soc.sv
 
 ###############################################################################

@@ -50,6 +50,13 @@ set pad_ports {
     spi_cs1_o spi_cs1_o
     spi_cs0_o spi_cs0_o
     spi_sck_o spi_sck_o
+    i2c_scl_io {i2c_scl_oe_o i2c_scl_i}
+    i2c_sda_io {i2c_sda_oe_o i2c_sda_i}
+    gpio6_io {gpio_o[6] gpio_i[6] gpio_out_en_o[6]}
+    gpio5_io {gpio_o[5] gpio_i[5] gpio_out_en_o[5]}
+    gpio4_io {gpio_o[4] gpio_i[4] gpio_out_en_o[4]}
+    gpio3_io {gpio_o[3] gpio_i[3] gpio_out_en_o[3]}
+    gpio2_io {gpio_o[2] gpio_i[2] gpio_out_en_o[2]}
     gpio1_io {gpio_o[1] gpio_i[1] gpio_out_en_o[1]}
     gpio0_io {gpio_o[0] gpio_i[0] gpio_out_en_o[0]}
     qspi_sd3_io {qspi_sd_o[3] qspi_sd_i[3] qspi_sd_en_o[3]}

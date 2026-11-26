@@ -208,10 +208,17 @@ source [file dirname [info script]]/lib/power_grid.tcl
 # nothing, so check_pg_connectivity reports them as floating. They go.
 set removed 0
 foreach_in_collection blk [get_placement_blockages -quiet auto_generate_blockage*] {
-    set rails [get_shapes -within [get_attribute $blk bbox] -quiet \
-        -filter "layer_name == Metal1 && shape_use == follow_pin"]
-    incr removed [sizeof_collection $rails]
-    if {[sizeof_collection $rails] > 0} { remove_shapes $rails }
+    lassign [get_attribute $blk bbox] bl bu
+    # the rails are lib_cell_pin_connect shapes (not follow_pin); only those that lie inside the strip
+    foreach_in_collection rail [get_shapes -intersect [list $bl $bu] -quiet \
+        -filter "layer_name == Metal1 && shape_use == lib_cell_pin_connect"] {
+        lassign [get_attribute $rail bbox] rl ru
+        if {[lindex $rl 0] >= [lindex $bl 0] - 0.001 && [lindex $ru 0] <= [lindex $bu 0] + 0.001 &&
+            [lindex $rl 1] >= [lindex $bl 1] - 0.001 && [lindex $ru 1] <= [lindex $bu 1] + 0.001} {
+            remove_shapes $rail
+            incr removed
+        }
+    }
 }
 puts "INFO: removed $removed Metal1 rail pieces in the SRAM edge strips"
 check_pg_connectivity -check_std_cell_pins none

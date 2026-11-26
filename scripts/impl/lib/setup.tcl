@@ -53,9 +53,13 @@ set REFERENCE_LIBRARY [list \
 # The top stays at 2202.32: the DC-DC layouts start there (and in DCDC_KEEPOUTS).
 set CROC_MACRO_SIZE     {1120 1810}
 set CROC_MACRO_LL       {392 392}
-# Free core margin (um, left bottom right top): no ring, the mesh runs to the edge. The top keeps 25 um: the DC-DC
-# Metal2 runs in that band (y 2177.32 to 2202.32).
-set CROC_CORE_OFFSET    {5 5 5 25}
+# Free core margin (um) in the order of initialize_floorplan -core_offset: left, top, right, bottom (checked on the
+# floorplan of 2026-11-25). No ring, so the mesh runs to the edge. The top keeps 25 um: the DC-DC Metal2 runs in that
+# band (y 2177.32 to 2202.32).
+set CROC_CORE_OFFSET    {5 25 5 5}
+# The SRAMs stay this far (um) from the west, east and south edges: their own ring (5 um outside each SRAM) stays out
+# of the power pin band.
+set SRAM_EDGE_MARGIN    15
 # Metal1 to Metal3 of the DC-DC Channels_wrapper inside the croc outline, in die coordinates {llx lly urx ury}, 1 um
 # larger than the shapes (measured 2026-11-25 on macros/dcdc/Channels_wrapper.gds). No cells and no Metal1 to Metal3
 # routing of croc there (02_floorplan.tcl).

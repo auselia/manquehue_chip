@@ -139,7 +139,8 @@ create_keepout_margin -type hard -outer {10 10 10 10} $all_macros
 # routing DRCs of the macro were there (x 496 to 620, y 1164 to 1293), and the router could not clear them.
 create_placement_blockage -type partial -blocked_percentage 50 -boundary {{490 1150} {630 1300}} -name sram_channel_blk
 
-# The DC-DC keepouts (DCDC_KEEPOUTS, die coordinates), clipped to the outline: no cells and no Metal1 to Metal3
+# The DC-DC keepouts (DCDC_KEEPOUTS, die coordinates), clipped to the outline: no cells, no SRAM (a hard placement
+# blockage stops standard cells only) and no Metal1 to Metal3
 lassign [lindex [get_attribute [current_block] boundary_bbox] 1] block_w block_h
 set k 0
 foreach box $DCDC_KEEPOUTS {
@@ -147,9 +148,17 @@ foreach box $DCDC_KEEPOUTS {
     set b [list [list [expr {max(0, $x0 - $croc_llx)}] [expr {max(0, $y0 - $croc_lly)}]] \
                 [list [expr {min($block_w, $x1 - $croc_llx)}] [expr {min($block_h, $y1 - $croc_lly)}]]]
     create_placement_blockage -type hard -boundary $b -name dcdc_keepout_$k
+    create_placement_blockage -type hard_macro -boundary $b -name dcdc_keepout_macro_$k
     create_routing_blockage -boundary $b -layers {Metal1 Metal2 Metal3} -name_prefix dcdc_keepout_$k
     puts "INFO: DC-DC keepout $k at $b (macro coordinates)"
     incr k
+}
+
+# No SRAM within SRAM_EDGE_MARGIN of the west, east and south edges
+foreach {name b} [list west  [list {0 0} [list $SRAM_EDGE_MARGIN $block_h]] \
+                       east  [list [list [expr {$block_w - $SRAM_EDGE_MARGIN}] 0] [list $block_w $block_h]] \
+                       south [list {0 0} [list $block_w $SRAM_EDGE_MARGIN]]] {
+    create_placement_blockage -type hard_macro -boundary $b -name sram_edge_$name
 }
 
 # Places the macros in the floorplan

@@ -1,4 +1,4 @@
-# Power grid of the macro: VDD and VSS rings, the SRAM pin connections, the Metal4/Metal5 mesh and the rails
+# Power grid of the macro: the SRAM rings and pin connections, the Metal4/Metal5 mesh to the edge, and the rails
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
 # usage: source in 02_floorplan.tcl
 # in:  the floorplan block
@@ -28,16 +28,8 @@ set_pg_via_master_rule via_master_mesh_top -contact_code Via4_VV -cut_spacing $P
 set_pg_via_master_rule via_master_sram_v3 -contact_code Via3_VV -cut_spacing $PG_VIA_CUT_SPACING
 set_pg_via_master_rule via_master_sram_v4 -contact_code Via4_VV -cut_spacing $PG_VIA_CUT_SPACING
 
-# 1. Power Ring around Design Boundary
-create_pg_ring_pattern main_ring_pattern -nets {VDD VSS} \
-    -horizontal_layer Metal5 -horizontal_width 10 -horizontal_spacing 2 \
-    -vertical_layer Metal4   -vertical_width 10   -vertical_spacing 2 \
-    -via_rule {{intersection: adjacent} {via_master: via_master_mesh_top}}
-
-set_pg_strategy main_ring_strategy -core -pattern {{pattern: main_ring_pattern} {nets: {VDD VSS}} {offset: {2 2}}}
-
-# ---> COMPILE STEP 1
-compile_pg -strategies main_ring_strategy
+# 1. No ring around the macro. The chip core ring of the parent feeds croc through the ends of the mesh stripes at
+# the edge (the power pins, 06_finish.tcl). The ring took 25 um of each core side.
 
 
 # 2. Macro Scattered Pins Connection (SRAMs)
@@ -78,9 +70,10 @@ create_pg_mesh_pattern mesh_pattern_top -via_rule {{intersection: adjacent} {via
 
 set_pg_strategy mesh_strategy_top -core \
     -pattern {{pattern: mesh_pattern_top} {nets: {VDD VSS}}} \
-    -extension {stop: innermost_ring} \
+    -extension {stop: design_boundary} \
     -blockage [list [list {macros_with_keepout: $all_macros} "layers: Metal1"]]
 
+# The SRAM rings: vias where the mesh crosses them
 set_pg_strategy_via_rule via_mesh_to_ring -via_rule { \
     {{{strategies: mesh_strategy_top}} \
      {{existing: ring} {layers: { Metal5 Metal4 }} } \

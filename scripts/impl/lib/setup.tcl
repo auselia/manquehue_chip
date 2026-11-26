@@ -2,7 +2,7 @@
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
 # usage: source by every step (through open_lib.tcl), and by make open_<step>
 # in:  config/design.tcl, corners.tcl, clocks.tcl, env PDK_ROOT, PDK_SYNOPSYS, SRAM_GDS_DIR
-# out: variables and the proc pg_pins
+# out: variables
 # Design, corners, libraries and clocks: config/, which the check scripts read too. The constraints are in config/sdc/.
 set CONFIG_DIR [file normalize [file join [file dirname [info script]] .. .. .. config]]
 source $CONFIG_DIR/design.tcl
@@ -16,28 +16,15 @@ proc env_or {name default} { if {[info exists ::env($name)]} { return $::env($na
 set PDK_ROOT     [env_or PDK_ROOT $::env(HOME)/.ciel]
 set PDK_SYNOPSYS [env_or PDK_SYNOPSYS $::env(HOME)/pdk_synopsys]
 
-# Top-level power pins: {layer llx lly urx ury} in um per net, for an outline W x H. They are the straight parts of
-# the PG rings, without the 30 um corner via arrays (power_grid.tcl: VDD 13 to 23 um, VSS 1 to 11 um inside the
-# outline). Computed from the outline because the height follows the cell area. 06_finish.tcl checks each pin.
-proc pg_pins {W H} {
-  return [list \
-    VDD [list [list Metal5 43 13 [expr {$W - 43}] 23] \
-              [list Metal5 43 [expr {$H - 23}] [expr {$W - 43}] [expr {$H - 13}]] \
-              [list Metal4 13 43 23 [expr {$H - 43}]] \
-              [list Metal4 [expr {$W - 23}] 43 [expr {$W - 13}] [expr {$H - 43}]]] \
-    VSS [list [list Metal5 31 1 [expr {$W - 31}] 11] \
-              [list Metal5 31 [expr {$H - 11}] [expr {$W - 31}] [expr {$H - 1}]] \
-              [list Metal4 1 31 11 [expr {$H - 31}]] \
-              [list Metal4 [expr {$W - 11}] 31 [expr {$W - 1}] [expr {$H - 31}]]]]
-}
 # Sign-off DRC ECOs (drc_eco.tcl): the wafer.space KLayout deck and its routing-rule decks.
 set KLAYOUT_BIN         "/nix/store/dljmpck53kb6zxhvd73b688286b0kwkn-klayout-0.30.9/bin/klayout"
 set DRC_DECK            "$PDK_ROOT/gf180mcuD/libs.tech/klayout/tech/drc/gf180mcu.drc"
 set DRC_ECO_DECKS       "via,metal,contact"
 set DRC_ECO_MAX_PASSES  5
 
-# Metal4 and Metal5 stay open this far in from the boundary (um) so a parent grid can reach the pins.
-set PG_PIN_BAND 25
+# The power pins are the ends of the mesh stripes at the west, east (Metal5) and south (Metal4) edges, this long (um).
+# In the LEF, Metal4 and Metal5 stay open in this band, and signal routing stays out of it (02_floorplan.tcl).
+set PG_PIN_BAND 5
 
 # PDK and technology files
 
@@ -63,8 +50,16 @@ set REFERENCE_LIBRARY [list \
 ]
 
 # The macro outline, and its lower-left corner in the AC3E die (the pins face their pads from there, 02_floorplan.tcl)
-set CROC_MACRO_SIZE     {1120 1800}
-set CROC_MACRO_LL       {392 404}
+# The top stays at 2202.32: the DC-DC layouts start there (and in DCDC_KEEPOUTS).
+set CROC_MACRO_SIZE     {1120 1810}
+set CROC_MACRO_LL       {392 392}
+# Free core margin (um, left bottom right top): no ring, the mesh runs to the edge. The top keeps 25 um: the DC-DC
+# Metal2 runs in that band (y 2177.32 to 2202.32).
+set CROC_CORE_OFFSET    {5 5 5 25}
+# Metal1 to Metal3 of the DC-DC Channels_wrapper inside the croc outline, in die coordinates {llx lly urx ury}, 1 um
+# larger than the shapes (measured 2026-11-25 on macros/dcdc/Channels_wrapper.gds). No cells and no Metal1 to Metal3
+# routing of croc there (02_floorplan.tcl).
+set DCDC_KEEPOUTS       {{391 2124.36 413.63 2203.32} {391 2177.32 1332.32 2203.32}}
 
 # Cells for synthesis and CTS
 # Oversized and clock cells, not used in the synthesized datapath

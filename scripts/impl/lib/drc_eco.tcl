@@ -142,8 +142,8 @@ proc drc_eco_reroute {run_dir} {
 }
 # Placement ECO for base-layer rules from two cells in neighbouring rows, for example DF.6_5V: the poly end of a gate
 # in one row is 0.395 um from the COMP of a cell in the row above (minimum 0.4 um). Runs the COMP deck of the
-# wafer.space rules, swaps the smaller logic cell under each marker with its neighbour in the row (the two cells
-# trade footprints, so both stay legal), repairs the routes and checks again. A marker that comes back gets the moves
+# wafer.space rules, swaps the smallest logic cell under each marker that has a different neighbour in its row with
+# that neighbour (the two cells trade footprints, so both stay legal), repairs the routes and checks again. A marker that comes back gets the moves
 # by sites. In a full row a move does not work: legalization puts the cell back in its own hole. A flip does not work
 # either: the site has no symmetry, so legalization turns a mirrored cell back.
 # Sourced from 06_finish.tcl before the fillers.
@@ -249,18 +249,24 @@ proc drc_eco_move_cells {eco_dir rules} {
       set k [expr {[dict exists $tries $key] ? [dict get $tries $key] : 0}]
       dict set tries $key [expr {$k + 1}]
       set sorted [sort_collection $cells area]
-      # First try: the smaller cell swaps with the cell next to it in the row (right, else left)
+      # First try: the smallest cell under the marker swaps with the cell next to it in the row (right, else left).
+      # A neighbour of the same lib cell does not count: the swap gives the same layout (croc v1.1, two and2_4 under
+      # a scan flop). Then the next cell under the marker, for example the cell in the other row, gets the swap.
       if {$k == 0} {
-        set c [index_collection $sorted 0]
-        set name [get_object_name $c]
-        if {$name in $moved} { continue }
-        set n [drc_eco_row_neighbour $c]
-        if {$n ne "" && [get_object_name $n] ni $moved} {
+        set swapped 0
+        foreach_in_collection c $sorted {
+          set name [get_object_name $c]
+          if {$name in $moved} { continue }
+          set n [drc_eco_row_neighbour $c]
+          if {$n eq "" || [get_object_name $n] in $moved} { continue }
+          if {[get_attribute $n ref_name] eq [get_attribute $c ref_name]} { continue }
           drc_eco_swap $c $n
           puts "INFO: placement DRC ECO pass $pass: $rule at {$x0 $y0 $x1 $y1}, swapping $name ([get_attribute $c ref_name]) with [get_object_name $n] ([get_attribute $n ref_name])"
           lappend moved $name [get_object_name $n]
-          continue
+          set swapped 1
+          break
         }
+        if {$swapped} { continue }
         # no neighbour to swap with: the 2-site move of the next try
         set k 1
         dict set tries $key 2

@@ -203,6 +203,19 @@ save_block -as floorplan_pre_pg
 
 source [file dirname [info script]]/lib/power_grid.tcl
 
+# The strips between the core edge and an SRAM (SRAM_EDGE_MARGIN, the DC-DC keepout) get blockages from FC
+# (auto_generate_blockage*): no cell can sit there, and no Metal4 strap crosses them. Their Metal1 rails connect
+# nothing, so check_pg_connectivity reports them as floating. They go.
+set removed 0
+foreach_in_collection blk [get_placement_blockages -quiet auto_generate_blockage*] {
+    set rails [get_shapes -within [get_attribute $blk bbox] -quiet \
+        -filter "layer_name == Metal1 && shape_use == follow_pin"]
+    incr removed [sizeof_collection $rails]
+    if {[sizeof_collection $rails] > 0} { remove_shapes $rails }
+}
+puts "INFO: removed $removed Metal1 rail pieces in the SRAM edge strips"
+check_pg_connectivity -check_std_cell_pins none
+
 # The power pin band (PG_PIN_BAND) along the west, east and south edges: only the mesh stripes on Metal4 and Metal5,
 # no signal routing. The LEF leaves these layers open there, for the parent to reach the pins.
 foreach {name b} [list west  [list {0 0} [list $PG_PIN_BAND $block_h]] \

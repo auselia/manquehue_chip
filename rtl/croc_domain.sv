@@ -5,6 +5,8 @@
 // Authors:
 // - Philippe Sauter <phsauter@iis.ee.ethz.ch>
 
+`include "apb/typedef.svh"
+
 module croc_domain import croc_pkg::*; #(
   parameter int unsigned GpioCount = 16,
   parameter int unsigned NumExternalIrqs = 4
@@ -22,6 +24,12 @@ module croc_domain import croc_pkg::*; #(
 
   input  logic      uart_rx_i,
   output logic      uart_tx_o,
+
+  // I2C host (apb_i2c), open drain: *_oe_o = 1 pulls the line low, the pad output is tied to 0
+  input  logic      i2c_scl_i,
+  output logic      i2c_scl_oe_o,
+  input  logic      i2c_sda_i,
+  output logic      i2c_sda_oe_o,
 
   input  logic [GpioCount-1:0] gpio_i,        // Input from GPIO pins
   output logic [GpioCount-1:0] gpio_o,        // Output to GPIO pins
@@ -67,6 +75,7 @@ module croc_domain import croc_pkg::*; #(
   logic uart_irq;
   logic gpio_irq;
   logic idma_irq;
+  logic i2c_irq;
   logic [15:0] interrupts;
   always_comb begin
     interrupts    = '0;
@@ -75,6 +84,7 @@ module croc_domain import croc_pkg::*; #(
     interrupts[2] = gpio_irq;
     interrupts[3] = idma_irq;
     interrupts[4+:NumExternalIrqs] = interrupts_i;
+    interrupts[4+NumExternalIrqs]  = i2c_irq;      // line 8 with 4 external interrupts: RISC-V IRQ 24
   end
 
   // ----------------------------
@@ -187,6 +197,10 @@ module croc_domain import croc_pkg::*; #(
   sbr_obi_req_t gpio_obi_req;
   sbr_obi_rsp_t gpio_obi_rsp;
 
+  // I2C periph bus
+  sbr_obi_req_t i2c_obi_req;
+  sbr_obi_rsp_t i2c_obi_rsp;
+
   // Timer periph bus
   sbr_obi_req_t timer_obi_req;
   sbr_obi_rsp_t timer_obi_rsp;
@@ -214,6 +228,8 @@ module croc_domain import croc_pkg::*; #(
   assign all_periph_obi_rsp[PeriphUart]    = uart_obi_rsp;
   assign gpio_obi_req                      = all_periph_obi_req[PeriphGpio];
   assign all_periph_obi_rsp[PeriphGpio]    = gpio_obi_rsp;
+  assign i2c_obi_req                       = all_periph_obi_req[PeriphI2c];
+  assign all_periph_obi_rsp[PeriphI2c]     = i2c_obi_rsp;
   assign timer_obi_req                     = all_periph_obi_req[PeriphTimer];
   assign all_periph_obi_rsp[PeriphTimer]   = timer_obi_rsp;
   assign idma_obi_cfg_req                  = all_periph_obi_req[PeriphiDMA];
@@ -623,6 +639,62 @@ module croc_domain import croc_pkg::*; #(
     .obi_req_i      ( gpio_obi_req ),
     .obi_rsp_o      ( gpio_obi_rsp )
   );
+
+  // I2C host: OBI to APB, then apb_i2c (OpenCores I2C master). apb_i2c ignores the APB byte strobes, so software
+  // writes its registers as full 32-bit words. scl_pad_o and sda_pad_o are always 0: the pads only pull low.
+  `APB_TYPEDEF_ALL(i2c_apb, logic [SbrObiCfg.AddrWidth-1:0], logic [SbrObiCfg.DataWidth-1:0],
+                   logic [SbrObiCfg.DataWidth/8-1:0])
+  i2c_apb_req_t  i2c_apb_req;
+  i2c_apb_resp_t i2c_apb_rsp, i2c_apb_rsp_core;
+  logic          i2c_scl_oen, i2c_sda_oen;
+
+  obi_to_apb #(
+    .ObiCfg    ( SbrObiCfg      ),
+    .obi_req_t ( sbr_obi_req_t  ),
+    .obi_rsp_t ( sbr_obi_rsp_t  ),
+    .apb_req_t ( i2c_apb_req_t  ),
+    .apb_rsp_t ( i2c_apb_resp_t )
+  ) i_i2c_obi_to_apb (
+    .clk_i,
+    .rst_ni    ( sys_rst_n   ),
+    .obi_req_i ( i2c_obi_req ),
+    .obi_rsp_o ( i2c_obi_rsp ),
+    .apb_req_o ( i2c_apb_req ),
+    .apb_rsp_i ( i2c_apb_rsp )
+  );
+
+  apb_i2c #(
+    .APB_ADDR_WIDTH ( 12 )
+  ) i_i2c (
+    .HCLK         ( clk_i                    ),
+    .HRESETn      ( sys_rst_n                ),
+    .PADDR        ( i2c_apb_req.paddr[11:0]  ),
+    .PWDATA       ( i2c_apb_req.pwdata       ),
+    .PWRITE       ( i2c_apb_req.pwrite       ),
+    .PSEL         ( i2c_apb_req.psel         ),
+    .PENABLE      ( i2c_apb_req.penable      ),
+    .PRDATA       ( i2c_apb_rsp_core.prdata  ),
+    .PREADY       ( i2c_apb_rsp_core.pready  ),
+    .PSLVERR      ( i2c_apb_rsp_core.pslverr ),
+    .interrupt_o  ( i2c_irq                  ),
+    .scl_pad_i    ( i2c_scl_i                ),
+    .scl_pad_o    (                          ),
+    .scl_padoen_o ( i2c_scl_oen              ),
+    .sda_pad_i    ( i2c_sda_i                ),
+    .sda_pad_o    (                          ),
+    .sda_padoen_o ( i2c_sda_oen              )
+  );
+  // apb_i2c ties PREADY to 1. obi_to_apb starts the access phase only when PREADY is low in the setup phase
+  // (tsxn_in_progress <= psel & ~pready, the same in pulp-platform/obi master), so with PREADY always 1 it never
+  // raised PENABLE and the OBI response never came: the core hung on the first I2C access. APB gives PREADY a
+  // meaning only in the access phase, so masking it with PENABLE is legal: every access takes 2 APB cycles.
+  assign i2c_apb_rsp = '{
+    pready:  i2c_apb_rsp_core.pready & i2c_apb_req.penable,
+    prdata:  i2c_apb_rsp_core.prdata,
+    pslverr: i2c_apb_rsp_core.pslverr
+  };
+  assign i2c_scl_oe_o = ~i2c_scl_oen;
+  assign i2c_sda_oe_o = ~i2c_sda_oen;
 
   // CLINT
   clint #(

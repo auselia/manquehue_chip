@@ -88,18 +88,27 @@ route_detail -incremental true
 change_names -rules verilog
 
 
-# Top-level power pins
-# write_gds writes pin text for terminals, and LVS needs it to name the VDD and VSS ports.
-set outline [get_attribute [current_block] boundary_bbox]
-foreach {net pins} [pg_pins [lindex $outline 1 0] [lindex $outline 1 1]] {
-  foreach pin $pins {
-    lassign $pin layer x0 y0 x1 y1
-    set area [list [list $x0 $y0] [list $x1 $y1]]
-    if {[sizeof_collection [get_shapes -intersect $area -filter "layer_name == $layer && net.name == $net" -quiet]] == 0} {
-      error "power pin $net {$pin} is not on a $layer shape of net $net"
+# Top-level power pins: the ends of the mesh stripes, PG_PIN_BAND long, Metal5 at the west and east edges and Metal4
+# at the south edge. The north edge has none: the DC-DC layouts are there. write_gds writes pin text for terminals,
+# and LVS needs it to name the VDD and VSS ports.
+lassign [lindex [get_attribute [current_block] boundary_bbox] 1] block_w block_h
+foreach net {VDD VSS} {
+  set n 0
+  foreach {layer x0 y0 x1 y1} [list Metal5 0 0 $PG_PIN_BAND $block_h \
+                                    Metal5 [expr {$block_w - $PG_PIN_BAND}] 0 $block_w $block_h \
+                                    Metal4 0 0 $block_w $PG_PIN_BAND] {
+    set win [list [list $x0 $y0] [list $x1 $y1]]
+    foreach_in_collection shape [get_shapes -intersect $win -quiet \
+        -filter "layer_name == $layer && net.name == $net && shape_use == stripe"] {
+      lassign [get_attribute $shape bbox] ll ur
+      set area [list [list [expr {max($x0, [lindex $ll 0])}] [expr {max($y0, [lindex $ll 1])}]] \
+                     [list [expr {min($x1, [lindex $ur 0])}] [expr {min($y1, [lindex $ur 1])}]]]
+      create_terminal -port [get_ports $net] -boundary $area -layer [get_layers $layer]
+      incr n
     }
-    create_terminal -port [get_ports $net] -boundary $area -layer [get_layers $layer]
   }
+  if {$n == 0} { error "no power pins for $net: no $net stripe reaches the edge" }
+  puts "INFO: $n power pins for $net"
 }
 
 # Export into outputs/<TOP>_<YYYYMMDD_HHMMSS>/ (one folder per run, the checks write their results into it) and point
@@ -163,7 +172,7 @@ write_gds -units 1000 -merge_files $GDS_FILE_LIST -merge_gds_top_cell $TOP_MODUL
 
 # Abstract (LEF) for placing croc_soc as a hard macro in the wafer.space chip_top.
 # create_frame keeps the pins and turns the rest into zero-spacing blockages. On Metal4 and Metal5
-# the blockage starts PG_PIN_BAND um inside the edge, leaving the ring pins open to the parent.
+# the blockage starts PG_PIN_BAND um inside the edge, leaving the power pins open to the parent.
 set LEF_OUT [file join $RUN_DIR "${TOP_MODULE}.lef"]
 create_frame -block_core_margin [list [list Metal4 $PG_PIN_BAND] [list Metal5 $PG_PIN_BAND]]
 write_lef -design [current_block] -include cell $LEF_OUT

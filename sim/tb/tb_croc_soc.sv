@@ -32,6 +32,16 @@ module tb_croc_soc #(
 
   // Signals partially controlled by the VIP
   logic [GpioCount-1:0] gpio_in;
+  // I2C bus: open drain with pull-ups (wired AND). The target model (sim/models/i2c_target_model.v) is a
+  // register-pointer device at address 0x50. It never stretches the clock, so only croc drives SCL.
+  logic i2c_scl_oe, i2c_sda_oe, i2c_tgt_sda_oe;
+  wire  i2c_scl = !i2c_scl_oe;
+  wire  i2c_sda = !(i2c_sda_oe || i2c_tgt_sda_oe);
+  i2c_target_model #( .Addr ( 7'h50 ) ) i_i2c_target (
+    .scl    ( i2c_scl        ),
+    .sda    ( i2c_sda        ),
+    .sda_oe ( i2c_tgt_sda_oe )
+  );
   logic [GpioCount-1:0] gpio_out;
   logic [GpioCount-1:0] gpio_out_en;
 
@@ -152,6 +162,10 @@ module tb_croc_soc #(
     .jtag_trst_ni  ( jtag_trst_n ),
     .uart_rx_i     ( uart_rx     ),
     .uart_tx_o     ( uart_tx     ),
+    .i2c_scl_i     ( i2c_scl     ),
+    .i2c_scl_oe_o  ( i2c_scl_oe  ),
+    .i2c_sda_i     ( i2c_sda     ),
+    .i2c_sda_oe_o  ( i2c_sda_oe  ),
     .gpio_i        ( gpio_in     ),
     .gpio_o        ( gpio_out    ),
     .gpio_out_en_o ( gpio_out_en ),

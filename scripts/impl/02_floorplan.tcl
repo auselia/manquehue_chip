@@ -18,7 +18,7 @@ initialize_floorplan \
     -control_type die \
     -shape R \
     -side_length [list $macro_width $macro_height] \
-    -core_offset 25.0
+    -core_offset $CROC_CORE_OFFSET
 
 compile_fusion -to initial_map
 check_design_states -verbose
@@ -50,6 +50,13 @@ set pad_ports {
     spi_cs1_o spi_cs1_o
     spi_cs0_o spi_cs0_o
     spi_sck_o spi_sck_o
+    i2c_scl_io {i2c_scl_oe_o i2c_scl_i}
+    i2c_sda_io {i2c_sda_oe_o i2c_sda_i}
+    gpio6_io {gpio_o[6] gpio_i[6] gpio_out_en_o[6]}
+    gpio5_io {gpio_o[5] gpio_i[5] gpio_out_en_o[5]}
+    gpio4_io {gpio_o[4] gpio_i[4] gpio_out_en_o[4]}
+    gpio3_io {gpio_o[3] gpio_i[3] gpio_out_en_o[3]}
+    gpio2_io {gpio_o[2] gpio_i[2] gpio_out_en_o[2]}
     gpio1_io {gpio_o[1] gpio_i[1] gpio_out_en_o[1]}
     gpio0_io {gpio_o[0] gpio_i[0] gpio_out_en_o[0]}
     qspi_sd3_io {qspi_sd_o[3] qspi_sd_i[3] qspi_sd_en_o[3]}
@@ -132,6 +139,28 @@ create_keepout_margin -type hard -outer {10 10 10 10} $all_macros
 # routing DRCs of the macro were there (x 496 to 620, y 1164 to 1293), and the router could not clear them.
 create_placement_blockage -type partial -blocked_percentage 50 -boundary {{490 1150} {630 1300}} -name sram_channel_blk
 
+# The DC-DC keepouts (DCDC_KEEPOUTS, die coordinates), clipped to the outline: no cells, no SRAM (a hard placement
+# blockage stops standard cells only) and no Metal1 to Metal3
+lassign [lindex [get_attribute [current_block] boundary_bbox] 1] block_w block_h
+set k 0
+foreach box $DCDC_KEEPOUTS {
+    lassign $box x0 y0 x1 y1
+    set b [list [list [expr {max(0, $x0 - $croc_llx)}] [expr {max(0, $y0 - $croc_lly)}]] \
+                [list [expr {min($block_w, $x1 - $croc_llx)}] [expr {min($block_h, $y1 - $croc_lly)}]]]
+    create_placement_blockage -type hard -boundary $b -name dcdc_keepout_$k
+    create_placement_blockage -type hard_macro -boundary $b -name dcdc_keepout_macro_$k
+    create_routing_blockage -boundary $b -layers {Metal1 Metal2 Metal3} -name_prefix dcdc_keepout_$k
+    puts "INFO: DC-DC keepout $k at $b (macro coordinates)"
+    incr k
+}
+
+# No SRAM within SRAM_EDGE_MARGIN of the west, east and south edges
+foreach {name b} [list west  [list {0 0} [list $SRAM_EDGE_MARGIN $block_h]] \
+                       east  [list [list [expr {$block_w - $SRAM_EDGE_MARGIN}] 0] [list $block_w $block_h]] \
+                       south [list {0 0} [list $block_w $SRAM_EDGE_MARGIN]]] {
+    create_placement_blockage -type hard_macro -boundary $b -name sram_edge_$name
+}
+
 # Places the macros in the floorplan
 create_placement -floorplan
 
@@ -173,6 +202,34 @@ set_app_options -name place.legalize.enable_advanced_legalizer -value true
 save_block -as floorplan_pre_pg
 
 source [file dirname [info script]]/lib/power_grid.tcl
+
+# The strips between the core edge and an SRAM (SRAM_EDGE_MARGIN, the DC-DC keepout) get blockages from FC
+# (auto_generate_blockage*): no cell can sit there, and no Metal4 strap crosses them. Their Metal1 rails connect
+# nothing, so check_pg_connectivity reports them as floating. They go.
+set removed 0
+foreach_in_collection blk [get_placement_blockages -quiet auto_generate_blockage*] {
+    lassign [get_attribute $blk bbox] bl bu
+    # the rails are lib_cell_pin_connect shapes (not follow_pin); only those that lie inside the strip
+    foreach_in_collection rail [get_shapes -intersect [list $bl $bu] -quiet \
+        -filter "layer_name == Metal1 && shape_use == lib_cell_pin_connect"] {
+        lassign [get_attribute $rail bbox] rl ru
+        if {[lindex $rl 0] >= [lindex $bl 0] - 0.001 && [lindex $ru 0] <= [lindex $bu 0] + 0.001 &&
+            [lindex $rl 1] >= [lindex $bl 1] - 0.001 && [lindex $ru 1] <= [lindex $bu 1] + 0.001} {
+            remove_shapes $rail
+            incr removed
+        }
+    }
+}
+puts "INFO: removed $removed Metal1 rail pieces in the SRAM edge strips"
+check_pg_connectivity -check_std_cell_pins none
+
+# The power pin band (PG_PIN_BAND) along the west, east and south edges: only the mesh stripes on Metal4 and Metal5,
+# no signal routing. The LEF leaves these layers open there, for the parent to reach the pins.
+foreach {name b} [list west  [list {0 0} [list $PG_PIN_BAND $block_h]] \
+                       east  [list [list [expr {$block_w - $PG_PIN_BAND}] 0] [list $block_w $block_h]] \
+                       south [list {0 0} [list $block_w $PG_PIN_BAND]]] {
+    create_routing_blockage -boundary $b -layers {Metal4 Metal5} -name_prefix pg_pin_band_$name
+}
 
 set ACTIVE_STEP "02_floorplan"
 source [file dirname [info script]]/lib/reporting.tcl

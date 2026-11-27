@@ -1,6 +1,6 @@
 #!/bin/bash
-# Gate-level simulation checks of a run: Verilator boot over JTAG and from the QSPI flash, scan shift, Icarus macro
-# boot over JTAG, and the same boot in VCS with the SDF delays of PrimeTime (min and max)
+# Gate-level simulation checks of a run: Verilator boot over JTAG and from the QSPI flash, I2C test, scan shift,
+# Icarus macro boot over JTAG, and the same boot in VCS with the SDF delays of PrimeTime (min and max)
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
 # usage: scripts/signoff/gls/gls.sh      (env: RUN)
 # in:  <run>/croc_soc.v, <run>/logs/synthesis.log (scan cells), <run>/sta_pt/croc_soc.typical.sdf, sim/sw programs
@@ -19,10 +19,13 @@ nixrun() {
   ( cd "$TEMPLATE_DIR" && nix-shell --run "$*" )
 }
 
-# The programs, built from source: gls_mini prints GLS OK and fits the 2 KB SRAM, flash_hello runs from the flash
+# The programs, built from source: gls_mini prints GLS OK and fits the 2 KB SRAM, flash_hello runs from the flash,
+# i2c_test (2 KB) tests the I2C host
 program=$REPO/sim/sw/gls_mini/bin/gls_mini.hex
 flash_program=$REPO/sim/sw/flash/bin/flash_hello.flash.hex
+i2c_program=$REPO/sim/sw/i2c_test/bin/i2c_test.hex
 "$REPO/scripts/sim/build_sw.sh" gls_mini > "$out/gls_mini_build.log" 2>&1 || true
+"$REPO/scripts/sim/build_sw.sh" i2c_test > "$out/i2c_test_build.log" 2>&1 || true
 "$REPO/sim/sw/flash/build.sh" > "$out/flash_build.log" 2>&1 || true
 
 # Verilator: boot over JTAG
@@ -39,6 +42,15 @@ if [ -f "$flash_program" ]; then
   result=$(grep -h "FLASH OK" "$out/flash_boot/run.log" 2>/dev/null | head -1)
 fi
 summary flash_boot "${result:-no FLASH OK}"
+[ -n "$result" ] || status=FAIL
+
+# Verilator: the I2C host against the target model of tb_croc_soc (write, register read, NACK, at 100 and 400 kHz)
+result=""
+if [ -f "$i2c_program" ]; then
+  nixrun "GLS_RUN=$RUN $here/verilator.sh $i2c_program $out/i2c" > "$out/i2c.log" 2>&1 || true
+  result=$(grep -h "Simulation finished: SUCCESS" "$out/i2c/run.log" 2>/dev/null | head -1)
+fi
+summary i2c "${result:-no SUCCESS}"
 [ -n "$result" ] || status=FAIL
 
 # Scan shift: the stream comes out of the chain delayed by the number of scan cells that synthesis traced

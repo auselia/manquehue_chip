@@ -13,6 +13,7 @@
 #define CLINT_BASE_ADDR     0x02040000
 #define SOCCTRL_BASE_ADDR   0x03000000
 #define UART_BASE_ADDR      0x03002000
+#define I2C_BASE_ADDR       0x03003000
 #define GPIO_BASE_ADDR      0x03005000
 #define OBI_TIMER_BASE_ADDR 0x0300A000
 #define IDMA_BASE_ADDR      0x0300B000
@@ -28,6 +29,9 @@
 #define UART_FREQ           TB_FREQUENCY
 #define UART_BAUD           TB_BAUDRATE
 
+// I2C
+#define I2C_FREQ            TB_FREQUENCY
+
 // Interrupts
 #define IRQ_SOFTWARE        3
 #define IRQ_TIMER           7
@@ -36,3 +40,4 @@
 #define IRQ_UART            17
 #define IRQ_GPIO            18
 #define IRQ_IDMA            19
+#define IRQ_I2C             24

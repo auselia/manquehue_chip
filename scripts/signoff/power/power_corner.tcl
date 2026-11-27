@@ -2,13 +2,14 @@
 # Author: Nicolás Villegas - Universidad de los Andes, Chile
 # usage: pt_shell -x "set CORNER ...; ...; source power_corner.tcl"      (power.sh does it)
 # in:  CORNER, TOP, VLOG, SDC_FILE, SPEF_FILE, SC_DB, IO_DB, SRAM_DB, REPORT_DIR, PP_TOGGLE_RATE, PP_STATIC_PROB,
-#      PP_SAIF (empty: vectorless)
+#      PP_SAIF (empty: vectorless), PP_SAIF_INSTANCE (the path of the macro in the SAIF)
 # out: REPORT_DIR/report_switching_activity, report_power_summary, report_power_hierarchy, report_power_top_cells
 #
 # A vectorless run is an early estimate, not sign-off power.
 source [file dirname [info script]]/../sta/pt_design.tcl
 require {CORNER TOP VLOG SDC_FILE SPEF_FILE SC_DB IO_DB SRAM_DB REPORT_DIR PP_TOGGLE_RATE PP_STATIC_PROB}
 if { ![info exists PP_SAIF] } { set PP_SAIF "" }
+if { ![info exists PP_SAIF_INSTANCE] } { set PP_SAIF_INSTANCE "" }
 file mkdir $REPORT_DIR
 
 # The power commands run in plain pt_shell (pwr_shell has no read_verilog). They stop with PWR-001 without this.
@@ -23,7 +24,12 @@ update_timing -full
 # such instance, and the activity is on the input ports (report_switching_activity).
 if { $PP_SAIF != "" && [file exists $PP_SAIF] } {
   puts "INFO: $CORNER annotating real switching activity from $PP_SAIF"
-  read_saif -input $PP_SAIF -instance_name "" -verbose
+  if { $PP_SAIF_INSTANCE != "" } {
+    read_saif $PP_SAIF -strip_path $PP_SAIF_INSTANCE
+  } else {
+    read_saif $PP_SAIF
+  }
+  redirect -file ${REPORT_DIR}/report_saif.${CORNER}.rpt { report_switching_activity -list_not_annotated -show_pin }
 } else {
   puts "INFO: $CORNER no SAIF given -- vectorless default: toggle_rate=$PP_TOGGLE_RATE static_probability=$PP_STATIC_PROB on primary inputs"
   set_switching_activity -type inputs -toggle_rate $PP_TOGGLE_RATE -static_probability $PP_STATIC_PROB [all_inputs]
